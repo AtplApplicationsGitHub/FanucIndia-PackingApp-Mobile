@@ -14,14 +14,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { RootStackParamList } from "../../../App";
-
-type OwnProps = {
-  onLogin?: (username: string) => Promise<void> | void;
-};
+import type { RootStackParamList } from "../../../../App"; // adjust if your App.tsx path differs
+import { loginApiWithEmail } from "../../Api/server";
 
 type NavProps = NativeStackScreenProps<RootStackParamList, "Login">;
-type Props = OwnProps & NavProps;
 
 const PRIMARY_YELLOW = "#FACC15";
 const ACCENT = "#111827";
@@ -30,32 +26,38 @@ const SURFACE = "#FFF9DB";
 const FIELD_BG = "#FAFAFA";
 const FIELD_BORDER = "#E5E7EB";
 
-const LoginScreen: React.FC<Props> = ({ onLogin, navigation }) => {
-  const [username, setUsername] = useState("");
+const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
+  const [email, setEmail] = useState("");   // <-- email (can be username-like string too)
   const [pwd, setPwd] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const canSubmit = useMemo(() => Boolean(username && pwd && !loading), [username, pwd, loading]);
+  const canSubmit = useMemo(() => Boolean(email && pwd && !loading), [email, pwd, loading]);
 
   const handleLogin = async () => {
     if (!canSubmit) {
-      Alert.alert("Missing fields", "Please enter your username/email and password.");
+      Alert.alert("Missing fields", "Please enter your email/username and password.");
       return;
     }
     try {
       setLoading(true);
-      // simulate API
-      await new Promise((r) => setTimeout(r, 900));
-      if (onLogin) await onLogin(username);
 
-      // ✅ Navigate to Home and clear Login from history
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Home" }],
-      });
-    } catch {
-      Alert.alert("Login failed", "Please try again.");
+      // send exactly what Postman sends
+      const result = await loginApiWithEmail(email.trim(), pwd);
+
+      const token =
+        result?.token || result?.accessToken || result?.data?.token || result?.data?.accessToken;
+
+      if (!token && result?.success !== true) {
+        throw new Error(result?.message || "Login failed (no token in response).");
+      }
+
+      // TODO: Persist token if needed (AsyncStorage/SecureStore)
+      // await AsyncStorage.setItem("authToken", token ?? "");
+
+      navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+    } catch (err: any) {
+      Alert.alert("Login Error", err?.message || "Unable to connect. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -72,11 +74,12 @@ const LoginScreen: React.FC<Props> = ({ onLogin, navigation }) => {
 
           <View style={styles.card}>
             <FloatingLabelInput
-              label="Username or Email"
+              label="Email / Username"
               icon={<Ionicons name="person-outline" size={20} color={MUTED} />}
-              value={username}
-              onChangeText={setUsername}
+              value={email}
+              onChangeText={setEmail}
               autoCapitalize="none"
+              autoCorrect={false}
               returnKeyType="next"
             />
 

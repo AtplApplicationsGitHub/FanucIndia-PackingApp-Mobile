@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.tsx
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,8 +10,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { RootStackParamList } from "../../App";
+import type { RootStackParamList } from "../../../../App";
 
 type MenuItem = {
   id: "pick" | "transfer" | "dispatch";
@@ -20,6 +21,8 @@ type MenuItem = {
   iconName: string;
 };
 
+// If your App.tsx already defines this, you don't need to redefine it there.
+// Just make sure the "Home" route accepts an optional displayName/user param.
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
 const PRIMARY = "#FACC15"; // yellow-400
@@ -28,13 +31,6 @@ const BODY_TEXT = "#111827";
 const MUTED = "#6B7280";
 const CARD_BG = "#FFFFFF";
 const SOFT_YELLOW = "#FFF7CC";
-
-  const onLogout = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Login" }],
-    });
-  };
 
 const MENU: MenuItem[] = [
   { id: "pick", title: "Pick and Pack", subtitle: "Process materials", iconName: "cube-outline" },
@@ -47,8 +43,80 @@ const MENU: MenuItem[] = [
   { id: "dispatch", title: "Material Dispatch", subtitle: "Ready for shipment", iconName: "truck-outline" },
 ];
 
-const HomeScreen: React.FC<Props> = ({ navigation }) => {
+function pickBestName(input?: {
+  displayName?: string;
+  user?: { name?: string; username?: string; email?: string };
+}) {
+  const fromParams =
+    input?.displayName ||
+    input?.user?.name ||
+    input?.user?.username ||
+    input?.user?.email;
+  if (fromParams && typeof fromParams === "string") return fromParams.trim();
+
+  return undefined;
+}
+
+// Simple local-time greeting
+function computeGreeting(d = new Date()) {
+  const h = d.getHours();
+  if (h >= 5 && h < 12) return "Good morning";
+  if (h >= 12 && h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
+  const [displayName, setDisplayName] = useState<string>("User");
+  const [greeting, setGreeting] = useState<string>(computeGreeting());
+
+  // Keep greeting updated (in case user leaves the app open across time ranges)
+  useEffect(() => {
+    const tick = () => setGreeting(computeGreeting());
+    const id = setInterval(tick, 60 * 1000); // update every minute
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    setGreeting(computeGreeting());
+  }, []);
+
+  // 1) Prefer name passed via navigation params
+  useEffect(() => {
+    const byParams = pickBestName(route?.params as any);
+    if (byParams) setDisplayName(byParams);
+  }, [route?.params]);
+
+  // 2) Fallback to AsyncStorage if params missing (supports several common keys)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        // Try a few common keys you might have set at login
+        const [k1, k2, k3] = await Promise.all([
+          AsyncStorage.getItem("displayName"),
+          AsyncStorage.getItem("username"),
+          AsyncStorage.getItem("user"), // often JSON
+        ]);
+
+        const parsedUser =
+          k3 ? (() => { try { return JSON.parse(k3); } catch { return null; } })() : null;
+
+        const fromStorage =
+          (k1 && k1.trim()) ||
+          (k2 && k2.trim()) ||
+          (parsedUser?.name as string) ||
+          (parsedUser?.username as string) ||
+          (parsedUser?.email as string);
+
+        if (mounted && fromStorage && !route?.params) {
+          setDisplayName(String(fromStorage).trim());
+        }
+      } catch {
+        // ignore storage errors; fallback remains "User"
+      }
+    })();
+    return () => { mounted = false; };
+  }, [route?.params]);
 
   const onPressItem = (item: MenuItem) => () => {
     switch (item.id) {
@@ -72,6 +140,14 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
       routes: [{ name: "Login" }],
     });
   };
+  
+
+  const username = useMemo(() => {
+    // Small nicety: title-case if it looks like an email/username
+    const name = displayName || "User";
+    if (name.includes("@")) return name.split("@")[0];
+    return name;
+  }, [displayName]);
 
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
@@ -109,8 +185,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
       {/* Body */}
       <View style={styles.content}>
+        {/* Greeting with name */}
         <Text style={styles.greeting}>
-          Hi, <Text style={{ fontWeight: "700" }}>User</Text> 👋
+          {greeting},{" "}
+          <Text style={{ fontWeight: "700" }}>{username}</Text> 👋
         </Text>
 
         <FlatList

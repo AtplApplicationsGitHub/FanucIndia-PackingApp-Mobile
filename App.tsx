@@ -4,19 +4,20 @@ import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import LoginScreen from "./src/components/Login/login";
-import HomeScreen from "./src/components/Home_screen/home_screen";
-import PickAndPackScreen from "./src/components/pick_and_pack/pick_and_pack";
-import MaterialFGScreen from "./src/components/Material_FG/material_fg";
-import MaterialDispatchScreen from "./src/components/Material_Dispatch/material_dispatch";
+import LoginScreen from "./src/components/screens/Login/login";
+import HomeScreen from "./src/components/screens/Home_screen/home_screen";
+import PickAndPackScreen from "./src/components/screens/pick_and_pack/pick_and_pack";
+import MaterialFGScreen from "./src/components/screens/Material_FG/material_fg";
+import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/material_dispatch";
 
 export type RootStackParamList = {
   Login: undefined;          // ✅ include Login in the stack
-  Home: undefined;
+  Home: { displayName?: string } | undefined;
   PickAndPack: undefined;
   MaterialFG: undefined;
   MaterialDispatch: undefined;
 };
+
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
