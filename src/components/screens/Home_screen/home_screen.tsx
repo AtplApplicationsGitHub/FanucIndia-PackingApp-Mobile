@@ -1,4 +1,3 @@
-// src/screens/HomeScreen.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -7,10 +6,12 @@ import {
   StyleSheet,
   FlatList,
   Platform,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store"; // For secure token access/clear
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 
@@ -80,7 +81,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     setGreeting(computeGreeting());
   }, []);
 
-  // 1) Prefer name passed via navigation params
+  // 1) Prefer name passed via navigation params (if any)
   useEffect(() => {
     const byParams = pickBestName(route?.params as any);
     if (byParams) setDisplayName(byParams);
@@ -134,13 +135,19 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const onLogout = () => {
+  const onLogout = async () => {
+    try {
+      // Clear secure token and user data on logout
+      await SecureStore.deleteItemAsync("authToken");
+      await AsyncStorage.multiRemove(["displayName", "username", "user"]);
+    } catch (err) {
+      console.warn("Logout cleanup error:", err); // Non-blocking
+    }
     navigation.reset({
       index: 0,
       routes: [{ name: "Login" }],
     });
   };
-  
 
   const username = useMemo(() => {
     // Small nicety: title-case if it looks like an email/username
@@ -185,10 +192,10 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
       {/* Body */}
       <View style={styles.content}>
-        {/* Greeting with name */}
+        {/* Greeting with name (now sourced from login response via storage) */}
         <Text style={styles.greeting}>
           {greeting},{" "}
-          <Text style={{ fontWeight: "700" }}>{username}</Text> 👋
+          <Text style={{ fontWeight: "700" }}>{username}</Text> 
         </Text>
 
         <FlatList

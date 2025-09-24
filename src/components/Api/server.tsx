@@ -8,6 +8,7 @@ const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
     p,
     new Promise<T>((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
   ]);
+  
 
 async function parseErrorBody(res: Response) {
   try {
@@ -65,5 +66,4 @@ export async function loginApiWithEmail(email: string, password: string): Promis
 }
 
 
-// pick and pack  order  summry 
 

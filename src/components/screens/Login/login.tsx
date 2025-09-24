@@ -8,11 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
   Animated,
+  Modal, // <-- use Modal instead of Alert
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App"; // adjust if your App.tsx path differs
 import { loginApiWithEmail } from "../../Api/server";
@@ -27,16 +29,28 @@ const FIELD_BG = "#FAFAFA";
 const FIELD_BORDER = "#E5E7EB";
 
 const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
-  const [email, setEmail] = useState("");   // <-- email (can be username-like string too)
+  const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // modal state
+  const [modal, setModal] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: "",
+    message: "",
+  });
+
   const canSubmit = useMemo(() => Boolean(email && pwd && !loading), [email, pwd, loading]);
+
+  const showModal = (title: string, message: string) =>
+    setModal({ visible: true, title, message });
+
+  const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
   const handleLogin = async () => {
     if (!canSubmit) {
-      Alert.alert("Missing fields", "Please enter your email/username and password.");
+      showModal("Missing fields", "Please enter your email/username and password.");
       return;
     }
     try {
@@ -52,12 +66,21 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
         throw new Error(result?.message || "Login failed (no token in response).");
       }
 
-      // TODO: Persist token if needed (AsyncStorage/SecureStore)
-      // await AsyncStorage.setItem("authToken", token ?? "");
+      // Extract user name from response (adjust shape if needed)
+      const userData = (result as any)?.data?.user;
+      const displayName =
+        userData?.name || userData?.displayName || userData?.username || email.trim();
 
+      // Securely store token (per-user)
+      await SecureStore.setItemAsync("authToken", String(token));
+
+      // Store non-sensitive name
+      await AsyncStorage.setItem("displayName", String(displayName));
+
+      // Navigate to Home
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (err: any) {
-      Alert.alert("Login Error", err?.message || "Unable to connect. Please try again.");
+      showModal("Login Error", err?.message || "Unable to connect. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -117,6 +140,31 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* ---------- Modal Popup ---------- */}
+      <Modal
+        animationType="fade"
+        transparent
+        visible={modal.visible}
+        onRequestClose={closeModal}
+      >
+        <View style={mstyles.backdrop}>
+          <View style={mstyles.sheet}>
+            <View style={mstyles.headerRow}>
+              <Ionicons name="information-circle-outline" size={22} color={ACCENT} />
+              <Text style={mstyles.title}>{modal.title}</Text>
+            </View>
+            <Text style={mstyles.message}>{modal.message}</Text>
+
+            <View style={mstyles.actions}>
+              <TouchableOpacity style={mstyles.primaryBtn} onPress={closeModal}>
+                <Text style={mstyles.primaryBtnText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* --------------------------------- */}
     </SafeAreaView>
   );
 };
@@ -241,4 +289,39 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.6 },
   ctaText: { color: ACCENT, fontWeight: "800", fontSize: 16, letterSpacing: 0.3 },
+});
+
+/* ------------------------------ Modal Styles ------------------------------ */
+const mstyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  sheet: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "white",
+    borderRadius: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  title: { fontSize: 18, fontWeight: "800", color: ACCENT },
+  message: { fontSize: 14, color: "#111827", marginTop: 2, lineHeight: 20 },
+  actions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 16 },
+  primaryBtn: {
+    backgroundColor: PRIMARY_YELLOW,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+  primaryBtnText: { color: ACCENT, fontWeight: "800", fontSize: 14 },
 });

@@ -6,7 +6,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import LoginScreen from "./src/components/screens/Login/login";
 import HomeScreen from "./src/components/screens/Home_screen/home_screen";
-import PickAndPackScreen from "./src/components/screens/pick_and_pack/pick_and_pack";
+import PickAndPackScreen from "./src/components/screens/pick_and_pack/SalesOrdersScreen";
 import MaterialFGScreen from "./src/components/screens/Material_FG/material_fg";
 import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/material_dispatch";
 
