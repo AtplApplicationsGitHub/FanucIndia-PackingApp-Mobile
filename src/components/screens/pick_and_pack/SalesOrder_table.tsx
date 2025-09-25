@@ -3,7 +3,6 @@ import React from "react";
 import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { OrdersSummaryItem } from "../../Api/SalesOrder_server";
-import { SafeAreaView } from "react-native-safe-area-context";
 
 type Props = {
   data?: OrdersSummaryItem[];
@@ -11,6 +10,8 @@ type Props = {
   onRefresh?: () => void;
   onRowPress?: (o: OrdersSummaryItem) => void;
   onDownload?: (o: OrdersSummaryItem) => void;
+  onView?: (o: OrdersSummaryItem) => void;
+  downloadedMap?: Record<string, boolean>;
 };
 
 const C = {
@@ -26,9 +27,9 @@ const Row: React.FC<{
   item: OrdersSummaryItem;
   onPress?: () => void;
   onDownload?: () => void;
-}> = ({ item, onPress, onDownload }) => {
-
-
+  onView?: () => void;
+  downloaded?: boolean;
+}> = ({ item, onPress, onDownload, onView, downloaded }) => {
   return (
     <Pressable onPress={onPress} style={styles.row}>
       <View style={styles.cellSO}>
@@ -51,8 +52,16 @@ const Row: React.FC<{
         <Text style={styles.metricTop}>{item.totalMaterials}</Text>
       </View>
 
-      <Pressable  hitSlop={10} style={styles.actionCell}>
-        <Ionicons name="download-outline" size={22} color={C.icon} />
+      <Pressable
+        hitSlop={10}
+        style={styles.actionCell}
+        onPress={downloaded ? onView : onDownload}
+      >
+        {downloaded ? (
+          <Ionicons name="eye-outline" size={22} color={C.icon} />
+        ) : (
+          <Ionicons name="download-outline" size={22} color={C.icon} />
+        )}
       </Pressable>
     </Pressable>
   );
@@ -64,15 +73,16 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
   onRefresh,
   onRowPress,
   onDownload,
+  onView,
+  downloadedMap = {},
 }) => {
   return (
     <View style={styles.container}>
       <View style={styles.headerBar}>
-        <Text style={styles.headerTitle}>Sales Orders</Text>     
+        <Text style={styles.headerTitle}>Sales Orders</Text>
       </View>
 
       <View style={styles.card}>
-        {/* Table Head */}
         <View style={styles.tableHead}>
           <View style={styles.cellSO}>
             <Text style={styles.headText}>SO</Text>
@@ -105,6 +115,8 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
               item={item}
               onPress={() => onRowPress?.(item)}
               onDownload={() => onDownload?.(item)}
+              onView={() => onView?.(item)}
+              downloaded={!!downloadedMap[item.saleOrderNumber]}
             />
           )}
           ListEmptyComponent={
@@ -119,14 +131,9 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 10,
-    paddingBottom: 10,
-  },
+  container: { flex: 1, paddingHorizontal: 10, paddingBottom: 10 },
   headerBar: { marginBottom: 12 },
   headerTitle: { color: C.headerText, fontSize: 20, fontWeight: "700" },
-  headerSub: { color: C.subText, marginTop: 4 },
   card: {
     backgroundColor: C.card,
     borderRadius: 12,
@@ -134,7 +141,6 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     overflow: "hidden",
   },
-
   tableHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -146,18 +152,10 @@ const styles = StyleSheet.create({
   },
   headText: { color: C.subText, fontWeight: "600" },
   headTextCenter: { color: C.subText, fontWeight: "600", textAlign: "center" },
-
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  // widened SO column for extra space before Status
+  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 12 },
   cellSO: { flex: 2.5, alignItems: "flex-start" },
   cell: { flex: 1.5, alignItems: "center" },
   actionCell: { width: 36, alignItems: "center" },
-
   soText: { color: C.headerText, fontSize: 16, fontWeight: "600" },
   subText: { color: C.subText, fontSize: 12, marginTop: 2 },
   metricTop: { fontSize: 16, fontWeight: "700", color: C.headerText },
