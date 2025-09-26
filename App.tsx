@@ -4,14 +4,12 @@ import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
+// Adjust these import paths if your file structure differs
 import LoginScreen from "./src/components/screens/Login/login";
 import HomeScreen from "./src/components/screens/Home_screen/home_screen";
 import PickAndPackScreen from "./src/components/screens/pick_and_pack/SalesOrder_Screen";
 import MaterialFGScreen from "./src/components/screens/Material_FG/material_fg";
 import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/material_dispatch";
-
-// ✅ ADD THIS: your Order Details screen component.
-//    Adjust the import path if your file lives somewhere else.
 import OrderDetailsScreen from "./src/components/screens/pick_and_pack/OrderDetails";
 
 export type RootStackParamList = {
@@ -20,7 +18,6 @@ export type RootStackParamList = {
   PickAndPack: undefined;
   MaterialFG: undefined;
   MaterialDispatch: undefined;
-  // ✅ ADD THIS: must exist to navigate to "OrderDetails"
   OrderDetails: { saleOrderNumber: string };
 };
 
@@ -34,21 +31,21 @@ export default function App() {
         initialRouteName="Login"
         screenOptions={{ headerTitleAlign: "center" }}
       >
-        {/* Login screen (first screen) */}
+        {/* Login */}
         <Stack.Screen
           name="Login"
           component={LoginScreen}
           options={{ headerShown: false }}
         />
 
-        {/* Home screen */}
+        {/* Home */}
         <Stack.Screen
           name="Home"
           component={HomeScreen}
           options={{ headerShown: false }}
         />
 
-        {/* Pick & Pack list (where you likely open OrderDetails from) */}
+        {/* Pick & Pack list */}
         <Stack.Screen
           name="PickAndPack"
           component={PickAndPackScreen}
@@ -69,11 +66,14 @@ export default function App() {
           options={{ title: "Material Dispatch" }}
         />
 
-        {/* ✅ NEW: Order Details screen so navigation.navigate("OrderDetails", { saleOrderNumber }) works */}
+        {/* Order Details — dynamic title using route params */}
         <Stack.Screen
           name="OrderDetails"
           component={OrderDetailsScreen}
-          options={{ title: "Order Details" }}
+          options={({ route }) => ({
+            // Safely handle undefined just in case the param isn't passed
+            title: `Order Details: SO ${route?.params?.saleOrderNumber ?? ""}`,
+          })}
         />
       </Stack.Navigator>
     </NavigationContainer>

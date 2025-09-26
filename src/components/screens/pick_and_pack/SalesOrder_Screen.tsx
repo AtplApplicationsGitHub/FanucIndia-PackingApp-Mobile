@@ -21,7 +21,7 @@ export type RootStackParamList = {
 };
 
 const SalesOrdersScreen: React.FC = () => {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<any>();          
 
   const [list, setList] = useState<OrdersSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,9 +99,23 @@ const SalesOrdersScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F7F7F8" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
-  muted: { color: "#6B7280" },
+  screen: { flex: 1, backgroundColor: "#F7F7F8" ,
+    paddingTop: 5,
+    paddingBottom: 20,
+    flexGrow: 1,
+     gap: 10 
+  },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 ,
+    paddingTop: 5,
+    paddingBottom: 20,
+    flexGrow: 1,
+  
+  },
+  muted: { color: "#6B7280",paddingTop: 5,
+    paddingBottom: 20,
+    flexGrow: 1,
+     gap: 10 
+     },
 });
 
 export default SalesOrdersScreen;
