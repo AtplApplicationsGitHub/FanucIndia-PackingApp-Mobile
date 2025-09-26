@@ -21,7 +21,7 @@ export type RootStackParamList = {
 };
 
 const SalesOrdersScreen: React.FC = () => {
-  const navigation = useNavigation<any>();          
+  const navigation = useNavigation<any>();
 
   const [list, setList] = useState<OrdersSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,19 +40,22 @@ const SalesOrdersScreen: React.FC = () => {
     setDownloadedMap(next);
   }, []);
 
-  const load = useCallback(async (showSpinner = true) => {
-    try {
-      showSpinner ? setLoading(true) : setRefreshing(true);
-      const data = await fetchOrdersSummary();
-      setList(data);
-      await hydrateDownloadedMap(data);
-    } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to fetch orders.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [hydrateDownloadedMap]);
+  const load = useCallback(
+    async (showSpinner = true) => {
+      try {
+        showSpinner ? setLoading(true) : setRefreshing(true);
+        const data = await fetchOrdersSummary();
+        setList(data);
+        await hydrateDownloadedMap(data);
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "Failed to fetch orders.");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [hydrateDownloadedMap]
+  );
 
   useEffect(() => {
     load(true);
@@ -74,7 +77,7 @@ const SalesOrdersScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.screen}>
+      <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
         <View style={styles.center}>
           <ActivityIndicator />
           <Text style={styles.muted}>Loading orders…</Text>
@@ -84,38 +87,39 @@ const SalesOrdersScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <SalesOrdersStyledTable
-        data={list}
-        refreshing={refreshing}
-        onRefresh={() => load(false)}
-        onRowPress={(o) => {}}
-        onDownload={onDownload}
-        onView={onView}
-        downloadedMap={downloadedMap}
-      />
+    <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
+      <View style={styles.content}>
+        <SalesOrdersStyledTable
+          data={list}
+          refreshing={refreshing}
+          onRefresh={() => load(false)}
+          onRowPress={onView}
+          onDownload={onDownload}
+          onView={onView}
+          downloadedMap={downloadedMap}
+        />
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F7F7F8" ,
-    paddingTop: 5,
-    paddingBottom: 20,
-    flexGrow: 1,
-     gap: 10 
+  screen: {
+    flex: 1,
+    backgroundColor: "#F7F7F8",
   },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 ,
-    paddingTop: 5,
-    paddingBottom: 20,
-    flexGrow: 1,
-  
+  content: {
+    flex: 1, // allow inner ScrollView/FlatList to own the scroll
   },
-  muted: { color: "#6B7280",paddingTop: 5,
-    paddingBottom: 20,
-    flexGrow: 1,
-     gap: 10 
-     },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  muted: {
+    color: "#6B7280",
+    marginTop: 8,
+  },
 });
 
 export default SalesOrdersScreen;

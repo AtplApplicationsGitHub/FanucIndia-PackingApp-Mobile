@@ -72,7 +72,7 @@ export default function App() {
           component={OrderDetailsScreen}
           options={({ route }) => ({
             // Safely handle undefined just in case the param isn't passed
-            title: `Order Details: SO ${route?.params?.saleOrderNumber ?? ""}`,
+            title: `SO: ${route?.params?.saleOrderNumber ?? ""}`,
           })}
         />
       </Stack.Navigator>

@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
   ActivityIndicator,
   TextInput,
@@ -12,6 +11,7 @@ import {
   Platform,
   StatusBar,
   Keyboard,
+  FlatList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { RouteProp } from "@react-navigation/native";
@@ -25,7 +25,7 @@ import {
 import {
   getOrderDetails,
   type StoredMaterialItem,
-  saveOrderDetails, // persistence
+  saveOrderDetails,
 } from "../../Storage/sale_order_storage";
 
 export type RootStackParamList = {
@@ -39,9 +39,7 @@ export type RootStackParamList = {
 
 type OrderDetailsScreenRouteProp = RouteProp<RootStackParamList, "OrderDetails">;
 
-type Props = {
-  route: OrderDetailsScreenRouteProp;
-};
+type Props = { route: OrderDetailsScreenRouteProp };
 
 const C = {
   pageBg: "#F7F7F8",
@@ -53,15 +51,11 @@ const C = {
   greenText: "#166534",
   primaryBtn: "#111827",
   primaryBtnText: "#FFFFFF",
-  pillBg: "#F3F4F6",
   icon: "#111827",
-  overlayBg: "rgba(0,0,0,0.35)",
   danger: "#B91C1C",
 };
 
-type MaterialRow = StoredMaterialItem & {
-  issuedQty: number; // local working field
-};
+type MaterialRow = StoredMaterialItem & { issuedQty: number };
 
 const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
   const { saleOrderNumber } = route.params;
@@ -70,15 +64,14 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
   const [code, setCode] = useState("");
 
-  // input focus
   const inputRef = useRef<TextInput | null>(null);
 
   // camera / scanner
   const [cameraOpen, setCameraOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const [scanLock, setScanLock] = useState(false); // prevent multi-fires
+  const [scanLock, setScanLock] = useState(false);
 
-  // Row “View” modal
+  // Row quick view modal
   const [descModal, setDescModal] = useState<{
     visible: boolean;
     materialCode?: string;
@@ -88,7 +81,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     issuedQty?: number;
   }>({ visible: false });
 
-  // App dialog modal (replaces Alert.alert)
+  // App dialog modal
   const [dialog, setDialog] = useState<{
     visible: boolean;
     title?: string;
@@ -101,7 +94,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     message: string,
     emphasis: "normal" | "danger" = "normal"
   ) => setDialog({ visible: true, title, message, emphasis });
-
   const closeDialog = () => setDialog((d) => ({ ...d, visible: false }));
 
   useEffect(() => {
@@ -109,21 +101,17 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
       try {
         setLoading(true);
         const data = await getOrderDetails(saleOrderNumber);
-
         if (data && Array.isArray(data.orderDetails)) {
           const withIssued: MaterialRow[] = (data.orderDetails as any[]).map((m: any) => ({
             ...m,
             issuedQty: typeof m.issuedQty === "number" ? m.issuedQty : 0,
           }));
-
-          // sort ascending by Material Code
           withIssued.sort((a, b) =>
             String(a.materialCode ?? "").localeCompare(String(b.materialCode ?? ""), undefined, {
               numeric: true,
               sensitivity: "base",
             })
           );
-
           setMaterials(withIssued);
         } else {
           openDialog("Error", "No order details found or invalid data format.", "danger");
@@ -132,14 +120,12 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
         openDialog("Error", e?.message ?? "Failed to load order details.", "danger");
       } finally {
         setLoading(false);
-        // Focus the input once data is ready (small delay helps Android)
         setTimeout(() => inputRef.current?.focus(), 50);
       }
     };
     loadDetails();
   }, [saleOrderNumber]);
 
-  // Also focus when keyboard dismissed
   useEffect(() => {
     const sub = Keyboard.addListener("keyboardDidHide", () => {
       inputRef.current?.focus();
@@ -147,7 +133,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     return () => sub.remove();
   }, []);
 
-  // Totals for chips
   const { totalItems, completedItems, totalRequired, totalIssued } = useMemo(() => {
     const ti = materials.length;
     const ci = materials.filter((m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)).length;
@@ -157,7 +142,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
   }, [materials]);
 
   const persist = (rows: MaterialRow[]) => {
-    // Cast to StoredMaterialItem[] for the existing storage helper
     saveOrderDetails(saleOrderNumber, rows as unknown as StoredMaterialItem[]);
   };
 
@@ -173,11 +157,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     );
 
     if (idx === -1) {
-      openDialog(
-        "Not found",
-        `Material code "${codeTrim}" is not in this order.`,
-        "danger"
-      );
+      openDialog("Not found", `Material code "${codeTrim}" is not in this order.`, "danger");
       return;
     }
 
@@ -192,30 +172,23 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
         return prev;
       }
 
-      const nextIssued = cur + 1; // Qty = 1 increments correctly
+      const nextIssued = cur + 1;
       clone[idx] = { ...row, issuedQty: nextIssued };
-
-      // Persist to storage after update
       persist(clone);
-
       return clone;
     });
 
-    setCode(""); // clear input after submit
+    setCode("");
   };
 
   const onSubmit = () => incrementIssueForCode(code);
 
-  // ---- Scanner helpers ----
+  // Scanner
   const openScanner = async () => {
     if (!permission || !permission.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        openDialog(
-          "Permission needed",
-          "Camera access is required to scan barcodes/QR codes.",
-          "danger"
-        );
+        openDialog("Permission needed", "Camera access is required to scan codes.", "danger");
         return;
       }
     }
@@ -225,7 +198,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
 
   const closeScanner = () => {
     setCameraOpen(false);
-    // refocus input after closing scanner
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
@@ -233,12 +205,9 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     if (scanLock) return;
     const data = result?.data ?? "";
     if (!data) return;
-
-    // lock and process exactly once
     setScanLock(true);
     setCode(data);
     incrementIssueForCode(data);
-
     setTimeout(() => {
       setCameraOpen(false);
       setScanLock(false);
@@ -246,37 +215,30 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     }, 250);
   };
 
-  // ---- Inline Issue editor (numbers only) ----
   const setIssuedQtyAt = (index: number, raw: string) => {
-    // Keep only digits
     const digits = raw.replace(/[^\d]/g, "");
     const next = digits === "" ? "0" : digits;
-
     setMaterials((prev) => {
       const clone = [...prev];
       const row = clone[index];
       const req = Number(row.requiredQty) || 0;
       let val = Number(next);
-
       if (val > req) {
-        // show modal and clamp
         openDialog("Please enter a valid issue number.", "", "danger");
         val = req;
       }
       if (val < 0) val = 0;
-
       clone[index] = { ...row, issuedQty: val };
       return clone;
     });
   };
 
-  const saveOnEndEditing = () => {
-    persist(materials);
-  };
+  const saveOnEndEditing = () => persist(materials);
 
+  // ----- Loading -----
   if (loading) {
     return (
-      <SafeAreaView style={styles.screen}>
+      <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
         <View style={styles.center}>
           <ActivityIndicator />
           <Text style={styles.muted}>Loading order details…</Text>
@@ -285,176 +247,170 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     );
   }
 
+  // ===== Main render: one FlatList controls the entire page (header + rows) =====
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.container}>
-        {/* Header */}
-        
-
-        {/* Top summary chips */}
-        <View style={styles.chipsRow}>
-          <View style={styles.chip}>
-            <Text style={styles.chipTitle}>Total Issues</Text>
-            <Text style={styles.chipValue}>
-              {completedItems}/{totalItems}
-            </Text>
-          </View>
-          <View style={styles.chip}>
-            <Text style={styles.chipTitle}>Required vs Issued</Text>
-            <Text style={styles.chipValue}>
-              {totalIssued}/{totalRequired}
-            </Text>
-          </View>
-        </View>
-
-        {/* Input with right-side scanner icon + Submit */}
-        <View style={styles.inputRow}>
-          <View style={styles.inputWrap}>
-            <TextInput
-              ref={inputRef}
-              style={styles.input}
-              placeholder="Scan / Enter Material Code"
-              placeholderTextColor={C.subText}
-              value={code}
-              onChangeText={setCode}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              returnKeyType="done"
-              onSubmitEditing={onSubmit}
-              autoFocus
-            />
-            <Pressable
-              onPress={openScanner}
-              style={styles.inputIconBtn}
-              accessibilityLabel="Open scanner"
-              hitSlop={10}
-            >
-              <Ionicons name="scan-outline" size={22} color={C.icon} />
-            </Pressable>
-          </View>
-
-          <Pressable style={styles.primaryBtn} onPress={onSubmit}>
-            <Text style={styles.primaryBtnText}>Submit</Text>
-          </Pressable>
-        </View>
-
-        {/* Table */}
-        <View style={styles.card}>
-          <View style={styles.tableHead}>
-            <View style={[styles.cell, styles.flex18, styles.left]}>
-              <Text style={styles.headText}>Material Code</Text>
-            </View>
-            <View style={[styles.cell, styles.flex40, styles.left]}>
-              <Text style={styles.headText}>Description</Text>
-            </View>
-            <View style={[styles.cell, styles.flex16, styles.centerAlign]}>
-              <Text style={styles.headText}>Bin No</Text>
-            </View>
-            <View style={[styles.cell, styles.flex12, styles.right]}>
-              <Text style={styles.headText}>Qty</Text>
-            </View>
-            <View style={[styles.cell, styles.flex10, styles.centerAlign]}>
-              <Text style={styles.headText}>Issue</Text>
-            </View>
-          </View>
-
-          <FlatList
-            data={materials}
-            keyExtractor={(item, index) => `${item.materialCode}-${index}`}
-            ItemSeparatorComponent={() => <View style={styles.sep} />}
-            renderItem={({ item, index }) => {
-              const isDone =
-                Number(item.issuedQty || 0) >= Number(item.requiredQty || 0);
-              const pillDone = isDone && (item.requiredQty ?? 0) > 0;
-
-              return (
-                <Pressable
-                  onPress={() =>
-                    setDescModal({
-                      visible: true,
-                      materialCode: String(item.materialCode ?? ""),
-                      description: String(item.description ?? ""),
-                      binNo: item.binNo as any,
-                      requiredQty: Number(item.requiredQty ?? 0),
-                      issuedQty: Number(item.issuedQty ?? 0),
-                    })
-                  }
-                  style={[styles.row, isDone && { backgroundColor: C.greenBg }]}
-                >
-                  <View style={[styles.cell, styles.flex18, styles.left]}>
-                    <Text
-                      style={[
-                        styles.metricText,
-                        isDone && { color: C.greenText, fontWeight: "700" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.materialCode}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.cell, styles.flex40, styles.left]}>
-                    <Text
-                      style={[
-                        styles.metricText,
-                        isDone && { color: C.greenText },
-                      ]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {item.description}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.cell, styles.flex16, styles.centerAlign]}>
-                    <Text
-                      style={[
-                        styles.metricText,
-                        isDone && { color: C.greenText },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.binNo}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.cell, styles.flex12, styles.right]}>
-                    <Text
-                      style={[
-                        styles.metricText,
-                        isDone && { color: C.greenText, fontWeight: "700" },
-                      ]}
-                    >
-                      {item.requiredQty}
-                    </Text>
-                  </View>
-
-                  {/* Issue editor: numbers only */}
-                  <View style={[styles.cell, styles.flex10, styles.centerAlign]}>
-                    <TextInput
-                      value={String(item.issuedQty ?? 0)}
-                      onChangeText={(t) => setIssuedQtyAt(index, t)}
-                      keyboardType="number-pad"
-                      inputMode="numeric"
-                      maxLength={3}
-                      style={[
-                        styles.issueInput,
-                        pillDone && { borderColor: C.greenText + "66" },
-                      ]}
-                      onEndEditing={saveOnEndEditing}
-                    />
-                  </View>
-                </Pressable>
-              );
-            }}
-            ListEmptyComponent={
-              <View style={styles.emptyWrap}>
-                <Text style={styles.subText}>No materials found.</Text>
+    <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
+      <FlatList
+        data={materials}
+        keyExtractor={(item, index) => `${item.materialCode}-${index}`}
+        contentContainerStyle={styles.listContent}
+        style={styles.list}
+        ItemSeparatorComponent={() => <View style={styles.sep} />}
+        // Make scrolling solid & predictable:
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.select({ ios: "on-drag", android: "on-drag" })}
+        showsVerticalScrollIndicator
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        removeClippedSubviews
+        initialNumToRender={20}
+        maxToRenderPerBatch={20}
+        windowSize={11}
+        ListHeaderComponent={
+          <View>
+            {/* Summary cards */}
+            <View style={styles.chipsRow}>
+              <View style={styles.chip}>
+                <Text style={styles.chipTitle}>Total Issues</Text>
+                <Text style={styles.chipValue}>
+                  {completedItems}/{totalItems}
+                </Text>
               </View>
-            }
-          />
-        </View>
-      </View>
+              <View style={styles.chip}>
+                <Text style={styles.chipTitle}>Required vs Issued</Text>
+                <Text style={styles.chipValue}>
+                  {totalIssued}/{totalRequired}
+                </Text>
+              </View>
+            </View>
+
+            {/* Input + scan + submit */}
+            <View style={styles.inputRow}>
+              <View style={styles.inputWrap}>
+                <TextInput
+                  ref={inputRef}
+                  style={styles.input}
+                  placeholder="Scan / Enter Material Code"
+                  placeholderTextColor={C.subText}
+                  value={code}
+                  onChangeText={setCode}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  onSubmitEditing={onSubmit}
+                  autoFocus
+                />
+                <Pressable
+                  onPress={openScanner}
+                  style={styles.inputIconBtn}
+                  accessibilityLabel="Open scanner"
+                  hitSlop={10}
+                >
+                  <Ionicons name="scan-outline" size={22} color={C.icon} />
+                </Pressable>
+              </View>
+
+              <Pressable style={styles.primaryBtn} onPress={onSubmit}>
+                <Text style={styles.primaryBtnText}>Submit</Text>
+              </Pressable>
+            </View>
+
+            {/* Table head */}
+            <View style={styles.card}>
+              <View style={styles.tableHead}>
+                <View  style={[styles.cell, styles.flex18, styles.left]}>
+                  <Text style={styles.headText}>Material Code</Text>
+                </View>
+                <View style={[styles.cell, styles.flex40, styles.left]}>
+                  <Text style={styles.headText}>Description</Text>
+                </View>
+                <View style={[styles.cell, styles.flex16, styles.centerAlign]}>
+                  <Text style={styles.headText}>Bin No</Text>
+                </View>
+                <View style={[styles.cell, styles.flex12, styles.right]}>
+                  <Text style={styles.headText}>Qty</Text>
+                </View>
+                <View style={[styles.cell, styles.flex10, styles.centerAlign]}>
+                  <Text style={styles.headText}>Issue</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        }
+        renderItem={({ item, index }) => {
+          const isDone = Number(item.issuedQty || 0) >= Number(item.requiredQty || 0);
+          const pillDone = isDone && (item.requiredQty ?? 0) > 0;
+          return (
+            <View style={styles.card}>
+              <Pressable
+                onPress={() =>
+                  setDescModal({
+                    visible: true,
+                    materialCode: String(item.materialCode ?? ""),
+                    description: String(item.description ?? ""),
+                    binNo: item.binNo as any,
+                    requiredQty: Number(item.requiredQty ?? 0),
+                    issuedQty: Number(item.issuedQty ?? 0),
+                  })
+                }
+                style={[styles.row, isDone && { backgroundColor: C.greenBg }]}
+              >
+                <View style={[styles.cell, styles.flex18, styles.left]}>
+                  <Text
+                    style={[
+                      styles.metricText,
+                      isDone && { color: C.greenText, fontWeight: "700" },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.materialCode}
+                  </Text>
+                </View>
+
+                <View style={[styles.cell, styles.flex40, styles.left]}>
+                  <Text
+                    style={[styles.metricText, isDone && { color: C.greenText }]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {item.description}
+                  </Text>
+                </View>
+
+                <View style={[styles.cell, styles.flex16, styles.centerAlign]}>
+                  <Text style={[styles.metricText, isDone && { color: C.greenText }]} numberOfLines={1}>
+                    {item.binNo}
+                  </Text>
+                </View>
+
+                <View style={[styles.cell, styles.flex12, styles.right]}>
+                  <Text style={[styles.metricText, isDone && { color: C.greenText, fontWeight: "700" }]}>
+                    {item.requiredQty}
+                  </Text>
+                </View>
+
+                <View style={[styles.cell, styles.flex10, styles.centerAlign]}>
+                  <TextInput
+                    value={String(item.issuedQty ?? 0)}
+                    onChangeText={(t) => setIssuedQtyAt(index, t)}
+                    keyboardType="number-pad"
+                    inputMode="numeric"
+                    maxLength={3}
+                    style={[styles.issueInput, pillDone && { borderColor: C.greenText + "66" }]}
+                    onEndEditing={saveOnEndEditing}
+                  />
+                </View>
+              </Pressable>
+            </View>
+          );
+        }}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            <Text style={styles.subText}>No materials found.</Text>
+          </View>
+        }
+        ListFooterComponent={<View style={{ height: 20 }} />}
+      />
 
       {/* Full-screen Scanner */}
       <Modal
@@ -464,7 +420,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
         presentationStyle="fullScreen"
         transparent={false}
       >
-        {/* Hide status bar for true full-screen feel */}
         <StatusBar hidden />
         <View style={styles.fullscreenCameraWrap}>
           <CameraView
@@ -473,11 +428,9 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             barcodeScannerSettings={{
               barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e"],
             }}
-            // Disable handler while locked so it fires exactly once
             onBarcodeScanned={scanLock ? undefined : onBarcodeScanned}
           />
 
-          {/* Top overlay bar with Close */}
           <View style={styles.fullscreenTopBar}>
             <Text style={styles.fullscreenTitle}>Scan a code</Text>
             <Pressable onPress={closeScanner} style={styles.fullscreenCloseBtn}>
@@ -485,7 +438,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             </Pressable>
           </View>
 
-          {/* Bottom hint */}
           <View style={styles.fullscreenBottomBar}>
             <Text style={styles.fullscreenHint}>Align the code within the frame</Text>
           </View>
@@ -497,15 +449,14 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
         visible={descModal.visible}
         transparent
         animationType="fade"
-        onRequestClose={() => setDescModal({ visible: false })}>
+        onRequestClose={() => setDescModal({ visible: false })}
+      >
         <View style={styles.descOverlay}>
           <View style={styles.descCard}>
             <View style={styles.descHeader}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
                 <Ionicons name="cube-outline" size={18} color={C.headerText} />
-                <Text style={styles.descTitle}>
-                  {descModal.materialCode ?? "Material"}
-                </Text>
+                <Text style={styles.descTitle}>{descModal.materialCode ?? "Material"}</Text>
               </View>
               <Pressable onPress={() => setDescModal({ visible: false })}>
                 <Ionicons name="close" size={22} color={C.headerText} />
@@ -513,15 +464,11 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             </View>
 
             <View style={styles.descBody}>
-              {/* Description */}
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Description</Text>
-                <Text style={styles.infoValue}>
-                  {descModal.description ?? "-"}
-                </Text>
+                <Text style={styles.infoValue}>{descModal.description ?? "-"}</Text>
               </View>
 
-              {/* Grid info: Bin / Required / Issued */}
               <View style={styles.infoGrid}>
                 <View style={styles.infoCardSmall}>
                   <Text style={styles.infoSmallLabel}>Bin No</Text>
@@ -537,7 +484,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                 </View>
               </View>
 
-              {/* Progress pill */}
               <View style={styles.progressWrap}>
                 <View style={styles.progressBarTrack}>
                   <View
@@ -567,13 +513,8 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
         </View>
       </Modal>
 
-      {/* Global App Dialog (replaces alerts) */}
-      <Modal
-        visible={dialog.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeDialog}
-      >
+      {/* Global App Dialog */}
+      <Modal visible={dialog.visible} transparent animationType="fade" onRequestClose={closeDialog}>
         <View style={styles.appDialogOverlay}>
           <View style={styles.appDialogCard}>
             <View style={styles.appDialogHeader}>
@@ -583,18 +524,13 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                 color={dialog.emphasis === "danger" ? C.danger : C.headerText}
               />
               <Text
-                style={[
-                  styles.appDialogTitle,
-                  dialog.emphasis === "danger" && { color: C.danger },
-                ]}
+                style={[styles.appDialogTitle, dialog.emphasis === "danger" && { color: C.danger }]}
                 numberOfLines={2}
               >
                 {dialog.title}
               </Text>
             </View>
-            {dialog.message ? (
-              <Text style={styles.appDialogMessage}>{dialog.message}</Text>
-            ) : null}
+            {dialog.message ? <Text style={styles.appDialogMessage}>{dialog.message}</Text> : null}
             <View style={styles.appDialogFooter}>
               <Pressable style={styles.appDialogBtn} onPress={closeDialog}>
                 <Text style={styles.appDialogBtnText}>OK</Text>
@@ -609,15 +545,15 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.pageBg },
-  container: { flex: 1, paddingHorizontal: 10,
-    paddingTop: 5,
+  list: { flex: 1 },
+  listContent: {
+    paddingHorizontal: 10,
     paddingBottom: 20,
-    flexGrow: 1,
-     gap: 10 },
-  headerBar: { marginTop: 4, marginBottom: 4 },
-  headerTitle: { color: C.headerText, fontSize: 20, fontWeight: "700" },
+    paddingTop: 8, // small, consistent padding (no big top gap)
+    rowGap: 10,
+  },
 
-  chipsRow: { flexDirection: "row", gap: 10 },
+  chipsRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
   chip: {
     flex: 1,
     backgroundColor: C.card,
@@ -630,20 +566,15 @@ const styles = StyleSheet.create({
   chipTitle: { color: C.subText, fontSize: 12, fontWeight: "600" },
   chipValue: { color: C.headerText, fontSize: 18, fontWeight: "700", marginTop: 2 },
 
-  inputRow: { flexDirection: "row", gap: 8, alignItems: "center" },
-
-  // Input with right-side icon
-  inputWrap: {
-    flex: 1,
-    position: "relative",
-  },
+  inputRow: { flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 10 },
+  inputWrap: { flex: 1, position: "relative" },
   input: {
     backgroundColor: C.card,
     borderColor: C.border,
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingRight: 44, // leave space for the icon
+    paddingRight: 44,
     height: 44,
     color: C.headerText,
   },
@@ -656,7 +587,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   primaryBtn: {
     height: 44,
     paddingHorizontal: 14,
@@ -718,7 +648,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // Full-screen camera styles
+  // Full-screen camera
   fullscreenCameraWrap: { flex: 1, backgroundColor: "#000" },
   fullscreenCamera: { flex: 1 },
   fullscreenTopBar: {
@@ -733,12 +663,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 12,
   },
-  fullscreenTitle: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 14,
-    flex: 1,
-  },
+  fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 14, flex: 1 },
   fullscreenCloseBtn: {
     height: 28,
     width: 28,
@@ -759,7 +684,7 @@ const styles = StyleSheet.create({
   },
   fullscreenHint: { color: "#fff", fontSize: 12 },
 
-  // Row View Modal styles
+  // Row View Modal
   descOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.35)",
@@ -824,7 +749,7 @@ const styles = StyleSheet.create({
   },
   progressText: { fontSize: 12, color: C.subText, textAlign: "right" },
 
-  // App Dialog (replaces alerts)
+  // App Dialog
   appDialogOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.35)",
