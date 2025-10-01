@@ -1,17 +1,17 @@
 // src/Api/SalesOrder_server.ts
 import * as SecureStore from "expo-secure-store";
+import { File, Paths } from "expo-file-system";
 import { saveOrderDetails, type StoredMaterialItem } from "../Storage/sale_order_storage";
 
 const BASE_URL = "https://fanuc.goval.app:444/api";
 const ORDERS_SUMMARY_URL = `${BASE_URL}/user-dashboard/orders-summary`;
 const ORDER_DETAILS_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/download-details`;
+const ORDER_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/data`;
 
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
     p,
-    new Promise<T>((_, rej) =>
-      setTimeout(() => rej(new Error("Request timed out")), ms)
-    ),
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
   ]);
 
 async function parseErrorBody(res: Response) {
@@ -27,6 +27,7 @@ async function parseErrorBody(res: Response) {
   }
 }
 
+// ---------------- Types from server ----------------
 export type OrdersSummaryItemRaw = {
   saleOrderNumber: string;
   priority: 1 | 2 | 3 | null;
@@ -44,25 +45,44 @@ export type OrdersSummaryItem = {
   totalItems: number;
 };
 
+// ---------------- Helpers ----------------
+const toNum = (v: any, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+const toStr = (v: any, d = "-") => (v === null || v === undefined ? d : String(v));
+
+/** Convert our local item to the exact server field names + numeric types */
+function normalizeForUpload(item: StoredMaterialItem) {
+  const it: any = item;
+  return {
+    Material_Code: toStr(it.materialCode, ""),
+    Material_Description: toStr(it.description, ""),
+    Batch_No: toStr(it.batchNo, ""),
+    SO_Donor_Batch: toStr(it.soDonorBatch, ""),
+    Cert_No: toStr(it.certNo, ""),
+    Bin_No: toStr(it.binNo, ""),
+    A_D_F: toStr(it.adf, ""),
+    Required_Qty: toNum(it.requiredQty, 0),
+    Packing_stage: toNum(it.packingStage, 0),
+    Issue_stage: toNum(it.issuedQty, 0),
+  };
+}
+
+// ---------------- API: GET list ----------------
 export async function fetchOrdersSummary(token?: string): Promise<OrdersSummaryItem[]> {
   const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
 
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-  };
+  const headers: Record<string, string> = { Accept: "application/json" };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-  const res = await withTimeout(
-    fetch(ORDERS_SUMMARY_URL, { method: "GET", headers })
-  );
-
+  const res = await withTimeout(fetch(ORDERS_SUMMARY_URL, { method: "GET", headers }));
   if (!res.ok) {
     const msg = await parseErrorBody(res);
     throw new Error(`Failed to fetch orders (${res.status}): ${msg}`);
   }
 
   const json: OrdersSummaryItemRaw[] = await res.json();
-
   return (json || []).map((r) => ({
     id: r.saleOrderNumber?.toString() || Math.random().toString(36).slice(2),
     saleOrderNumber: r.saleOrderNumber?.toString() || "-",
@@ -73,21 +93,16 @@ export async function fetchOrdersSummary(token?: string): Promise<OrdersSummaryI
   }));
 }
 
-/**
- * Download details for an SO, but only persist the requested fields locally:
- * Material Code, Description, Bin No, Required Qty
- */
+// ---------------- API: GET order details + save locally ----------------
 export async function downloadOrderDetails(
   saleOrderNumber: string,
   token?: string
 ): Promise<StoredMaterialItem[]> {
   const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
-
   const headers: Record<string, string> = { Accept: "application/json" };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
   const url = ORDER_DETAILS_URL.replace("{SO_NUMBER}", saleOrderNumber);
-
   const res = await withTimeout(fetch(url, { method: "GET", headers }));
 
   if (!res.ok) {
@@ -97,16 +112,76 @@ export async function downloadOrderDetails(
 
   const json = (await res.json()) as any[];
 
-  // Keep ONLY the four fields (mapping to a compact, app-friendly shape)
   const compact: StoredMaterialItem[] = (Array.isArray(json) ? json : []).map((row) => ({
-    materialCode: row?.Material_Code?.toString?.() ?? "-",
-    description: row?.Material_Description?.toString?.() ?? "-",
-    binNo: row?.Bin_No?.toString?.() ?? "-",
-    requiredQty: Number.isFinite(row?.Required_Qty) ? Number(row.Required_Qty) : 0,
-  }));
+    materialCode: toStr(row?.Material_Code, ""),
+    description: toStr(row?.Material_Description, ""),
+    batchNo: toStr(row?.Batch_No, ""),
+    soDonorBatch: toStr(row?.SO_Donor_Batch, ""),
+    certNo: toStr(row?.Cert_No, ""),
+    binNo: toStr(row?.Bin_No, ""),
+    adf: toStr(row?.A_D_F, ""),
+    requiredQty: toNum(row?.Required_Qty, 0),
+    packingStage: toNum(row?.Packing_stage, 0),
+    issuedQty: toNum((row as any)?.Issue_stage, 0),
+  })) as any;
 
-  // Persist locally
   await saveOrderDetails(saleOrderNumber, compact);
-
   return compact;
+}
+
+// ---------------- API: POST (JSON file upload) ----------------
+/**
+ * Uploads materials for a Sales Order as a JSON file in multipart/form-data.
+ * Sends the payload as [...] in a file named "data.json".
+ */
+export async function uploadIssueData(
+  saleOrderNumber: string,
+  items: StoredMaterialItem[],
+  token?: string
+): Promise<void> {
+  const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
+  const url = ORDER_UPLOAD_URL.replace("{SO_NUMBER}", saleOrderNumber);
+
+  const baseHeaders: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (authToken) baseHeaders.Authorization = `Bearer ${authToken}`;
+
+  const payload = items.map(normalizeForUpload);
+  const jsonPayload = JSON.stringify(payload);
+  console.log("Uploading (JSON file) materials:", jsonPayload);
+
+  // Write JSON to temporary file for upload in React Native using new File API
+  const file = new File(Paths.cache, "data.json");
+  await file.create();
+  await file.write(jsonPayload);
+
+  const formData = new FormData();
+  formData.append("data", {
+    uri: file.uri,
+    type: "application/json",
+    name: "data.json",
+  } as any);
+
+  const res = await withTimeout(fetch(url, { 
+    method: "POST", 
+    headers: baseHeaders, 
+    body: formData 
+  }), 30000);
+
+  // Clean up temp file
+  await file.delete();
+
+  if (!res.ok) {
+    const lastErr = await parseErrorBody(res);
+    throw new Error(`Upload failed: ${lastErr || "Server rejected upload"}`);
+  }
+
+  // Success
+  try {
+    const result = await res.json();
+    console.log("Upload successful:", result);
+  } catch {
+    console.log("Upload successful (no JSON in response)");
+  }
 }

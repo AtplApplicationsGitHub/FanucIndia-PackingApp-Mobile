@@ -55,7 +55,20 @@ const C = {
   danger: "#B91C1C",
 };
 
-type MaterialRow = StoredMaterialItem & { issuedQty: number };
+type MaterialRow = StoredMaterialItem;
+
+type DescModalData = {
+  materialCode?: string;
+  description?: string;
+  batchNo?: string;
+  soDonorBatch?: string;
+  certNo?: string;
+  binNo?: string | number;
+  adf?: string;
+  requiredQty?: number;
+  packingStage?: string;
+  issuedQty?: number;
+};
 
 const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
   const { saleOrderNumber } = route.params;
@@ -74,11 +87,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
   // Row quick view modal
   const [descModal, setDescModal] = useState<{
     visible: boolean;
-    materialCode?: string;
-    description?: string;
-    binNo?: string | number;
-    requiredQty?: number;
-    issuedQty?: number;
+    data?: DescModalData;
   }>({ visible: false });
 
   // App dialog modal
@@ -346,11 +355,18 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                 onPress={() =>
                   setDescModal({
                     visible: true,
-                    materialCode: String(item.materialCode ?? ""),
-                    description: String(item.description ?? ""),
-                    binNo: item.binNo as any,
-                    requiredQty: Number(item.requiredQty ?? 0),
-                    issuedQty: Number(item.issuedQty ?? 0),
+                    data: {
+                      materialCode: String(item.materialCode ?? ""),
+                      description: String(item.description ?? ""),
+                      batchNo: String(item.batchNo ?? ""),
+                      soDonorBatch: String(item.soDonorBatch ?? ""),
+                      certNo: String(item.certNo ?? ""),
+                      binNo: item.binNo as any,
+                      adf: String(item.adf ?? ""),
+                      requiredQty: Number(item.requiredQty ?? 0),
+                      packingStage: String(item.packingStage ?? ""),
+                      issuedQty: Number(item.issuedQty ?? 0),
+                    },
                   })
                 }
                 style={[styles.row, isDone && { backgroundColor: C.greenBg }]}
@@ -456,7 +472,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             <View style={styles.descHeader}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
                 <Ionicons name="cube-outline" size={18} color={C.headerText} />
-                <Text style={styles.descTitle}>{descModal.materialCode ?? "Material"}</Text>
+                <Text style={styles.descTitle}>{descModal.data?.materialCode ?? "Material"}</Text>
               </View>
               <Pressable onPress={() => setDescModal({ visible: false })}>
                 <Ionicons name="close" size={22} color={C.headerText} />
@@ -466,21 +482,45 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             <View style={styles.descBody}>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Description</Text>
-                <Text style={styles.infoValue}>{descModal.description ?? "-"}</Text>
+                <Text style={styles.infoValue}>{descModal.data?.description ?? "-"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Batch No</Text>
+                <Text style={styles.infoValue}>{descModal.data?.batchNo ?? "-"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>SO Donor Batch</Text>
+                <Text style={styles.infoValue}>{descModal.data?.soDonorBatch ?? "-"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Cert No</Text>
+                <Text style={styles.infoValue}>{descModal.data?.certNo ?? "-"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>A/D/F</Text>
+                <Text style={styles.infoValue}>{descModal.data?.adf ?? "-"}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Packing Stage</Text>
+                <Text style={styles.infoValue}>{descModal.data?.packingStage ?? "-"}</Text>
               </View>
 
               <View style={styles.infoGrid}>
                 <View style={styles.infoCardSmall}>
                   <Text style={styles.infoSmallLabel}>Bin No</Text>
-                  <Text style={styles.infoSmallValue}>{String(descModal.binNo ?? "-")}</Text>
+                  <Text style={styles.infoSmallValue}>{String(descModal.data?.binNo ?? "-")}</Text>
                 </View>
                 <View style={styles.infoCardSmall}>
                   <Text style={styles.infoSmallLabel}>Required Qty</Text>
-                  <Text style={styles.infoSmallValue}>{String(descModal.requiredQty ?? 0)}</Text>
+                  <Text style={styles.infoSmallValue}>{String(descModal.data?.requiredQty ?? 0)}</Text>
                 </View>
                 <View style={styles.infoCardSmall}>
                   <Text style={styles.infoSmallLabel}>Issued Qty</Text>
-                  <Text style={styles.infoSmallValue}>{String(descModal.issuedQty ?? 0)}</Text>
+                  <Text style={styles.infoSmallValue}>{String(descModal.data?.issuedQty ?? 0)}</Text>
                 </View>
               </View>
 
@@ -494,8 +534,8 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                           Math.min(
                             100,
                             Math.round(
-                              ((Number(descModal.issuedQty ?? 0) /
-                                Math.max(1, Number(descModal.requiredQty ?? 0))) *
+                              ((Number(descModal.data?.issuedQty ?? 0) /
+                                Math.max(1, Number(descModal.data?.requiredQty ?? 0))) *
                                 100)
                             )
                           )
@@ -505,7 +545,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                   />
                 </View>
                 <Text style={styles.progressText}>
-                  {Number(descModal.issuedQty ?? 0)} / {Number(descModal.requiredQty ?? 0)} issued
+                  {Number(descModal.data?.issuedQty ?? 0)} / {Number(descModal.data?.requiredQty ?? 0)} issued
                 </Text>
               </View>
             </View>

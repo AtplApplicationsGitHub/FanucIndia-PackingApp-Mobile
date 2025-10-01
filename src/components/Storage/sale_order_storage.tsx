@@ -1,14 +1,20 @@
-// sale_order_storage.ts (unchanged, provided for completeness)
+// src/Storage/sale_order_storage.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const KEY = (so: string) => `order:${so}`;
 
-// Stored item shape (now includes issuedQty)
+// Stored item shape (now includes issuedQty and additional fields)
 export type StoredMaterialItem = {
   materialCode: string;
   description: string;
+  batchNo: string;
+  soDonorBatch: string;
+  certNo: string;
   binNo: string;
+  adf: string;
   requiredQty: number;
+  issueStage: string;
+  packingStage: string;
   issuedQty: number; // <= NEW
 };
 
@@ -27,8 +33,14 @@ export async function saveOrderDetails(
     (it) => ({
       materialCode: it.materialCode,
       description: it.description,
+      batchNo: it.batchNo ?? "-",
+      soDonorBatch: it.soDonorBatch ?? "-",
+      certNo: it.certNo ?? "-",
       binNo: it.binNo,
+      adf: it.adf ?? "-",
       requiredQty: it.requiredQty,
+      issueStage: it.issueStage ?? "-",
+      packingStage: it.packingStage ?? "-",
       issuedQty: Math.max(0, Math.min(it.issuedQty ?? 0, it.requiredQty)),
     })
   );

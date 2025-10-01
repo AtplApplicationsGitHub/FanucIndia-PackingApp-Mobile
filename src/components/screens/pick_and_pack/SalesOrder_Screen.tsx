@@ -7,9 +7,14 @@ import SalesOrdersStyledTable from "./SalesOrder_table";
 import {
   fetchOrdersSummary,
   downloadOrderDetails,
+  uploadIssueData,
   type OrdersSummaryItem,
 } from "../../Api/SalesOrder_server";
-import { hasOrderDetails } from "../../Storage/sale_order_storage";
+import {
+  hasOrderDetails,
+  getOrderDetails,
+  type StoredMaterialItem,
+} from "../../Storage/sale_order_storage";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -26,100 +31,161 @@ const SalesOrdersScreen: React.FC = () => {
   const [list, setList] = useState<OrdersSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
 
-  // Track which SOs are downloaded (to flip the icon)
+  // State maps
   const [downloadedMap, setDownloadedMap] = useState<Record<string, boolean>>({});
+  const [completedMap, setCompletedMap] = useState<Record<string, boolean>>({});
+  const [uploadedMap, setUploadedMap] = useState<Record<string, boolean>>({});
 
-  const hydrateDownloadedMap = useCallback(async (orders: OrdersSummaryItem[]) => {
-    const next: Record<string, boolean> = {};
+  const computeCompletion = (items: StoredMaterialItem[] | undefined) => {
+    if (!items || items.length === 0) return false;
+    return items.every((it) => (it.issuedQty ?? 0) >= (it.requiredQty ?? 0));
+  };
+
+  const refreshMaps = useCallback(async (orders: OrdersSummaryItem[]) => {
+    const dMap: Record<string, boolean> = {};
+    const cMap: Record<string, boolean> = {};
+    const uMap: Record<string, boolean> = {};
+
     await Promise.all(
       orders.map(async (o) => {
-        next[o.saleOrderNumber] = await hasOrderDetails(o.saleOrderNumber);
+        const so = o.saleOrderNumber;
+        const has = await hasOrderDetails(so);
+        dMap[so] = !!has;
+
+        if (has) {
+          try {
+            const stored = await getOrderDetails(so);
+            cMap[so] = computeCompletion(stored?.orderDetails);
+            // Assuming storage has an 'uploaded' flag; if not, default to false
+            // For now, initialize to false; set to true after upload
+            uMap[so] = stored?.uploaded ?? false;
+          } catch {
+            cMap[so] = false;
+            uMap[so] = false;
+          }
+        } else {
+          cMap[so] = false;
+          uMap[so] = false;
+        }
       })
     );
-    setDownloadedMap(next);
+
+    setDownloadedMap(dMap);
+    setCompletedMap(cMap);
+    setUploadedMap(uMap);
   }, []);
 
-  const load = useCallback(
-    async (showSpinner = true) => {
-      try {
-        showSpinner ? setLoading(true) : setRefreshing(true);
-        const data = await fetchOrdersSummary();
-        setList(data);
-        await hydrateDownloadedMap(data);
-      } catch (e: any) {
-        Alert.alert("Error", e?.message ?? "Failed to fetch orders.");
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [hydrateDownloadedMap]
-  );
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const orders = await fetchOrdersSummary();
+      setList(orders);
+      await refreshMaps(orders);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to load orders");
+    } finally {
+      setLoading(false);
+    }
+  }, [refreshMaps]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const orders = await fetchOrdersSummary();
+      setList(orders);
+      await refreshMaps(orders);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshMaps]);
 
   useEffect(() => {
-    load(true);
+    load();
   }, [load]);
 
-  const onDownload = async (o: OrdersSummaryItem) => {
-    try {
-      await downloadOrderDetails(o.saleOrderNumber); // saves only the 4 fields
-      setDownloadedMap((m) => ({ ...m, [o.saleOrderNumber]: true }));
-      Alert.alert("Success", "Download completed.");
-    } catch (e: any) {
-      Alert.alert("Download failed", e?.message ?? "Could not download details.");
-    }
-  };
+  // Actions
+  const handleDownload = useCallback(
+    async (o: OrdersSummaryItem) => {
+      try {
+        await downloadOrderDetails(o.saleOrderNumber);
+        await refreshMaps(list);
+        Alert.alert("Downloaded", `Order ${o.saleOrderNumber} details downloaded.`);
+      } catch (e: any) {
+        Alert.alert("Download failed", e?.message ?? "Try again.");
+      }
+    },
+    [list, refreshMaps]
+  );
 
-  const onView = (o: OrdersSummaryItem) => {
-    navigation.navigate("OrderDetails", { saleOrderNumber: o.saleOrderNumber });
-  };
+  const handleView = useCallback(
+    (o: OrdersSummaryItem) => {
+      navigation.navigate("OrderDetails", { saleOrderNumber: o.saleOrderNumber });
+    },
+    [navigation]
+  );
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
-        <View style={styles.center}>
-          <ActivityIndicator />
-          <Text style={styles.muted}>Loading orders…</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const handleUpload = useCallback(
+    async (o: OrdersSummaryItem) => {
+      const so = o.saleOrderNumber;
+      setUploading(so);
+      try {
+        const stored = await getOrderDetails(so);
+        if (!stored || !stored.orderDetails || stored.orderDetails.length === 0) {
+          throw new Error("No order details found. Please download first.");
+        }
+        await uploadIssueData(so, stored.orderDetails);
+        // Update uploaded state locally; ideally, update storage with uploaded: true here
+        setUploadedMap((prev) => ({ ...prev, [so]: true }));
+        Alert.alert("Uploaded", `Order ${so} data uploaded successfully.`);
+        // Optionally refresh maps or list
+        await refreshMaps(list);
+      } catch (e: any) {
+        Alert.alert("Upload failed", e?.message ?? "Try again.");
+      } finally {
+        setUploading(null);
+      }
+    },
+    [list, refreshMaps]
+  );
 
   return (
-    <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
-      <View style={styles.content}>
-        <SalesOrdersStyledTable
-          data={list}
-          refreshing={refreshing}
-          onRefresh={() => load(false)}
-          onRowPress={onView}
-          onDownload={onDownload}
-          onView={onView}
-          downloadedMap={downloadedMap}
-        />
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.container}>
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" />
+            <Text style={styles.loadingText}>Loading orders…</Text>
+          </View>
+        ) : (
+          <SalesOrdersStyledTable
+            data={list}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            onRowPress={() => {}}
+            onDownload={handleDownload}
+            onView={handleView}
+            onUpload={handleUpload}
+            downloadedMap={downloadedMap}
+            completedMap={completedMap}
+            uploadedMap={uploadedMap}
+            uploading={uploading}
+          />
+        )}
       </View>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#F7F7F8",
-  },
-  content: {
-    flex: 1, // allow inner ScrollView/FlatList to own the scroll
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  muted: {
-    color: "#6B7280",
-    marginTop: 8,
-  },
-});
-
 export default SalesOrdersScreen;
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: "#FFF" },
+  container: { flex: 1 },
+  title: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
+  loadingText: { marginTop: 8, color: "#6B7280" },
+});
