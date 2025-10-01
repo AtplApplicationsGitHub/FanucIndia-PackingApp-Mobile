@@ -13,6 +13,7 @@ import {
 import {
   hasOrderDetails,
   getOrderDetails,
+  deleteOrderDetails,
   type StoredMaterialItem,
 } from "../../Storage/sale_order_storage";
 
@@ -58,9 +59,7 @@ const SalesOrdersScreen: React.FC = () => {
           try {
             const stored = await getOrderDetails(so);
             cMap[so] = computeCompletion(stored?.orderDetails);
-            // Assuming storage has an 'uploaded' flag; if not, default to false
-            // For now, initialize to false; set to true after upload
-            uMap[so] = stored?.uploaded ?? false;
+            uMap[so] = (stored as any)?.uploaded ?? false; // keep default false if not present
           } catch {
             cMap[so] = false;
             uMap[so] = false;
@@ -138,11 +137,11 @@ const SalesOrdersScreen: React.FC = () => {
           throw new Error("No order details found. Please download first.");
         }
         await uploadIssueData(so, stored.orderDetails);
-        // Update uploaded state locally; ideally, update storage with uploaded: true here
-        setUploadedMap((prev) => ({ ...prev, [so]: true }));
+        await deleteOrderDetails(so);
+        const newList = list.filter((order) => order.saleOrderNumber !== so);
+        setList(newList);
+        await refreshMaps(newList);
         Alert.alert("Uploaded", `Order ${so} data uploaded successfully.`);
-        // Optionally refresh maps or list
-        await refreshMaps(list);
       } catch (e: any) {
         Alert.alert("Upload failed", e?.message ?? "Try again.");
       } finally {
@@ -153,7 +152,8 @@ const SalesOrdersScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    // Remove TOP safe inset to reduce the gap under the nav header
+    <SafeAreaView style={styles.safe} edges={["left", "right", "bottom"]}>
       <View style={styles.container}>
         {loading ? (
           <View style={styles.loadingWrap}>
@@ -183,7 +183,7 @@ const SalesOrdersScreen: React.FC = () => {
 export default SalesOrdersScreen;
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#FFF" },
+  safe: { flex: 1 },
   container: { flex: 1 },
   title: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },

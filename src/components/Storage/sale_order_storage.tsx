@@ -13,9 +13,8 @@ export type StoredMaterialItem = {
   binNo: string;
   adf: string;
   requiredQty: number;
-  issueStage: string;
-  packingStage: string;
-  issuedQty: number; // <= NEW
+  packingStage: number;
+  issuedQty: number;
 };
 
 export type StoredOrder = {
@@ -26,24 +25,21 @@ export type StoredOrder = {
 
 export async function saveOrderDetails(
   saleOrderNumber: string,
-  items: Omit<StoredMaterialItem, "issuedQty">[] | StoredMaterialItem[]
+  items: StoredMaterialItem[]
 ): Promise<void> {
-  // normalize: ensure each item has issuedQty
-  const normalized: StoredMaterialItem[] = (items as StoredMaterialItem[]).map(
-    (it) => ({
-      materialCode: it.materialCode,
-      description: it.description,
-      batchNo: it.batchNo ?? "-",
-      soDonorBatch: it.soDonorBatch ?? "-",
-      certNo: it.certNo ?? "-",
-      binNo: it.binNo,
-      adf: it.adf ?? "-",
-      requiredQty: it.requiredQty,
-      issueStage: it.issueStage ?? "-",
-      packingStage: it.packingStage ?? "-",
-      issuedQty: Math.max(0, Math.min(it.issuedQty ?? 0, it.requiredQty)),
-    })
-  );
+  // normalize: ensure each item has issuedQty clamped
+  const normalized: StoredMaterialItem[] = items.map((it) => ({
+    materialCode: it.materialCode || "",
+    description: it.description || "",
+    batchNo: it.batchNo || "",
+    soDonorBatch: it.soDonorBatch || "",
+    certNo: it.certNo || "",
+    binNo: it.binNo || "",
+    adf: it.adf || "",
+    requiredQty: Number(it.requiredQty) || 0,
+    packingStage: Number(it.packingStage) || 0,
+    issuedQty: Math.max(0, Math.min(it.issuedQty, it.requiredQty)),
+  }));
   const payload: StoredOrder = { saleOrderNumber, orderDetails: normalized };
   await AsyncStorage.setItem(KEY(saleOrderNumber), JSON.stringify(payload));
 }
@@ -55,11 +51,10 @@ export async function getOrderDetails(
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as StoredOrder;
-
-    // backfill issuedQty if older data exists
+    // Ensure issuedQty is present and clamped (for legacy data)
     parsed.orderDetails = parsed.orderDetails.map((it) => ({
       ...it,
-      issuedQty: Math.max(0, Math.min((it as any).issuedQty ?? 0, it.requiredQty)),
+      issuedQty: Math.max(0, Math.min(it.issuedQty ?? 0, it.requiredQty)),
     }));
     return parsed;
   } catch {
@@ -70,6 +65,10 @@ export async function getOrderDetails(
 export async function hasOrderDetails(saleOrderNumber: string): Promise<boolean> {
   const raw = await AsyncStorage.getItem(KEY(saleOrderNumber));
   return !!raw;
+}
+
+export async function deleteOrderDetails(saleOrderNumber: string): Promise<void> {
+  await AsyncStorage.removeItem(KEY(saleOrderNumber));
 }
 
 // Increment/decrement/set issued and autosave

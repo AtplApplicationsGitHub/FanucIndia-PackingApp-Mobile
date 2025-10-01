@@ -224,13 +224,6 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
 }) => {
   return (
     <View style={styles.container}>
-      <View style={styles.titleWrap}>
-        <Text style={styles.headerText}>Sales Orders</Text>
-        <Text style={styles.headerSub}>
-          SO • Status • Priority • Items • Material • Action
-        </Text>
-      </View>
-
       {/* Table Header */}
       <View style={styles.tableHeader}>
         <Text style={[styles.thText, { flex: Col.so }]}>SO</Text>
@@ -303,7 +296,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: C.pageBg,
     paddingHorizontal: 12,
-    paddingTop: 12,
+    paddingTop: 5,
   },
   titleWrap: { 
     marginBottom: 8,
@@ -324,7 +317,7 @@ const styles = StyleSheet.create({
   tableHeader: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F9FAFB",
+
     borderWidth: 1,
     borderColor: C.border,
     borderRadius: 10,

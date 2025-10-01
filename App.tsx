@@ -3,6 +3,9 @@ import React from "react";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Ionicons } from "@expo/vector-icons";
+import { Alert, TouchableOpacity } from "react-native";
 
 // Adjust these import paths if your file structure differs
 import LoginScreen from "./src/components/screens/Login/login";
@@ -23,13 +26,50 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+// Refresh Button Component
+const RefreshButton = () => {
+  const handleRefresh = async () => {
+    Alert.alert(
+      "Clear Storage",
+      "Are you sure you want to clear all local storage data?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await AsyncStorage.clear();
+              Alert.alert("Success", "All local storage data has been cleared.");
+            } catch (error) {
+              Alert.alert("Error", "Failed to clear storage.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <TouchableOpacity
+      onPress={handleRefresh}
+      style={{ padding: 5, backgroundColor: "transparent" }}
+      activeOpacity={0.7}
+    >
+      <Ionicons name="refresh" size={24} color="#007AFF" />
+    </TouchableOpacity>
+  );
+};
+
 export default function App() {
   return (
     <NavigationContainer>
       <StatusBar style="dark" />
       <Stack.Navigator
         initialRouteName="Login"
-        screenOptions={{ headerTitleAlign: "center" }}
+        screenOptions={{
+          headerTitleAlign: "center",
+        }}
       >
         {/* Login */}
         <Stack.Screen
@@ -49,7 +89,11 @@ export default function App() {
         <Stack.Screen
           name="PickAndPack"
           component={PickAndPackScreen}
-          options={{ title: "Pick and Pack" }}
+          options={{ 
+            title: "Pick and Pack",
+            headerRight: () => <RefreshButton />,
+            headerRightContainerStyle: { backgroundColor: "transparent" },
+          }}
         />
 
         {/* Material FG */}
