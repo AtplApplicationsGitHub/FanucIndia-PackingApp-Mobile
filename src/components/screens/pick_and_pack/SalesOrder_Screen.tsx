@@ -22,6 +22,7 @@ export type RootStackParamList = {
   Home: { displayName?: string } | undefined;
   SalesOrders: undefined;
   OrderDetails: { saleOrderNumber: string };
+  Upload: { saleOrderNumber: string };
   MaterialFG: undefined;
   MaterialDispatch: undefined;
 };
@@ -127,6 +128,13 @@ const SalesOrdersScreen: React.FC = () => {
     [navigation]
   );
 
+  const handleDocument = useCallback(
+    (o: OrdersSummaryItem) => {
+      navigation.navigate("Upload", { saleOrderNumber: o.saleOrderNumber });
+    },
+    [navigation]
+  );
+
   const handleUpload = useCallback(
     async (o: OrdersSummaryItem) => {
       const so = o.saleOrderNumber;
@@ -169,6 +177,7 @@ const SalesOrdersScreen: React.FC = () => {
             onDownload={handleDownload}
             onView={handleView}
             onUpload={handleUpload}
+            onDocument={handleDocument}
             downloadedMap={downloadedMap}
             completedMap={completedMap}
             uploadedMap={uploadedMap}

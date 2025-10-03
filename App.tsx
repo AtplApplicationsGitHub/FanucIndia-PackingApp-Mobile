@@ -14,6 +14,7 @@ import PickAndPackScreen from "./src/components/screens/pick_and_pack/SalesOrder
 import MaterialFGScreen from "./src/components/screens/Material_FG/material_fg";
 import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/material_dispatch";
 import OrderDetailsScreen from "./src/components/screens/pick_and_pack/OrderDetails";
+import UploadScreen from "./src/components/screens/pick_and_pack/upload";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -22,6 +23,7 @@ export type RootStackParamList = {
   MaterialFG: undefined;
   MaterialDispatch: undefined;
   OrderDetails: { saleOrderNumber: string };
+  Upload: { saleOrderNumber: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -118,6 +120,16 @@ export default function App() {
             // Safely handle undefined just in case the param isn't passed
             title: `SO: ${route?.params?.saleOrderNumber ?? ""}`,
           })}
+        />
+
+        {/* Upload — modal presentation for popup */}
+        <Stack.Screen
+          name="Upload"
+          component={UploadScreen}
+          options={{
+            presentation: 'modal',
+            title: 'Upload Order',
+          }}
         />
       </Stack.Navigator>
     </NavigationContainer>

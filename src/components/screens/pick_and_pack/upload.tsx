@@ -1,418 +1,335 @@
-// UploadAttachmentsModal.tsx
-import React, { useMemo, useState } from "react";
+// src/screens/AttachmentScreen.tsx
+import React, { useState, useLayoutEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
+  TouchableOpacity,
   FlatList,
-  Pressable,
   TextInput,
-  ActivityIndicator,
   Alert,
-  Platform,
+  SafeAreaView,
+  ActivityIndicator,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { useRoute, useNavigation } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
 import * as SecureStore from "expo-secure-store";
+import { Ionicons } from "@expo/vector-icons";
+import { uploadAttachments, type AttachmentItem } from "../../Api/SalesOrder_server";
 
-type AttachmentItem = {
+interface FileItem {
+  id: string;
   name: string;
-  uri: string;
-  mimeType?: string | null;
-  size?: number | null;
   description: string;
-  status: "ready" | "uploading" | "uploaded" | "failed";
-  error?: string;
-};
+  status: "Pending" | "Uploading" | "Uploaded" | "Failed";
+  uri: string;
+  mimeType?: string;
+}
 
-type Props = {
-  visible: boolean;
-  saleOrderNumber: string | null;
-  onClose: () => void;
-  /** optional: called after ALL files reach uploaded status */
-  onUploaded?: () => void;
-};
+export default function AttachmentScreen() {
+  const route = useRoute();
+  const navigation = useNavigation();
+  const { saleOrderNumber } = route.params as { saleOrderNumber: string };
 
-// ---- API config (adjust if needed) ----
-const BASE_URL = "https://fanuc.goval.app:444/api";
-const ORDER_ATTACH_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/attachments`; // <— change if your API differs
-const AUTH_KEY = "authToken"; // where you stored the JWT/Token in SecureStore
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: `Upload Attachments for SO ${saleOrderNumber}`,
+    });
+  }, [navigation, saleOrderNumber]);
 
-// ---- Colors shared with the rest of your app ----
-const C = {
-  pageBg: "#F7F7F8",
-  headerText: "#0B0F19",
-  subText: "#667085",
-  card: "#FFFFFF",
-  border: "#E5E7EB",
-  icon: "#111827",
-  primary: "#0A7AFF",
-  primaryBtnText: "#FFFFFF",
-  danger: "#DC2626",
-  success: "#16A34A",
-};
-
-const UploadAttachmentsModal: React.FC<Props> = ({
-  visible,
-  saleOrderNumber,
-  onClose,
-  onUploaded,
-}) => {
-  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  const [files, setFiles] = useState<FileItem[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const hasItems = attachments.length > 0;
-
-  const titleText = useMemo(
-    () => `Upload Attachments for SO ${saleOrderNumber ?? ""}`,
-    [saleOrderNumber]
-  );
-
-  const closeUploadModal = () => {
-    if (uploading) return;
-    onClose();
-  };
-
-  const addAttachment = async () => {
+  // File Picker (supports any file type)
+  const pickFile = async () => {
     try {
-      const res = await DocumentPicker.getDocumentAsync({
-        multiple: true,
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "*/*", // allows all files
         copyToCacheDirectory: true,
-        type: "*/*",
+        multiple: true, // Allow multiple file selection
       });
 
-      if (res.canceled) return;
+      if (result.canceled) return;
 
-      const picked = res.assets?.map<AttachmentItem>((a) => ({
-        name: a.name ?? "attachment",
-        uri: a.uri,
-        mimeType: a.mimeType ?? undefined,
-        size: a.size ?? undefined,
+      const newFiles: FileItem[] = result.assets.map((file, index) => ({
+        id: `${Date.now()}-${index}`,
+        name: file.name || "Unknown",
         description: "",
-        status: "ready",
-      })) ?? [];
+        status: "Pending",
+        uri: file.uri,
+        mimeType: file.mimeType,
+      }));
 
-      setAttachments((prev) => [...prev, ...picked]);
-    } catch (e: any) {
-      Alert.alert("Picker Error", e?.message ?? "Failed to pick file(s).");
+      setFiles(prev => [...prev, ...newFiles]);
+    } catch (error) {
+      console.log(error);
+      Alert.alert("Error", "Unable to pick file");
     }
   };
 
-  const updateDescription = (index: number, text: string) => {
-    setAttachments((prev) => {
-      const copy = [...prev];
-      copy[index] = { ...copy[index], description: text };
-      return copy;
-    });
-  };
+  // Upload Files
+  const uploadFiles = async () => {
+    if (files.length === 0) {
+      Alert.alert("No files", "Please add at least one file to upload.");
+      return;
+    }
 
-  const removeAttachment = (index: number) => {
     if (uploading) return;
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const uploadSingle = async (item: AttachmentItem, idx: number) => {
-    // Swap SO into URL
-    const url = ORDER_ATTACH_URL.replace("{SO_NUMBER}", String(saleOrderNumber ?? ""));
-
-    // Read auth token (adjust if you use a different key/header)
-    const token = (await SecureStore.getItemAsync(AUTH_KEY)) ?? "";
-
-    const form = new FormData();
-    // Backend field names: adjust if your API expects different keys
-    form.append("description", item.description ?? "");
-    // For React Native fetch, file part needs a special object:
-    // iOS requires explicit file extension in name for proper mime on server sometimes.
-    const fileName =
-      item.name ||
-      `attachment${idx}${item.mimeType && item.mimeType.includes("/") ? "." + item.mimeType.split("/")[1] : ""}`;
-
-    form.append("file", {
-      // @ts-ignore — RN's FormData file typing
-      uri: item.uri,
-      name: fileName,
-      type: item.mimeType || "application/octet-stream",
-    });
-
-    // If your API wants sale order number as a field too:
-    form.append("saleOrderNumber", String(saleOrderNumber ?? ""));
-
-    // Mark as uploading
-    setAttachments((prev) => {
-      const copy = [...prev];
-      copy[idx] = { ...copy[idx], status: "uploading", error: undefined };
-      return copy;
-    });
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        // Do NOT set 'Content-Type': multipart boundary is set by RN automatically
-        Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: form as any,
-    });
-
-    if (!res.ok) {
-      let msg = "";
-      try {
-        const j = await res.json();
-        msg = j?.message || j?.error || JSON.stringify(j);
-      } catch {
-        msg = await res.text();
-      }
-      throw new Error(msg || `Upload failed with status ${res.status}`);
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!saleOrderNumber) {
-      Alert.alert("Missing SO", "No Sales Order selected.");
-      return;
-    }
-    if (!hasItems) {
-      Alert.alert("No Attachments", "Please add at least one file to upload.");
-      return;
-    }
 
     setUploading(true);
+    
     try {
-      // sequential upload (safer for many servers). Change to Promise.all if your API supports parallel.
-      for (let i = 0; i < attachments.length; i++) {
-        const item = attachments[i];
-        try {
-          await uploadSingle(item, i);
-          // mark uploaded
-          setAttachments((prev) => {
-            const copy = [...prev];
-            copy[i] = { ...copy[i], status: "uploaded", error: undefined };
-            return copy;
-          });
-        } catch (err: any) {
-          setAttachments((prev) => {
-            const copy = [...prev];
-            copy[i] = {
-              ...copy[i],
-              status: "failed",
-              error: err?.message ?? "Upload failed",
-            };
-            return copy;
-          });
-        }
-      }
+      // Update all files to uploading status
+      setFiles(prev => prev.map(f => ({ ...f, status: "Uploading" as const })));
 
-      const allOk = attachments.every((a) => a.status === "uploaded" || a.status === "ready");
-      if (allOk) {
-        Alert.alert("Success", "All attachments uploaded.");
-        onUploaded?.();
-        // optional: auto-close and clear
-        setAttachments([]);
-        onClose();
-      } else {
-        const failedCount = attachments.filter((a) => a.status === "failed").length;
-        Alert.alert("Partial Success", `${failedCount} attachment(s) failed. You can retry them.`);
-      }
+      // Prepare attachments for upload
+      const attachments: AttachmentItem[] = files.map(file => ({
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType || "application/octet-stream",
+        description: file.description,
+      }));
+
+      // Upload attachments
+      await uploadAttachments(saleOrderNumber, attachments);
+
+      // Update status to uploaded
+      setFiles(prev => prev.map(f => ({ ...f, status: "Uploaded" as const })));
+      
+      Alert.alert("Success", `${files.length} file(s) uploaded successfully!`);
+    } catch (e: any) {
+      console.error("Upload error:", e);
+      // Update status to failed for all files
+      setFiles(prev => prev.map(f => ({ ...f, status: "Failed" as const })));
+      Alert.alert("Upload Failed", e?.message ?? "Please try again.");
     } finally {
       setUploading(false);
     }
   };
 
-  if (!visible) return null;
+  const removeFile = (id: string) => {
+    setFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const getStatusColor = (status: FileItem["status"]) => {
+    switch (status) {
+      case "Uploaded": return "green";
+      case "Failed": return "red";
+      case "Uploading": return "blue";
+      default: return "orange";
+    }
+  };
+
+  const getStatusText = (status: FileItem["status"]) => {
+    switch (status) {
+      case "Uploaded": return "Uploaded";
+      case "Failed": return "Failed";
+      case "Uploading": return "Uploading...";
+      default: return "Pending";
+    }
+  };
+
+  const uploadedCount = files.filter(f => f.status === "Uploaded").length;
+  const totalCount = files.length;
+
+  const renderItem = ({ item, index }: { item: FileItem; index: number }) => (
+    <View style={styles.row}>
+      <Text style={styles.cell}>{index + 1}</Text>
+      <Text style={styles.cell} numberOfLines={1} ellipsizeMode="middle">
+        {item.name}
+      </Text>
+      <TextInput
+        style={[styles.cell, styles.input]}
+        placeholder="Enter description"
+        value={item.description}
+        onChangeText={(text) => {
+          const updated = [...files];
+          const fileIndex = updated.findIndex(f => f.id === item.id);
+          if (fileIndex !== -1) {
+            updated[fileIndex].description = text;
+            setFiles(updated);
+          }
+        }}
+        editable={!uploading && item.status === "Pending"}
+      />
+      <View style={[styles.cell, styles.statusCell]}>
+        <Text style={{ color: getStatusColor(item.status) }}>
+          {getStatusText(item.status)}
+        </Text>
+      </View>
+      <TouchableOpacity 
+        style={styles.removeButton}
+        onPress={() => removeFile(item.id)}
+        disabled={uploading || item.status === "Uploading"}
+      >
+        <Ionicons name="close-circle" size={20} color="#ff4444" />
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
-    <View style={uploadStyles.overlay}>
-      <View style={uploadStyles.card}>
-        <View style={uploadStyles.header}>
-          <Text style={uploadStyles.title}>{titleText}</Text>
-          <Pressable onPress={closeUploadModal} disabled={uploading}>
-            <Ionicons name="close" size={22} color={C.headerText} />
-          </Pressable>
+    <SafeAreaView style={styles.container}>
+      {/* Add File Button */}
+      <TouchableOpacity 
+        style={styles.addButton} 
+        onPress={pickFile}
+        disabled={uploading}
+      >
+        <Ionicons name="add-circle-outline" size={20} color="#007bff" />
+        <Text style={styles.addButtonText}>Add Files</Text>
+      </TouchableOpacity>
+
+      {/* File List */}
+      {files.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="folder-outline" size={48} color="#aaa" />
+          <Text style={styles.emptyText}>No attachments yet</Text>
+          <Text style={{ color: "#888", fontSize: 12, textAlign: "center" }}>
+            Add your first attachment using the button above
+          </Text>
         </View>
-
-        <View style={uploadStyles.body}>
-          <Pressable style={uploadStyles.addBtn} onPress={addAttachment} disabled={uploading}>
-            <Ionicons name="attach-outline" size={20} color={C.primaryBtnText} />
-            <Text style={uploadStyles.addText}>Add Attachment</Text>
-          </Pressable>
-
-          <View style={uploadStyles.tableHead}>
-            <Text style={uploadStyles.headText}>Sl. No</Text>
-            <Text style={uploadStyles.headText}>File Name</Text>
-            <Text style={uploadStyles.headText}>Description</Text>
-            <Text style={uploadStyles.headText}>Status</Text>
-            <View style={{ width: 40 }} />
+      ) : (
+        <>
+          {/* Table Header */}
+          <View style={styles.tableHeader}>
+            <Text style={styles.headerCell}>#</Text>
+            <Text style={styles.headerCell}>File Name</Text>
+            <Text style={styles.headerCell}>Description</Text>
+            <Text style={styles.headerCell}>Status</Text>
+            <Text style={styles.headerCell}>Action</Text>
           </View>
 
           <FlatList
-            data={attachments}
-            keyExtractor={(_, i) => i.toString()}
-            renderItem={({ item, index }) => (
-              <View style={uploadStyles.row}>
-                <Text style={uploadStyles.cellText}>{index + 1}</Text>
-                <Text style={[uploadStyles.cellText, { flex: 1 }]} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <TextInput
-                  style={uploadStyles.descInput}
-                  value={item.description}
-                  onChangeText={(t) => updateDescription(index, t)}
-                  placeholder="Description"
-                  placeholderTextColor={C.subText}
-                  editable={!uploading}
-                />
-                <Text
-                  style={[
-                    uploadStyles.cellText,
-                    {
-                      color:
-                        item.status === "uploaded"
-                          ? C.success
-                          : item.status === "failed"
-                          ? C.danger
-                          : C.icon,
-                    },
-                  ]}
-                >
-                  {item.status}
-                </Text>
-                <Pressable
-                  style={uploadStyles.removeBtn}
-                  onPress={() => removeAttachment(index)}
-                  disabled={uploading}
-                >
-                  <Ionicons name="trash-outline" size={20} color={C.danger} />
-                </Pressable>
-              </View>
-            )}
-            ListEmptyComponent={<Text style={uploadStyles.empty}>No attachments added.</Text>}
-            contentContainerStyle={!hasItems ? { flexGrow: 1, justifyContent: "center" } : undefined}
+            data={files}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            style={styles.fileList}
           />
-        </View>
+        </>
+      )}
 
-        <View style={uploadStyles.footer}>
-          <Pressable
-            style={[
-              uploadStyles.uploadBtn,
-              { opacity: uploading || !hasItems ? 0.6 : 1 },
-            ]}
-            onPress={handleUpload}
-            disabled={uploading || !hasItems}
-          >
-            {uploading ? (
-              <ActivityIndicator color={C.primaryBtnText} />
-            ) : (
-              <Text style={uploadStyles.uploadText}>Upload</Text>
-            )}
-          </Pressable>
-        </View>
+      {/* Upload Button */}
+      <View style={styles.footer}>
+        <Text style={styles.uploadLabel}>
+          Upload Attachments {totalCount > 0 && `(${uploadedCount}/${totalCount})`}
+        </Text>
+        <Text style={styles.uploadDesc}>
+          Upload all attachments to the server for order {saleOrderNumber}
+        </Text>
+        <TouchableOpacity 
+          style={[
+            styles.uploadButton, 
+            (uploading || totalCount === 0) && { opacity: 0.7 }
+          ]} 
+          onPress={uploadFiles}
+          disabled={uploading || totalCount === 0}
+        >
+          {uploading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+          )}
+          <Text style={styles.uploadButtonText}>
+            {uploading ? "Uploading..." : "Upload Attachments"}
+          </Text>
+        </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
-};
+}
 
-export default UploadAttachmentsModal;
-
-const uploadStyles = StyleSheet.create({
-  overlay: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  addButton: {
+    flexDirection: "row",
     justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  card: {
-    width: "100%",
-    maxWidth: 720,
-    backgroundColor: C.card,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
-    overflow: "hidden",
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-  },
-  title: { fontSize: 16, color: C.headerText, fontWeight: "600" },
-  body: { padding: 12, gap: 12 },
-  addBtn: {
-    alignSelf: "flex-start",
-    backgroundColor: C.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#ccc",
+    padding: 12,
     borderRadius: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    marginBottom: 16,
   },
-  addText: { color: C.primaryBtnText, fontWeight: "600" },
-  tableHead: {
+  addButtonText: { color: "#007bff", marginLeft: 6, fontWeight: "500" },
+  tableHeader: {
     flexDirection: "row",
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#f9f9f9",
     borderRadius: 6,
-    alignItems: "center",
-    gap: 8,
+    padding: 8,
+    marginBottom: 8,
   },
-  headText: {
-    flex: 1,
-    fontSize: 12,
-    color: C.subText,
-    fontWeight: "600",
+  headerCell: { 
+    flex: 1, 
+    fontWeight: "bold", 
+    textAlign: "center", 
+    fontSize: 12 
   },
   row: {
     flexDirection: "row",
+    borderBottomWidth: 1,
+    borderColor: "#eee",
+    paddingVertical: 8,
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
-    gap: 8,
   },
-  cellText: { width: 56, fontSize: 12, color: C.icon },
-  descInput: {
-    flex: 1,
-    height: 36,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 8,
-    paddingHorizontal: 8,
+  cell: { 
+    flex: 1, 
+    textAlign: "center", 
     fontSize: 12,
-    color: C.icon,
+    paddingHorizontal: 2,
   },
-  removeBtn: {
-    width: 40,
+  statusCell: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 4,
+    fontSize: 12,
+    paddingHorizontal: 4,
+    height: 28,
+  },
+  removeButton: {
+    padding: 4,
+  },
+  fileList: {
+    flex: 1,
+  },
+  emptyState: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 6,
-  },
-  empty: {
-    textAlign: "center",
-    color: C.subText,
-    paddingVertical: 24,
-  },
-  footer: {
-    padding: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.border,
-    alignItems: "flex-end",
-  },
-  uploadBtn: {
-    backgroundColor: C.primary,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    padding: 40,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#ccc",
     borderRadius: 8,
   },
-  uploadText: { color: C.primaryBtnText, fontWeight: "700" },
+  emptyText: { fontSize: 14, fontWeight: "500", marginTop: 8 },
+  footer: { 
+    marginTop: 16, 
+    alignItems: "center",
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  uploadLabel: { fontWeight: "bold", fontSize: 14 },
+  uploadDesc: { fontSize: 12, color: "#555", marginBottom: 10, textAlign: "center" },
+  uploadButton: {
+    flexDirection: "row",
+    backgroundColor: "#007bff",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: "center",
+    minWidth: 200,
+    justifyContent: "center",
+  },
+  uploadButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    marginLeft: 6,
+    fontSize: 14,
+  },
 });

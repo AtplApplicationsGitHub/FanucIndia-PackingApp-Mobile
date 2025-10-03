@@ -7,6 +7,7 @@ const BASE_URL = "https://fanuc.goval.app:444/api";
 const ORDERS_SUMMARY_URL = `${BASE_URL}/user-dashboard/orders-summary`;
 const ORDER_DETAILS_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/download-details`;
 const ORDER_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/data`;
+const ATTACHMENTS_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/attachments`;
 
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
@@ -43,6 +44,13 @@ export type OrdersSummaryItem = {
   status: string;
   totalMaterials: number;
   totalItems: number;
+};
+
+export type AttachmentItem = {
+  uri: string;
+  name: string;
+  type: string;
+  description?: string;
 };
 
 // ---------------- Helpers ----------------
@@ -130,10 +138,6 @@ export async function downloadOrderDetails(
 }
 
 // ---------------- API: POST (JSON file upload) ----------------
-/**
- * Uploads materials for a Sales Order as a JSON file in multipart/form-data.
- * Sends the payload as [...] in a file named "data.json".
- */
 export async function uploadIssueData(
   saleOrderNumber: string,
   items: StoredMaterialItem[],
@@ -183,5 +187,57 @@ export async function uploadIssueData(
     console.log("Upload successful:", result);
   } catch {
     console.log("Upload successful (no JSON in response)");
+  }
+}
+
+// ---------------- API: Upload Attachments ----------------
+export async function uploadAttachments(
+  saleOrderNumber: string,
+  attachments: AttachmentItem[],
+  token?: string
+): Promise<void> {
+  if (attachments.length === 0) {
+    throw new Error("No attachments to upload");
+  }
+
+  const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
+  const url = ATTACHMENTS_UPLOAD_URL.replace("{SO_NUMBER}", saleOrderNumber);
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const formData = new FormData();
+  
+  // Append each file to FormData
+  attachments.forEach((attachment, index) => {
+    formData.append("attachments", {
+      uri: attachment.uri,
+      type: attachment.type || "application/octet-stream",
+      name: attachment.name,
+    } as any);
+  });
+
+  const res = await withTimeout(
+    fetch(url, { 
+      method: "POST", 
+      headers, 
+      body: formData 
+    }), 
+    30000
+  );
+
+  if (!res.ok) {
+    const msg = await parseErrorBody(res);
+    throw new Error(`Attachment upload failed (${res.status}): ${msg}`);
+  }
+
+  // Success
+  try {
+    const result = await res.json();
+    console.log("Attachment upload successful:", result);
+  } catch {
+    console.log("Attachment upload successful (no JSON in response)");
   }
 }
