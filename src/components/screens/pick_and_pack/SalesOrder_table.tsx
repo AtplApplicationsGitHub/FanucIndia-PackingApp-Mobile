@@ -10,8 +10,6 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Feather } from "@expo/vector-icons";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { OrdersSummaryItem } from "../../Api/SalesOrder_server";
 
 type Props = {
@@ -28,8 +26,9 @@ type Props = {
 
   // State maps (keyed by saleOrderNumber)
   downloadedMap?: Record<string, boolean>;
-  completedMap?: Record<string, boolean>;
-  uploadedMap?: Record<string, boolean>;
+  issueCompletedMap?: Record<string, boolean>;
+  packCompletedMap?: Record<string, boolean>;
+  phaseMap?: Record<string, "issue" | "packing">;
 
   // Which SO is currently uploading (SO number) — null/undefined if none
   uploading?: string | null;
@@ -85,8 +84,9 @@ const Row: React.FC<{
   onUpload?: () => void;
   onDocument?: () => void;
   downloaded?: boolean;
-  completed?: boolean;
-  uploaded?: boolean;
+  issueCompleted?: boolean;
+  packCompleted?: boolean;
+  phase?: "issue" | "packing";
   uploading?: boolean;
 }> = ({
   item,
@@ -96,13 +96,25 @@ const Row: React.FC<{
   onUpload,
   onDocument,
   downloaded = false,
-  completed = false,
-  uploaded = false,
+  issueCompleted = false,
+  packCompleted = false,
+  phase = "issue",
   uploading = false,
 }) => {
+  const currentPhase = phase;
+  const isUploading = uploading;
+
   const statusText =
     (item as any)?.status ??
-    (completed ? "Completed" : downloaded ? "In progress" : "Not downloaded");
+    (isUploading
+      ? "Uploading..."
+      : !downloaded
+      ? "Not downloaded"
+      : currentPhase === "issue" && !issueCompleted
+      ? "Issuing in progress"
+      : currentPhase === "packing" && !packCompleted
+      ? "Packing in progress"
+      : "Ready to upload");
 
   const priorityText =
     (item as any)?.priority != null ? String((item as any).priority) : "-";
@@ -115,25 +127,31 @@ const Row: React.FC<{
       ? String((item as any).totalMaterials)
       : "-";
 
-  // Explicit action visibility
+  // Action visibility
   const showDownloadOnly = !downloaded;
-  const showViewAndDocs = downloaded && !completed; // after download show both View & Document
-  const showUploadAndDocs = completed && !uploaded;
-  const showDone = uploaded || (completed && uploaded);
+  const showProgressActions =
+    downloaded &&
+    ((currentPhase === "issue" && !issueCompleted) ||
+      (currentPhase === "packing" && !packCompleted));
+  const showReadyActions =
+    (currentPhase === "issue" && issueCompleted) ||
+    (currentPhase === "packing" && packCompleted);
+
+  const rowStyle = [
+    styles.row,
+    showReadyActions && { backgroundColor: C.greenBg, borderColor: C.greenBorder },
+    isUploading && { opacity: 0.9 },
+  ];
 
   return (
     <Pressable
       onPress={onPress}
-      disabled={!onPress || uploading}
-      style={[
-        styles.row,
-        completed && { backgroundColor: C.greenBg, borderColor: C.greenBorder },
-        uploading && { opacity: 0.9 },
-      ]}
+      disabled={!onPress || isUploading}
+      style={rowStyle}
     >
       {/* SO */}
       <View style={[styles.cell, { flex: Col.so }]}>
-        <Text style={[styles.soText, completed && { color: C.greenText }]}>
+        <Text style={[styles.soText, showReadyActions && { color: C.greenText }]}>
           {item.saleOrderNumber}
         </Text>
       </View>
@@ -144,11 +162,11 @@ const Row: React.FC<{
           numberOfLines={1}
           style={[
             styles.statusText,
-            completed ? { color: C.greenText, fontWeight: "700" } : undefined,
-            uploading ? { color: C.blue } : undefined,
+            showReadyActions ? { color: C.greenText, fontWeight: "700" } : undefined,
+            isUploading ? { color: C.blue } : undefined,
           ]}
         >
-          {uploading ? "Uploading..." : statusText}
+          {statusText}
         </Text>
       </View>
 
@@ -173,80 +191,77 @@ const Row: React.FC<{
           {showDownloadOnly && onDownload && (
             <IconTap
               onPress={onDownload}
-              disabled={uploading}
+              disabled={isUploading}
               ariaLabel="Download order details"
             >
               <Ionicons
                 name="download-outline"
                 size={22}
-                color={uploading ? C.gray : C.icon}
+                color={isUploading ? C.gray : C.icon}
               />
             </IconTap>
           )}
 
-          {showViewAndDocs && (
+          {showProgressActions && (
             <>
               {onView && (
                 <IconTap
                   onPress={onView}
-                  disabled={uploading}
+                  disabled={isUploading}
                   ariaLabel="View order details"
                 >
                   <Ionicons
                     name="eye-outline"
                     size={22}
-                    color={uploading ? C.gray : C.icon}
+                    color={isUploading ? C.gray : C.icon}
                   />
                 </IconTap>
               )}
               {onDocument && (
                 <IconTap
                   onPress={onDocument}
-                  disabled={uploading}
+                  disabled={isUploading}
                   ariaLabel="Open documents"
                 >
-                  <MaterialCommunityIcons
-  name="file-upload-outline" // perfect "document upload" combo
-  size={22}
-  color={uploading ? C.gray : C.icon}
-/>
+                  <Ionicons
+                    name="document-outline"
+                    size={22}
+                    color={isUploading ? C.gray : C.icon}
+                  />
                 </IconTap>
               )}
             </>
           )}
 
-          {showUploadAndDocs && (
+          {showReadyActions && (
             <>
-              {uploading ? (
+              {isUploading ? (
                 <ActivityIndicator size="small" color={C.blue} />
               ) : (
                 onUpload && (
-                  <IconTap
-                    onPress={onUpload}
-                    ariaLabel="Upload data"
-                  >
-                    <Feather name="upload-cloud" size={22} color={C.blue} />
+                  <IconTap onPress={onUpload} ariaLabel="Upload data">
+                    <Ionicons
+                      name="cloud-upload-outline"
+                      size={22}
+                      color={C.blue}
+                    />
                   </IconTap>
                 )
               )}
               {onDocument && (
                 <IconTap
                   onPress={onDocument}
-                  disabled={uploading}
+                  disabled={isUploading}
                   ariaLabel="Open documents"
                 >
                   <Ionicons
                     name="document-outline"
                     size={22}
-                    color={uploading ? C.gray : C.icon}
+                    color={isUploading ? C.gray : C.icon}
                   />
                 </IconTap>
               )}
             </>
-          )}
-
-          {showDone && (
-            <Ionicons name="checkmark-done-outline" size={22} color={C.greenText} />
           )}
         </View>
       </View>
@@ -264,8 +279,9 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
   onUpload,
   onDocument,
   downloadedMap = {},
-  completedMap = {},
-  uploadedMap = {},
+  issueCompletedMap = {},
+  packCompletedMap = {},
+  phaseMap = {},
   uploading = null,
 }) => {
   return (
@@ -303,8 +319,9 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
         renderItem={({ item }) => {
           const so = item.saleOrderNumber;
           const downloaded = !!downloadedMap[so];
-          const completed = !!completedMap[so];
-          const uploaded = !!uploadedMap[so];
+          const issueCompleted = !!issueCompletedMap[so];
+          const packCompleted = !!packCompletedMap[so];
+          const phase = phaseMap[so] || "issue";
           const isUploading = uploading === so;
 
           return (
@@ -316,8 +333,9 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
               onUpload={onUpload ? () => onUpload(item) : undefined}
               onDocument={onDocument ? () => onDocument(item) : undefined}
               downloaded={downloaded}
-              completed={completed}
-              uploaded={uploaded}
+              issueCompleted={issueCompleted}
+              packCompleted={packCompleted}
+              phase={phase}
               uploading={isUploading}
             />
           );

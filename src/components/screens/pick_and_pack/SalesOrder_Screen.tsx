@@ -37,18 +37,24 @@ const SalesOrdersScreen: React.FC = () => {
 
   // State maps
   const [downloadedMap, setDownloadedMap] = useState<Record<string, boolean>>({});
-  const [completedMap, setCompletedMap] = useState<Record<string, boolean>>({});
-  const [uploadedMap, setUploadedMap] = useState<Record<string, boolean>>({});
+  const [issueCompletedMap, setIssueCompletedMap] = useState<Record<string, boolean>>({});
+  const [packCompletedMap, setPackCompletedMap] = useState<Record<string, boolean>>({});
+  const [phaseMap, setPhaseMap] = useState<Record<string, "issue" | "packing">>({});
 
-  const computeCompletion = (items: StoredMaterialItem[] | undefined) => {
+  const computeIssueCompletion = (items: StoredMaterialItem[] | undefined) => {
     if (!items || items.length === 0) return false;
     return items.every((it) => (it.issuedQty ?? 0) >= (it.requiredQty ?? 0));
   };
 
+  const computePackCompletion = (items: StoredMaterialItem[] | undefined) => {
+    if (!items || items.length === 0) return false;
+    return items.every((it) => (it.packedQty ?? 0) >= (it.requiredQty ?? 0));
+  };
+
   const refreshMaps = useCallback(async (orders: OrdersSummaryItem[]) => {
     const dMap: Record<string, boolean> = {};
-    const cMap: Record<string, boolean> = {};
-    const uMap: Record<string, boolean> = {};
+    const iMap: Record<string, boolean> = {};
+    const pMap: Record<string, boolean> = {};
 
     await Promise.all(
       orders.map(async (o) => {
@@ -59,22 +65,22 @@ const SalesOrdersScreen: React.FC = () => {
         if (has) {
           try {
             const stored = await getOrderDetails(so);
-            cMap[so] = computeCompletion(stored?.orderDetails);
-            uMap[so] = (stored as any)?.uploaded ?? false; // keep default false if not present
+            iMap[so] = computeIssueCompletion(stored?.orderDetails);
+            pMap[so] = computePackCompletion(stored?.orderDetails);
           } catch {
-            cMap[so] = false;
-            uMap[so] = false;
+            iMap[so] = false;
+            pMap[so] = false;
           }
         } else {
-          cMap[so] = false;
-          uMap[so] = false;
+          iMap[so] = false;
+          pMap[so] = false;
         }
       })
     );
 
     setDownloadedMap(dMap);
-    setCompletedMap(cMap);
-    setUploadedMap(uMap);
+    setIssueCompletedMap(iMap);
+    setPackCompletedMap(pMap);
   }, []);
 
   const load = useCallback(async () => {
@@ -82,6 +88,12 @@ const SalesOrdersScreen: React.FC = () => {
     try {
       const orders = await fetchOrdersSummary();
       setList(orders);
+      setPhaseMap(
+        orders.reduce(
+          (acc, o) => ({ ...acc, [o.saleOrderNumber]: "issue" }),
+          {} as Record<string, "issue" | "packing">
+        )
+      );
       await refreshMaps(orders);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to load orders");
@@ -95,6 +107,12 @@ const SalesOrdersScreen: React.FC = () => {
     try {
       const orders = await fetchOrdersSummary();
       setList(orders);
+      setPhaseMap(
+        orders.reduce(
+          (acc, o) => ({ ...acc, [o.saleOrderNumber]: "issue" }),
+          {} as Record<string, "issue" | "packing">
+        )
+      );
       await refreshMaps(orders);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Refresh failed");
@@ -145,18 +163,33 @@ const SalesOrdersScreen: React.FC = () => {
           throw new Error("No order details found. Please download first.");
         }
         await uploadIssueData(so, stored.orderDetails);
+        const packComplete = computePackCompletion(stored?.orderDetails);
         await deleteOrderDetails(so);
-        const newList = list.filter((order) => order.saleOrderNumber !== so);
+        const currentPhase = phaseMap[so] || "issue";
+        let newList = list;
+        if (packComplete) {
+          newList = list.filter((order) => order.saleOrderNumber !== so);
+          setPhaseMap((prev) => {
+            const newP = { ...prev };
+            delete newP[so];
+            return newP;
+          });
+        } else {
+          setPhaseMap((prev) => ({ ...prev, [so]: "packing" }));
+        }
         setList(newList);
         await refreshMaps(newList);
-        Alert.alert("Uploaded", `Order ${so} data uploaded successfully.`);
+        const msg = packComplete
+          ? "Order fully completed and uploaded."
+          : `Issue data uploaded. Download again to proceed with packing.`;
+        Alert.alert("Uploaded", msg);
       } catch (e: any) {
         Alert.alert("Upload failed", e?.message ?? "Try again.");
       } finally {
         setUploading(null);
       }
     },
-    [list, refreshMaps]
+    [list, phaseMap, refreshMaps]
   );
 
   return (
@@ -179,8 +212,9 @@ const SalesOrdersScreen: React.FC = () => {
             onUpload={handleUpload}
             onDocument={handleDocument}
             downloadedMap={downloadedMap}
-            completedMap={completedMap}
-            uploadedMap={uploadedMap}
+            issueCompletedMap={issueCompletedMap}
+            packCompletedMap={packCompletedMap}
+            phaseMap={phaseMap}
             uploading={uploading}
           />
         )}

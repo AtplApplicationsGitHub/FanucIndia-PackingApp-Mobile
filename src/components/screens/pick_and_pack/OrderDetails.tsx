@@ -68,6 +68,7 @@ type DescModalData = {
   requiredQty?: number;
   packingStage?: string;
   issuedQty?: number;
+  packedQty?: number;
 };
 
 const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
@@ -114,6 +115,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
           const withIssued: MaterialRow[] = (data.orderDetails as any[]).map((m: any) => ({
             ...m,
             issuedQty: typeof m.issuedQty === "number" ? m.issuedQty : 0,
+            packedQty: typeof m.packedQty === "number" ? m.packedQty : 0,
           }));
           withIssued.sort((a, b) =>
             String(a.materialCode ?? "").localeCompare(String(b.materialCode ?? ""), undefined, {
@@ -142,13 +144,17 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     return () => sub.remove();
   }, []);
 
-  const { totalItems, completedItems, totalRequired, totalIssued } = useMemo(() => {
+  const { totalItems, completedItems, totalRequired, totalIssued, completedPackedItems, totalPacked } = useMemo(() => {
     const ti = materials.length;
     const ci = materials.filter((m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)).length;
+    const cp = materials.filter((m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)).length;
     const tr = materials.reduce((s, m) => s + (Number(m.requiredQty) || 0), 0);
     const tiq = materials.reduce((s, m) => s + (Number(m.issuedQty) || 0), 0);
-    return { totalItems: ti, completedItems: ci, totalRequired: tr, totalIssued: tiq };
+    const tpq = materials.reduce((s, m) => s + (Number(m.packedQty) || 0), 0);
+    return { totalItems: ti, completedItems: ci, completedPackedItems: cp, totalRequired: tr, totalIssued: tiq, totalPacked: tpq };
   }, [materials]);
+
+  const isOrderIssuedComplete = completedItems === totalItems;
 
   const persist = (rows: MaterialRow[]) => {
     saveOrderDetails(saleOrderNumber, rows as unknown as StoredMaterialItem[]);
@@ -242,6 +248,24 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     });
   };
 
+  const setPackedQtyAt = (index: number, raw: string) => {
+    const digits = raw.replace(/[^\d]/g, "");
+    const next = digits === "" ? "0" : digits;
+    setMaterials((prev) => {
+      const clone = [...prev];
+      const row = clone[index];
+      const req = Number(row.requiredQty) || 0;
+      let val = Number(next);
+      if (val > req) {
+        openDialog("Please enter a valid pack number.", "", "danger");
+        val = req;
+      }
+      if (val < 0) val = 0;
+      clone[index] = { ...row, packedQty: val };
+      return clone;
+    });
+  };
+
   const saveOnEndEditing = () => persist(materials);
 
   // ----- Loading -----
@@ -280,15 +304,21 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             {/* Summary cards */}
             <View style={styles.chipsRow}>
               <View style={styles.chip}>
-                <Text style={styles.chipTitle}>Total Issues</Text>
+                <Text style={styles.chipTitle}>Completed Items</Text>
                 <Text style={styles.chipValue}>
                   {completedItems}/{totalItems}
                 </Text>
               </View>
               <View style={styles.chip}>
-                <Text style={styles.chipTitle}>Required vs Issued</Text>
+                <Text style={styles.chipTitle}>Issued</Text>
                 <Text style={styles.chipValue}>
                   {totalIssued}/{totalRequired}
+                </Text>
+              </View>
+              <View style={styles.chip}>
+                <Text style={styles.chipTitle}>Packed</Text>
+                <Text style={styles.chipValue}>
+                  {totalPacked}/{totalRequired}
                 </Text>
               </View>
             </View>
@@ -327,20 +357,20 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             {/* Table head */}
             <View style={styles.card}>
               <View style={styles.tableHead}>
-                <View  style={[styles.cell, styles.flex18, styles.left]}>
+                <View  style={[styles.cell, styles.flex15, styles.left]}>
                   <Text style={styles.headText}>Material Code</Text>
                 </View>
-                <View style={[styles.cell, styles.flex40, styles.left]}>
+                <View style={[styles.cell, styles.flex45, styles.left]}>
                   <Text style={styles.headText}>Description</Text>
-                </View>
-                <View style={[styles.cell, styles.flex16, styles.centerAlign]}>
-                  <Text style={styles.headText}>Bin No</Text>
                 </View>
                 <View style={[styles.cell, styles.flex12, styles.right]}>
                   <Text style={styles.headText}>Qty</Text>
                 </View>
-                <View style={[styles.cell, styles.flex10, styles.centerAlign]}>
+                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                   <Text style={styles.headText}>Issue</Text>
+                </View>
+                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                  <Text style={styles.headText}>Packing</Text>
                 </View>
               </View>
             </View>
@@ -348,7 +378,9 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
         }
         renderItem={({ item, index }) => {
           const isDone = Number(item.issuedQty || 0) >= Number(item.requiredQty || 0);
+          const isPacked = Number(item.packedQty || 0) >= Number(item.requiredQty || 0);
           const pillDone = isDone && (item.requiredQty ?? 0) > 0;
+          const pillPacked = isPacked && (item.requiredQty ?? 0) > 0;
           return (
             <View style={styles.card}>
               <Pressable
@@ -364,14 +396,15 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                       binNo: item.binNo as any,
                       adf: String(item.adf ?? ""),
                       requiredQty: Number(item.requiredQty ?? 0),
-                      packingStage: String(item.packingStage ?? ""),
+
                       issuedQty: Number(item.issuedQty ?? 0),
+                      packedQty: Number(item.packedQty ?? 0),
                     },
                   })
                 }
                 style={[styles.row, isDone && { backgroundColor: C.greenBg }]}
               >
-                <View style={[styles.cell, styles.flex18, styles.left]}>
+                <View style={[styles.cell, styles.flex15, styles.left]}>
                   <Text
                     style={[
                       styles.metricText,
@@ -383,19 +416,13 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                   </Text>
                 </View>
 
-                <View style={[styles.cell, styles.flex40, styles.left]}>
+                <View style={[styles.cell, styles.flex45, styles.left]}>
                   <Text
                     style={[styles.metricText, isDone && { color: C.greenText }]}
-                    numberOfLines={1}
+                    numberOfLines={2}
                     ellipsizeMode="tail"
                   >
                     {item.description}
-                  </Text>
-                </View>
-
-                <View style={[styles.cell, styles.flex16, styles.centerAlign]}>
-                  <Text style={[styles.metricText, isDone && { color: C.greenText }]} numberOfLines={1}>
-                    {item.binNo}
                   </Text>
                 </View>
 
@@ -405,7 +432,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                   </Text>
                 </View>
 
-                <View style={[styles.cell, styles.flex10, styles.centerAlign]}>
+                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                   <TextInput
                     value={String(item.issuedQty ?? 0)}
                     onChangeText={(t) => setIssuedQtyAt(index, t)}
@@ -413,6 +440,23 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                     inputMode="numeric"
                     maxLength={3}
                     style={[styles.issueInput, pillDone && { borderColor: C.greenText + "66" }]}
+                    onEndEditing={saveOnEndEditing}
+                  />
+                </View>
+
+                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                  <TextInput
+                    value={String(item.packedQty ?? 0)}
+                    onChangeText={(t) => setPackedQtyAt(index, t)}
+                    keyboardType="number-pad"
+                    inputMode="numeric"
+                    maxLength={3}
+                    editable={isOrderIssuedComplete}
+                    style={[
+                      styles.issueInput, 
+                      pillPacked && { borderColor: C.greenText + "66" },
+                      !isOrderIssuedComplete && { backgroundColor: "#f3f4f6", color: C.subText }
+                    ]}
                     onEndEditing={saveOnEndEditing}
                   />
                 </View>
@@ -522,6 +566,10 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                   <Text style={styles.infoSmallLabel}>Issued Qty</Text>
                   <Text style={styles.infoSmallValue}>{String(descModal.data?.issuedQty ?? 0)}</Text>
                 </View>
+                <View style={styles.infoCardSmall}>
+                  <Text style={styles.infoSmallLabel}>Packed Qty</Text>
+                  <Text style={styles.infoSmallValue}>{String(descModal.data?.packedQty ?? 0)}</Text>
+                </View>
               </View>
 
               <View style={styles.progressWrap}>
@@ -546,6 +594,31 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                 </View>
                 <Text style={styles.progressText}>
                   {Number(descModal.data?.issuedQty ?? 0)} / {Number(descModal.data?.requiredQty ?? 0)} issued
+                </Text>
+              </View>
+
+              <View style={styles.progressWrap}>
+                <View style={styles.progressBarTrack}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      {
+                        width: `${
+                          Math.min(
+                            100,
+                            Math.round(
+                              ((Number(descModal.data?.packedQty ?? 0) /
+                                Math.max(1, Number(descModal.data?.requiredQty ?? 0))) *
+                                100)
+                            )
+                          )
+                        }%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.progressText}>
+                  {Number(descModal.data?.packedQty ?? 0)} / {Number(descModal.data?.requiredQty ?? 0)} packed
                 </Text>
               </View>
             </View>
@@ -653,7 +726,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: C.border,
   },
-  headText: { color: C.subText, fontWeight: "600" },
+  headText: { color: C.subText, fontWeight: "600", fontSize: 12 },
 
   row: {
     flexDirection: "row",
@@ -666,11 +739,10 @@ const styles = StyleSheet.create({
   right: { alignItems: "flex-end" },
   centerAlign: { alignItems: "center" },
 
-  flex18: { flex: 1.8 },
-  flex40: { flex: 4 },
-  flex16: { flex: 1.6 },
+  flex15: { flex: 1.5 },
+  flex45: { flex: 4.5 },
   flex12: { flex: 1.2 },
-  flex10: { flex: 1 },
+  flex14: { flex: 1.4 },
 
   metricText: { fontSize: 14, fontWeight: "500", color: C.headerText },
   sep: { height: 1, backgroundColor: C.border },
@@ -686,6 +758,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: C.headerText,
     fontWeight: "700",
+
   },
 
   // Full-screen camera
@@ -762,15 +835,17 @@ const styles = StyleSheet.create({
   },
   infoValue: { fontSize: 14, color: C.headerText, lineHeight: 20 },
 
-  infoGrid: { flexDirection: "row", gap: 10 },
+  infoGrid: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
   infoCardSmall: {
     flex: 1,
+    minWidth: 100,
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: C.border,
     backgroundColor: "#FAFAFA",
+    marginBottom: 10,
   },
   infoSmallLabel: { fontSize: 11, color: C.subText, fontWeight: "700" },
   infoSmallValue: { fontSize: 16, color: C.headerText, fontWeight: "800", marginTop: 2 },

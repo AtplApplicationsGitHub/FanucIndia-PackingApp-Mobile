@@ -73,7 +73,7 @@ function normalizeForUpload(item: StoredMaterialItem) {
     Bin_No: toStr(it.binNo, ""),
     A_D_F: toStr(it.adf, ""),
     Required_Qty: toNum(it.requiredQty, 0),
-    Packing_stage: toNum(it.packingStage, 0),
+    Packing_stage: toNum(it. packedQty, 0),
     Issue_stage: toNum(it.issuedQty, 0),
   };
 }
@@ -130,7 +130,7 @@ export async function downloadOrderDetails(
     binNo: toStr(row?.Bin_No, ""),
     adf: toStr(row?.A_D_F, ""),
     requiredQty: toNum(row?.Required_Qty, 0),
-    packingStage: toNum(row?.Packing_stage, 0),
+   packedQty: toNum(row?.Packing_stage, 0),
     issuedQty: toNum((row as any)?.Issue_stage, 0),
   })) as any;
 

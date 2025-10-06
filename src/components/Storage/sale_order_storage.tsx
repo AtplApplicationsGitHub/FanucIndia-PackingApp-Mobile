@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const KEY = (so: string) => `order:${so}`;
 
-// Stored item shape (now includes issuedQty and additional fields)
+// Stored item shape (now includes issuedQty, packedQty, and additional fields)
 export type StoredMaterialItem = {
   materialCode: string;
   description: string;
@@ -13,8 +13,8 @@ export type StoredMaterialItem = {
   binNo: string;
   adf: string;
   requiredQty: number;
-  packingStage: number;
   issuedQty: number;
+  packedQty: number;
 };
 
 export type StoredOrder = {
@@ -27,7 +27,7 @@ export async function saveOrderDetails(
   saleOrderNumber: string,
   items: StoredMaterialItem[]
 ): Promise<void> {
-  // normalize: ensure each item has issuedQty clamped
+  // normalize: ensure each item has issuedQty and packedQty clamped
   const normalized: StoredMaterialItem[] = items.map((it) => ({
     materialCode: it.materialCode || "",
     description: it.description || "",
@@ -37,8 +37,8 @@ export async function saveOrderDetails(
     binNo: it.binNo || "",
     adf: it.adf || "",
     requiredQty: Number(it.requiredQty) || 0,
-    packingStage: Number(it.packingStage) || 0,
     issuedQty: Math.max(0, Math.min(it.issuedQty, it.requiredQty)),
+    packedQty: Math.max(0, Math.min(it.packedQty || 0, it.requiredQty)),
   }));
   const payload: StoredOrder = { saleOrderNumber, orderDetails: normalized };
   await AsyncStorage.setItem(KEY(saleOrderNumber), JSON.stringify(payload));
@@ -51,10 +51,11 @@ export async function getOrderDetails(
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as StoredOrder;
-    // Ensure issuedQty is present and clamped (for legacy data)
+    // Ensure issuedQty and packedQty are present and clamped (for legacy data)
     parsed.orderDetails = parsed.orderDetails.map((it) => ({
       ...it,
       issuedQty: Math.max(0, Math.min(it.issuedQty ?? 0, it.requiredQty)),
+      packedQty: Math.max(0, Math.min(it.packedQty ?? 0, it.requiredQty)),
     }));
     return parsed;
   } catch {
@@ -93,6 +94,34 @@ export async function updateIssuedQty(
     }
     // inc
     return { ...it, issuedQty: clamp((it.issuedQty ?? 0) + Number(valueOrStep || 1)) };
+  });
+
+  await saveOrderDetails(saleOrderNumber, items);
+  return { saleOrderNumber, orderDetails: items };
+}
+
+// Increment/decrement/set packed and autosave
+export async function updatePackedQty(
+  saleOrderNumber: string,
+  materialCode: string,
+  action: "inc" | "dec" | "set" = "inc",
+  valueOrStep = 1
+): Promise<StoredOrder | null> {
+  const current = await getOrderDetails(saleOrderNumber);
+  if (!current) return null;
+
+  const items = current.orderDetails.map((it) => {
+    if (it.materialCode !== materialCode) return it;
+
+    const clamp = (n: number) => Math.max(0, Math.min(n, it.requiredQty));
+    if (action === "set") {
+      return { ...it, packedQty: clamp(Number(valueOrStep) || 0) };
+    }
+    if (action === "dec") {
+      return { ...it, packedQty: clamp((it.packedQty ?? 0) - Number(valueOrStep || 1)) };
+    }
+    // inc
+    return { ...it, packedQty: clamp((it.packedQty ?? 0) + Number(valueOrStep || 1)) };
   });
 
   await saveOrderDetails(saleOrderNumber, items);
