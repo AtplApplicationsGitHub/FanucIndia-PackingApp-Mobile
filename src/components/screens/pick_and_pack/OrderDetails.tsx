@@ -49,6 +49,8 @@ const C = {
   border: "#E5E7EB",
   greenBg: "#E6F9EC",
   greenText: "#166534",
+  yellowBg: "#FEF3C7",
+  yellowText: "#92400E",
   primaryBtn: "#111827",
   primaryBtnText: "#FFFFFF",
   icon: "#111827",
@@ -160,7 +162,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     saveOrderDetails(saleOrderNumber, rows as unknown as StoredMaterialItem[]);
   };
 
-  const incrementIssueForCode = (materialCodeInput: string) => {
+  const incrementForCode = (materialCodeInput: string) => {
     const codeTrim = materialCodeInput.trim();
     if (!codeTrim) {
       openDialog("Please scan or type a material code.", "", "danger");
@@ -180,15 +182,27 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
       const clone = [...prev];
       const row = clone[idx];
       const req = Number(row.requiredQty) || 0;
-      const cur = Number(row.issuedQty) || 0;
 
-      if (cur >= req) {
-        openDialog("Already complete", "This material is already fully issued.", "danger");
-        return prev;
+      if (isOrderIssuedComplete) {
+        // Packing stage
+        const curPacked = Number(row.packedQty) || 0;
+        if (curPacked >= req) {
+          openDialog("Already complete", "This material is already fully packed.", "danger");
+          return prev;
+        }
+        const nextPacked = curPacked + 1;
+        clone[idx] = { ...row, packedQty: nextPacked };
+      } else {
+        // Issue stage
+        const curIssued = Number(row.issuedQty) || 0;
+        if (curIssued >= req) {
+          openDialog("Already complete", "This material is already fully issued.", "danger");
+          return prev;
+        }
+        const nextIssued = curIssued + 1;
+        clone[idx] = { ...row, issuedQty: nextIssued };
       }
 
-      const nextIssued = cur + 1;
-      clone[idx] = { ...row, issuedQty: nextIssued };
       persist(clone);
       return clone;
     });
@@ -196,7 +210,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     setCode("");
   };
 
-  const onSubmit = () => incrementIssueForCode(code);
+  const onSubmit = () => incrementForCode(code);
 
   // Scanner
   const openScanner = async () => {
@@ -222,7 +236,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     if (!data) return;
     setScanLock(true);
     setCode(data);
-    incrementIssueForCode(data);
+    incrementForCode(data);
     setTimeout(() => {
       setCameraOpen(false);
       setScanLock(false);
@@ -280,389 +294,344 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     );
   }
 
-  // ===== Main render: one FlatList controls the entire page (header + rows) =====
+  // ===== Main render: fixed header + scrollable body =====
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
-      <FlatList
-        data={materials}
-        keyExtractor={(item, index) => `${item.materialCode}-${index}`}
-        contentContainerStyle={styles.listContent}
-        style={styles.list}
-        ItemSeparatorComponent={() => <View style={styles.sep} />}
-        // Make scrolling solid & predictable:
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.select({ ios: "on-drag", android: "on-drag" })}
-        showsVerticalScrollIndicator
-        automaticallyAdjustContentInsets={false}
-        contentInsetAdjustmentBehavior="never"
-        removeClippedSubviews
-        initialNumToRender={20}
-        maxToRenderPerBatch={20}
-        windowSize={11}
-        ListHeaderComponent={
-          <View>
-            {/* Summary cards */}
-            <View style={styles.chipsRow}>
-              <View style={styles.chip}>
-                <Text style={styles.chipTitle}>Completed Items</Text>
-                <Text style={styles.chipValue}>
-                  {completedItems}/{totalItems}
-                </Text>
-              </View>
-              <View style={styles.chip}>
-                <Text style={styles.chipTitle}>Issued</Text>
-                <Text style={styles.chipValue}>
-                  {totalIssued}/{totalRequired}
-                </Text>
-              </View>
-              <View style={styles.chip}>
-                <Text style={styles.chipTitle}>Packed</Text>
-                <Text style={styles.chipValue}>
-                  {totalPacked}/{totalRequired}
-                </Text>
-              </View>
+      <View style={styles.content}>
+        {/* Fixed header */}
+        <View style={styles.fixedWrapper}>
+          {/* Summary cards */}
+          <View style={styles.chipsRow}>
+            <View style={styles.chip}>
+              <Text style={styles.chipTitle}>Completed Items</Text>
+              <Text style={styles.chipValue}>
+                {completedItems}/{totalItems}
+              </Text>
             </View>
-
-            {/* Input + scan + submit */}
-            <View style={styles.inputRow}>
-              <View style={styles.inputWrap}>
-                <TextInput
-                  ref={inputRef}
-                  style={styles.input}
-                  placeholder="Scan / Enter Material Code"
-                  placeholderTextColor={C.subText}
-                  value={code}
-                  onChangeText={setCode}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  returnKeyType="done"
-                  onSubmitEditing={onSubmit}
-                  autoFocus
-                />
-                <Pressable
-                  onPress={openScanner}
-                  style={styles.inputIconBtn}
-                  accessibilityLabel="Open scanner"
-                  hitSlop={10}
-                >
-                  <Ionicons name="scan-outline" size={22} color={C.icon} />
-                </Pressable>
-              </View>
-
-              <Pressable style={styles.primaryBtn} onPress={onSubmit}>
-                <Text style={styles.primaryBtnText}>Submit</Text>
-              </Pressable>
+            <View style={styles.chip}>
+              <Text style={styles.chipTitle}>Issued</Text>
+              <Text style={styles.chipValue}>
+                {totalIssued}/{totalRequired}
+              </Text>
             </View>
-
-            {/* Table head */}
-            <View style={styles.card}>
-              <View style={styles.tableHead}>
-                <View  style={[styles.cell, styles.flex15, styles.left]}>
-                  <Text style={styles.headText}>Material Code</Text>
-                </View>
-                <View style={[styles.cell, styles.flex45, styles.left]}>
-                  <Text style={styles.headText}>Description</Text>
-                </View>
-                <View style={[styles.cell, styles.flex12, styles.right]}>
-                  <Text style={styles.headText}>Qty</Text>
-                </View>
-                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
-                  <Text style={styles.headText}>Issue</Text>
-                </View>
-                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
-                  <Text style={styles.headText}>Packing</Text>
-                </View>
-              </View>
+            <View style={styles.chip}>
+              <Text style={styles.chipTitle}>Packed</Text>
+              <Text style={styles.chipValue}>
+                {totalPacked}/{totalRequired}
+              </Text>
             </View>
           </View>
-        }
-        renderItem={({ item, index }) => {
-          const isDone = Number(item.issuedQty || 0) >= Number(item.requiredQty || 0);
-          const isPacked = Number(item.packedQty || 0) >= Number(item.requiredQty || 0);
-          const pillDone = isDone && (item.requiredQty ?? 0) > 0;
-          const pillPacked = isPacked && (item.requiredQty ?? 0) > 0;
-          return (
-            <View style={styles.card}>
+
+          {/* Input + scan + submit */}
+          <View style={styles.inputRow}>
+            <View style={styles.inputWrap}>
+              <TextInput
+                ref={inputRef}
+                style={styles.input}
+                placeholder="Scan / Enter Material Code"
+                placeholderTextColor={C.subText}
+                value={code}
+                onChangeText={setCode}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                returnKeyType="done"
+                onSubmitEditing={onSubmit}
+                autoFocus
+              />
               <Pressable
-                onPress={() =>
-                  setDescModal({
-                    visible: true,
-                    data: {
-                      materialCode: String(item.materialCode ?? ""),
-                      description: String(item.description ?? ""),
-                      batchNo: String(item.batchNo ?? ""),
-                      soDonorBatch: String(item.soDonorBatch ?? ""),
-                      certNo: String(item.certNo ?? ""),
-                      binNo: item.binNo as any,
-                      adf: String(item.adf ?? ""),
-                      requiredQty: Number(item.requiredQty ?? 0),
-
-                      issuedQty: Number(item.issuedQty ?? 0),
-                      packedQty: Number(item.packedQty ?? 0),
-                    },
-                  })
-                }
-                style={[styles.row, isDone && { backgroundColor: C.greenBg }]}
+                onPress={openScanner}
+                style={styles.inputIconBtn}
+                accessibilityLabel="Open scanner"
+                hitSlop={10}
               >
-                <View style={[styles.cell, styles.flex15, styles.left]}>
-                  <Text
-                    style={[
-                      styles.metricText,
-                      isDone && { color: C.greenText, fontWeight: "700" },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {item.materialCode}
-                  </Text>
-                </View>
-
-                <View style={[styles.cell, styles.flex45, styles.left]}>
-                  <Text
-                    style={[styles.metricText, isDone && { color: C.greenText }]}
-                    numberOfLines={2}
-                    ellipsizeMode="tail"
-                  >
-                    {item.description}
-                  </Text>
-                </View>
-
-                <View style={[styles.cell, styles.flex12, styles.right]}>
-                  <Text style={[styles.metricText, isDone && { color: C.greenText, fontWeight: "700" }]}>
-                    {item.requiredQty}
-                  </Text>
-                </View>
-
-                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
-                  <TextInput
-                    value={String(item.issuedQty ?? 0)}
-                    onChangeText={(t) => setIssuedQtyAt(index, t)}
-                    keyboardType="number-pad"
-                    inputMode="numeric"
-                    maxLength={3}
-                    style={[styles.issueInput, pillDone && { borderColor: C.greenText + "66" }]}
-                    onEndEditing={saveOnEndEditing}
-                  />
-                </View>
-
-                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
-                  <TextInput
-                    value={String(item.packedQty ?? 0)}
-                    onChangeText={(t) => setPackedQtyAt(index, t)}
-                    keyboardType="number-pad"
-                    inputMode="numeric"
-                    maxLength={3}
-                    editable={isOrderIssuedComplete}
-                    style={[
-                      styles.issueInput, 
-                      pillPacked && { borderColor: C.greenText + "66" },
-                      !isOrderIssuedComplete && { backgroundColor: "#f3f4f6", color: C.subText }
-                    ]}
-                    onEndEditing={saveOnEndEditing}
-                  />
-                </View>
+                <Ionicons name="scan-outline" size={22} color={C.icon} />
               </Pressable>
             </View>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={styles.subText}>No materials found.</Text>
-          </View>
-        }
-        ListFooterComponent={<View style={{ height: 20 }} />}
-      />
 
-      {/* Full-screen Scanner */}
-      <Modal
-        visible={cameraOpen}
-        onRequestClose={closeScanner}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        transparent={false}
-      >
-        <StatusBar hidden />
-        <View style={styles.fullscreenCameraWrap}>
-          <CameraView
-            style={styles.fullscreenCamera}
-            facing="back"
-            barcodeScannerSettings={{
-              barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e"],
-            }}
-            onBarcodeScanned={scanLock ? undefined : onBarcodeScanned}
-          />
-
-          <View style={styles.fullscreenTopBar}>
-            <Text style={styles.fullscreenTitle}>Scan a code</Text>
-            <Pressable onPress={closeScanner} style={styles.fullscreenCloseBtn}>
-              <Ionicons name="close" size={22} color="#fff" />
+            <Pressable style={styles.primaryBtn} onPress={onSubmit}>
+              <Text style={styles.primaryBtnText}>Submit</Text>
             </Pressable>
           </View>
 
-          <View style={styles.fullscreenBottomBar}>
-            <Text style={styles.fullscreenHint}>Align the code within the frame</Text>
+          {/* Fixed Table head */}
+          <View style={styles.card}>
+            <View style={styles.tableHead}>
+              <View  style={[styles.cell, styles.flex15, styles.left]}>
+                <Text style={styles.headText}>Material Code</Text>
+              </View>
+              <View style={[styles.cell, styles.flex45, styles.left]}>
+                <Text style={styles.headText}>Description</Text>
+              </View>
+              <View style={[styles.cell, styles.flex12, styles.right]}>
+                <Text style={styles.headText}>Qty</Text>
+              </View>
+              <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                <Text style={styles.headText}>Issue</Text>
+              </View>
+              <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                <Text style={styles.headText}>Packing</Text>
+              </View>
+            </View>
           </View>
         </View>
-      </Modal>
 
-      {/* Row “View” Modal */}
-      <Modal
-        visible={descModal.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDescModal({ visible: false })}
-      >
-        <View style={styles.descOverlay}>
-          <View style={styles.descCard}>
-            <View style={styles.descHeader}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
-                <Ionicons name="cube-outline" size={18} color={C.headerText} />
-                <Text style={styles.descTitle}>{descModal.data?.materialCode ?? "Material"}</Text>
+        {/* Scrollable body */}
+        <FlatList
+          data={materials}
+          keyExtractor={(item, index) => `${item.materialCode}-${index}`}
+          contentContainerStyle={styles.bodyListContent}
+          style={styles.list}
+          ItemSeparatorComponent={() => <View style={styles.sep} />}
+          // Make scrolling solid & predictable:
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.select({ ios: "on-drag", android: "on-drag" })}
+          showsVerticalScrollIndicator
+          automaticallyAdjustContentInsets={false}
+          contentInsetAdjustmentBehavior="never"
+          removeClippedSubviews
+          initialNumToRender={20}
+          maxToRenderPerBatch={20}
+          windowSize={11}
+          renderItem={({ item, index }) => {
+            const req = Number(item.requiredQty ?? 0);
+            const isIssued = Number(item.issuedQty ?? 0) >= req;
+            const isPacked = Number(item.packedQty ?? 0) >= req;
+            const rowBg = isPacked ? C.greenBg : (isIssued ? C.yellowBg : undefined);
+            const issuedColor = isPacked ? C.greenText : (isIssued ? C.yellowText : C.headerText);
+            const pillIssued = isIssued && req > 0;
+            const pillPacked = isPacked && req > 0;
+            const truncatedDesc = item.description ? (String(item.description).length > 30 ? String(item.description).substring(0, 30) + "..." : String(item.description)) : "";
+            return (
+              <View style={styles.card}>
+                <Pressable
+                  onPress={() =>
+                    setDescModal({
+                      visible: true,
+                      data: {
+                        materialCode: String(item.materialCode ?? ""),
+                        description: String(item.description ?? ""),
+                        batchNo: String(item.batchNo ?? ""),
+                        soDonorBatch: String(item.soDonorBatch ?? ""),
+                        certNo: String(item.certNo ?? ""),
+                        binNo: item.binNo as any,
+                        adf: String(item.adf ?? ""),
+                        requiredQty: req,
+
+                        issuedQty: Number(item.issuedQty ?? 0),
+                        packedQty: Number(item.packedQty ?? 0),
+                      },
+                    })
+                  }
+                  style={[styles.row, rowBg && { backgroundColor: rowBg }]}
+                >
+                  <View style={[styles.cell, styles.flex15, styles.left]}>
+                    <Text
+                      style={[
+                        styles.metricText,
+                        (isIssued || isPacked) && { color: issuedColor, fontWeight: "700" },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item.materialCode}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.cell, styles.flex45, styles.left]}>
+                    <Text
+                      style={[styles.metricText, (isIssued || isPacked) && { color: issuedColor }]}
+                      numberOfLines={1}
+                    >
+                      {truncatedDesc}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.cell, styles.flex12, styles.right]}>
+                    <Text style={[(isIssued || isPacked) && { color: issuedColor, fontWeight: "700" }]}>
+                      {item.requiredQty}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                    <TextInput
+                      value={String(item.issuedQty ?? 0)}
+                      onChangeText={(t) => setIssuedQtyAt(index, t)}
+                      keyboardType="number-pad"
+                      inputMode="numeric"
+                      maxLength={3}
+                      style={[styles.issueInput, pillIssued && { borderColor: C.greenText + "66" }]}
+                      onEndEditing={saveOnEndEditing}
+                    />
+                  </View>
+
+                  <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                    <TextInput
+                      value={String(item.packedQty ?? 0)}
+                      onChangeText={(t) => setPackedQtyAt(index, t)}
+                      keyboardType="number-pad"
+                      inputMode="numeric"
+                      maxLength={3}
+                      editable={isOrderIssuedComplete}
+                      style={[
+                        styles.issueInput, 
+                        pillPacked && { borderColor: C.greenText + "66" },
+                        !isOrderIssuedComplete && { backgroundColor: "#f3f4f6", color: C.subText }
+                      ]}
+                      onEndEditing={saveOnEndEditing}
+                    />
+                  </View>
+                </Pressable>
               </View>
-              <Pressable onPress={() => setDescModal({ visible: false })}>
-                <Ionicons name="close" size={22} color={C.headerText} />
+            );
+          }}
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <Text style={styles.subText}>No materials found.</Text>
+            </View>
+          }
+          ListFooterComponent={<View style={{ height: 20 }} />}
+        />
+
+        {/* Full-screen Scanner */}
+        <Modal
+          visible={cameraOpen}
+          onRequestClose={closeScanner}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          transparent={false}
+        >
+          <StatusBar hidden />
+          <View style={styles.fullscreenCameraWrap}>
+            <CameraView
+              style={styles.fullscreenCamera}
+              facing="back"
+              barcodeScannerSettings={{
+                barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e"],
+              }}
+              onBarcodeScanned={scanLock ? undefined : onBarcodeScanned}
+            />
+
+            <View style={styles.fullscreenTopBar}>
+              <Text style={styles.fullscreenTitle}>Scan a code</Text>
+              <Pressable onPress={closeScanner} style={styles.fullscreenCloseBtn}>
+                <Ionicons name="close" size={22} color="#fff" />
               </Pressable>
             </View>
 
-            <View style={styles.descBody}>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Description</Text>
-                <Text style={styles.infoValue}>{descModal.data?.description ?? "-"}</Text>
-              </View>
+            <View style={styles.fullscreenBottomBar}>
+              <Text style={styles.fullscreenHint}>Align the code within the frame</Text>
+            </View>
+          </View>
+        </Modal>
 
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Batch No</Text>
-                <Text style={styles.infoValue}>{descModal.data?.batchNo ?? "-"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>SO Donor Batch</Text>
-                <Text style={styles.infoValue}>{descModal.data?.soDonorBatch ?? "-"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Cert No</Text>
-                <Text style={styles.infoValue}>{descModal.data?.certNo ?? "-"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>A/D/F</Text>
-                <Text style={styles.infoValue}>{descModal.data?.adf ?? "-"}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Packing Stage</Text>
-                <Text style={styles.infoValue}>{descModal.data?.packingStage ?? "-"}</Text>
-              </View>
-
-              <View style={styles.infoGrid}>
-                <View style={styles.infoCardSmall}>
-                  <Text style={styles.infoSmallLabel}>Bin No</Text>
-                  <Text style={styles.infoSmallValue}>{String(descModal.data?.binNo ?? "-")}</Text>
+        {/* Row “View” Modal */}
+        <Modal
+          visible={descModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setDescModal({ visible: false })}>
+          <View style={styles.descOverlay}>
+            <View style={styles.descCard}>
+              <View style={styles.descHeader}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                  <Ionicons name="cube-outline" size={18} color={C.headerText} />
+                  <Text style={styles.descTitle}>{descModal.data?.materialCode ?? "Material"}</Text>
                 </View>
-                <View style={styles.infoCardSmall}>
-                  <Text style={styles.infoSmallLabel}>Required Qty</Text>
-                  <Text style={styles.infoSmallValue}>{String(descModal.data?.requiredQty ?? 0)}</Text>
-                </View>
-                <View style={styles.infoCardSmall}>
-                  <Text style={styles.infoSmallLabel}>Issued Qty</Text>
-                  <Text style={styles.infoSmallValue}>{String(descModal.data?.issuedQty ?? 0)}</Text>
-                </View>
-                <View style={styles.infoCardSmall}>
-                  <Text style={styles.infoSmallLabel}>Packed Qty</Text>
-                  <Text style={styles.infoSmallValue}>{String(descModal.data?.packedQty ?? 0)}</Text>
-                </View>
+                <Pressable onPress={() => setDescModal({ visible: false })}>
+                  <Ionicons name="close" size={22} color={C.headerText} />
+                </Pressable>
               </View>
 
-              <View style={styles.progressWrap}>
-                <View style={styles.progressBarTrack}>
-                  <View
-                    style={[
-                      styles.progressBarFill,
-                      {
-                        width: `${
-                          Math.min(
-                            100,
-                            Math.round(
-                              ((Number(descModal.data?.issuedQty ?? 0) /
-                                Math.max(1, Number(descModal.data?.requiredQty ?? 0))) *
-                                100)
-                            )
-                          )
-                        }%`,
-                      },
-                    ]}
-                  />
+              <View style={styles.descBody}>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Description</Text>
+                  <Text style={styles.infoValue}>{descModal.data?.description ?? "-"}</Text>
                 </View>
-                <Text style={styles.progressText}>
-                  {Number(descModal.data?.issuedQty ?? 0)} / {Number(descModal.data?.requiredQty ?? 0)} issued
-                </Text>
-              </View>
 
-              <View style={styles.progressWrap}>
-                <View style={styles.progressBarTrack}>
-                  <View
-                    style={[
-                      styles.progressBarFill,
-                      {
-                        width: `${
-                          Math.min(
-                            100,
-                            Math.round(
-                              ((Number(descModal.data?.packedQty ?? 0) /
-                                Math.max(1, Number(descModal.data?.requiredQty ?? 0))) *
-                                100)
-                            )
-                          )
-                        }%`,
-                      },
-                    ]}
-                  />
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Batch No</Text>
+                  <Text style={styles.infoValue}>{descModal.data?.batchNo ?? "-"}</Text>
                 </View>
-                <Text style={styles.progressText}>
-                  {Number(descModal.data?.packedQty ?? 0)} / {Number(descModal.data?.requiredQty ?? 0)} packed
-                </Text>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>SO Donor Batch</Text>
+                  <Text style={styles.infoValue}>{descModal.data?.soDonorBatch ?? "-"}</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Cert No</Text>
+                  <Text style={styles.infoValue}>{descModal.data?.certNo ?? "-"}</Text>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>A/D/F</Text>
+                  <Text style={styles.infoValue}>{descModal.data?.adf ?? "-"}</Text>
+                </View>
+
+                <View style={styles.infoGrid}>
+                  <View style={styles.infoCardSmall}>
+                    <Text style={styles.infoSmallLabel}>Bin No</Text>
+                    <Text style={styles.infoSmallValue}>{String(descModal.data?.binNo ?? "-")}</Text>
+                  </View>
+                  <View style={styles.infoCardSmall}>
+                    <Text style={styles.infoSmallLabel}>Required Qty</Text>
+                    <Text style={styles.infoSmallValue}>{String(descModal.data?.requiredQty ?? 0)}</Text>
+                  </View>
+                  <View style={styles.infoCardSmall}>
+                    <Text style={styles.infoSmallLabel}>Issued Qty</Text>
+                    <Text style={styles.infoSmallValue}>{String(descModal.data?.issuedQty ?? 0)}</Text>
+                  </View>
+                  <View style={styles.infoCardSmall}>
+                    <Text style={styles.infoSmallLabel}>Packed Qty</Text>
+                    <Text style={styles.infoSmallValue}>{String(descModal.data?.packedQty ?? 0)}</Text>
+                  </View>
+                </View>
               </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      {/* Global App Dialog */}
-      <Modal visible={dialog.visible} transparent animationType="fade" onRequestClose={closeDialog}>
-        <View style={styles.appDialogOverlay}>
-          <View style={styles.appDialogCard}>
-            <View style={styles.appDialogHeader}>
-              <Ionicons
-                name={dialog.emphasis === "danger" ? "alert-circle" : "information-circle"}
-                size={20}
-                color={dialog.emphasis === "danger" ? C.danger : C.headerText}
-              />
-              <Text
-                style={[styles.appDialogTitle, dialog.emphasis === "danger" && { color: C.danger }]}
-                numberOfLines={2}
-              >
-                {dialog.title}
-              </Text>
-            </View>
-            {dialog.message ? <Text style={styles.appDialogMessage}>{dialog.message}</Text> : null}
-            <View style={styles.appDialogFooter}>
-              <Pressable style={styles.appDialogBtn} onPress={closeDialog}>
-                <Text style={styles.appDialogBtnText}>OK</Text>
-              </Pressable>
+        {/* Global App Dialog */}
+        <Modal visible={dialog.visible} transparent animationType="fade" onRequestClose={closeDialog}>
+          <View style={styles.appDialogOverlay}>
+            <View style={styles.appDialogCard}>
+              <View style={styles.appDialogHeader}>
+                <Ionicons
+                  name={dialog.emphasis === "danger" ? "alert-circle" : "information-circle"}
+                  size={20}
+                  color={dialog.emphasis === "danger" ? C.danger : C.headerText}
+                />
+                <Text
+                  style={[styles.appDialogTitle, dialog.emphasis === "danger" && { color: C.danger }]}
+                  numberOfLines={2}
+                >
+                  {dialog.title}
+                </Text>
+              </View>
+              {dialog.message ? <Text style={styles.appDialogMessage}>{dialog.message}</Text> : null}
+              <View style={styles.appDialogFooter}>
+                <Pressable style={styles.appDialogBtn} onPress={closeDialog}>
+                  <Text style={styles.appDialogBtnText}>OK</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.pageBg },
+  content: { flex: 1 },
+  fixedWrapper: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+  },
   list: { flex: 1 },
-  listContent: {
+  bodyListContent: {
     paddingHorizontal: 10,
     paddingBottom: 20,
-    paddingTop: 8, // small, consistent padding (no big top gap)
     rowGap: 10,
   },
 

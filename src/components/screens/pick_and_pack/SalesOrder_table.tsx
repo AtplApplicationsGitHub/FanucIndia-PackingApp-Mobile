@@ -109,7 +109,9 @@ const Row: React.FC<{
     (isUploading
       ? "Uploading..."
       : !downloaded
-      ? "Not downloaded"
+      ? currentPhase === "packing"
+        ? "Download for packing"
+        : "Not downloaded"
       : currentPhase === "issue" && !issueCompleted
       ? "Issuing in progress"
       : currentPhase === "packing" && !packCompleted
