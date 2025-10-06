@@ -8,6 +8,7 @@ const ORDERS_SUMMARY_URL = `${BASE_URL}/user-dashboard/orders-summary`;
 const ORDER_DETAILS_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/download-details`;
 const ORDER_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/data`;
 const ATTACHMENTS_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/attachments`;
+const EXISTING_ATTACHMENTS_URL = `${BASE_URL}/v1/erp-material-files/by-sale-order/{SO_NUMBER}`;
 
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
@@ -240,4 +241,31 @@ export async function uploadAttachments(
   } catch {
     console.log("Attachment upload successful (no JSON in response)");
   }
+}
+
+// ---------------- API: GET Existing Attachments ----------------
+export async function fetchExistingAttachments(
+  saleOrderNumber: string,
+  token?: string
+): Promise<AttachmentItem[]> {
+  const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const url = EXISTING_ATTACHMENTS_URL.replace("{SO_NUMBER}", saleOrderNumber);
+  const res = await withTimeout(fetch(url, { method: "GET", headers }));
+
+  if (!res.ok) {
+    const msg = await parseErrorBody(res);
+    throw new Error(`Failed to fetch existing attachments (${res.status}): ${msg}`);
+  }
+
+  const json = await res.json();
+  console.log("Existing attachments raw response:", json); // Debug log to check structure
+  return (Array.isArray(json) ? json : []).map((item: any) => ({
+    uri: (item.sftpPath || "") as string,
+    name: (item.fileName || "Unknown File") as string,
+    type: (item.mimeType || "application/octet-stream") as string,
+    description: item.description || "",
+  }));
 }

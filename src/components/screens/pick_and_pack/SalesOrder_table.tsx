@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { OrdersSummaryItem } from "../../Api/SalesOrder_server";
 
 type Props = {
@@ -203,11 +205,11 @@ const Row: React.FC<{
                   disabled={uploading}
                   ariaLabel="Open documents"
                 >
-                  <Ionicons
-                    name="document-outline"
-                    size={22}
-                    color={uploading ? C.gray : C.icon}
-                  />
+                  <MaterialCommunityIcons
+  name="file-upload-outline" // perfect "document upload" combo
+  size={22}
+  color={uploading ? C.gray : C.icon}
+/>
                 </IconTap>
               )}
             </>
@@ -223,11 +225,7 @@ const Row: React.FC<{
                     onPress={onUpload}
                     ariaLabel="Upload data"
                   >
-                    <Ionicons
-                      name="cloud-upload-outline"
-                      size={22}
-                      color={C.blue} // active emphasis via color only
-                    />
+                    <Feather name="upload-cloud" size={22} color={C.blue} />
                   </IconTap>
                 )
               )}

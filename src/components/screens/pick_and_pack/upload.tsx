@@ -1,5 +1,5 @@
 // src/screens/AttachmentScreen.tsx
-import React, { useState, useLayoutEffect } from "react";
+import React, { useState, useLayoutEffect, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import { useRoute, useNavigation } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
 import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
-import { uploadAttachments, type AttachmentItem } from "../../Api/SalesOrder_server";
+import { uploadAttachments, fetchExistingAttachments, type AttachmentItem } from "../../Api/SalesOrder_server";
 
 interface FileItem {
   id: string;
@@ -38,7 +38,39 @@ export default function AttachmentScreen() {
   }, [navigation, saleOrderNumber]);
 
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<AttachmentItem[]>([]);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const loadExisting = async () => {
+      try {
+        const ex = await fetchExistingAttachments(saleOrderNumber);
+        setExistingAttachments(ex);
+      } catch (e: any) {
+        console.error("Failed to load existing attachments:", e);
+        Alert.alert("Error", "Failed to load existing attachments. Proceeding without them.");
+      }
+    };
+    loadExisting();
+  }, [saleOrderNumber]);
+
+  const existingFiles: FileItem[] = useMemo(
+    () =>
+      existingAttachments.map((att, index) => ({
+        id: `ex-${index}`,
+        name: att.name,
+        description: att.description || "",
+        status: "Uploaded" as const,
+        uri: att.uri,
+        mimeType: att.type,
+      })),
+    [existingAttachments]
+  );
+
+  const displayFiles = useMemo(
+    () => [...existingFiles, ...files],
+    [existingFiles, files]
+  );
 
   // File Picker (supports any file type)
   const pickFile = async () => {
@@ -67,10 +99,20 @@ export default function AttachmentScreen() {
     }
   };
 
+  const loadExistingAttachments = async () => {
+    try {
+      const ex = await fetchExistingAttachments(saleOrderNumber);
+      setExistingAttachments(ex);
+    } catch (e: any) {
+      console.error("Failed to reload existing attachments:", e);
+    }
+  };
+
   // Upload Files
   const uploadFiles = async () => {
-    if (files.length === 0) {
-      Alert.alert("No files", "Please add at least one file to upload.");
+    const pendingFiles = files.filter(f => f.status === "Pending");
+    if (pendingFiles.length === 0) {
+      Alert.alert("No new files", "Please add at least one new file to upload.");
       return;
     }
 
@@ -79,11 +121,13 @@ export default function AttachmentScreen() {
     setUploading(true);
     
     try {
-      // Update all files to uploading status
-      setFiles(prev => prev.map(f => ({ ...f, status: "Uploading" as const })));
+      // Update pending files to uploading status
+      setFiles(prev => prev.map(f => 
+        f.status === "Pending" ? { ...f, status: "Uploading" as const } : f
+      ));
 
-      // Prepare attachments for upload
-      const attachments: AttachmentItem[] = files.map(file => ({
+      // Prepare attachments for upload (only pending/new)
+      const attachments: AttachmentItem[] = pendingFiles.map(file => ({
         uri: file.uri,
         name: file.name,
         type: file.mimeType || "application/octet-stream",
@@ -93,14 +137,19 @@ export default function AttachmentScreen() {
       // Upload attachments
       await uploadAttachments(saleOrderNumber, attachments);
 
-      // Update status to uploaded
-      setFiles(prev => prev.map(f => ({ ...f, status: "Uploaded" as const })));
+      // Reload existing attachments (now includes the new ones)
+      await loadExistingAttachments();
       
-      Alert.alert("Success", `${files.length} file(s) uploaded successfully!`);
+      // Clear new files state
+      setFiles([]);
+      
+      Alert.alert("Success", `${pendingFiles.length} new file(s) uploaded successfully!`);
     } catch (e: any) {
       console.error("Upload error:", e);
-      // Update status to failed for all files
-      setFiles(prev => prev.map(f => ({ ...f, status: "Failed" as const })));
+      // Update status to failed for pending files
+      setFiles(prev => prev.map(f => 
+        f.status === "Uploading" ? { ...f, status: "Failed" as const } : f
+      ));
       Alert.alert("Upload Failed", e?.message ?? "Please try again.");
     } finally {
       setUploading(false);
@@ -129,41 +178,44 @@ export default function AttachmentScreen() {
     }
   };
 
-  const uploadedCount = files.filter(f => f.status === "Uploaded").length;
-  const totalCount = files.length;
+  const pendingCount = files.filter(f => f.status === "Pending").length;
 
   const renderItem = ({ item, index }: { item: FileItem; index: number }) => (
     <View style={styles.row}>
       <Text style={styles.cell}>{index + 1}</Text>
-      <Text style={styles.cell} numberOfLines={1} ellipsizeMode="middle">
-        {item.name}
+      <Text style={styles.cellName} numberOfLines={1} ellipsizeMode="middle">
+        {item.name || "Unknown File"}
       </Text>
       <TextInput
         style={[styles.cell, styles.input]}
         placeholder="Enter description"
         value={item.description}
         onChangeText={(text) => {
-          const updated = [...files];
-          const fileIndex = updated.findIndex(f => f.id === item.id);
-          if (fileIndex !== -1) {
-            updated[fileIndex].description = text;
-            setFiles(updated);
+          if (item.status !== "Uploaded") {
+            const updated = [...files];
+            const fileIndex = updated.findIndex(f => f.id === item.id);
+            if (fileIndex !== -1) {
+              updated[fileIndex].description = text;
+              setFiles(updated);
+            }
           }
         }}
         editable={!uploading && item.status === "Pending"}
       />
-      <View style={[styles.cell, styles.statusCell]}>
-        <Text style={{ color: getStatusColor(item.status) }}>
+      <View style={styles.statusCell}>
+        <Text style={{ color: getStatusColor(item.status), fontSize: 12 }}>
           {getStatusText(item.status)}
         </Text>
+        {item.status === "Pending" && (
+          <TouchableOpacity 
+            style={styles.removeButton}
+            onPress={() => removeFile(item.id)}
+            disabled={uploading}
+          >
+            <Ionicons name="close-circle" size={16} color="#ff4444" />
+          </TouchableOpacity>
+        )}
       </View>
-      <TouchableOpacity 
-        style={styles.removeButton}
-        onPress={() => removeFile(item.id)}
-        disabled={uploading || item.status === "Uploading"}
-      >
-        <Ionicons name="close-circle" size={20} color="#ff4444" />
-      </TouchableOpacity>
     </View>
   );
 
@@ -176,11 +228,11 @@ export default function AttachmentScreen() {
         disabled={uploading}
       >
         <Ionicons name="add-circle-outline" size={20} color="#007bff" />
-        <Text style={styles.addButtonText}>Add Files</Text>
+        <Text style={styles.addButtonText}>Add New Files</Text>
       </TouchableOpacity>
 
       {/* File List */}
-      {files.length === 0 ? (
+      {displayFiles.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="folder-outline" size={48} color="#aaa" />
           <Text style={styles.emptyText}>No attachments yet</Text>
@@ -192,15 +244,14 @@ export default function AttachmentScreen() {
         <>
           {/* Table Header */}
           <View style={styles.tableHeader}>
-            <Text style={styles.headerCell}>#</Text>
+            <Text style={styles.headerCell}>S/No</Text>
             <Text style={styles.headerCell}>File Name</Text>
             <Text style={styles.headerCell}>Description</Text>
             <Text style={styles.headerCell}>Status</Text>
-            <Text style={styles.headerCell}>Action</Text>
           </View>
 
           <FlatList
-            data={files}
+            data={displayFiles}
             renderItem={renderItem}
             keyExtractor={(item) => item.id}
             style={styles.fileList}
@@ -211,18 +262,19 @@ export default function AttachmentScreen() {
       {/* Upload Button */}
       <View style={styles.footer}>
         <Text style={styles.uploadLabel}>
-          Upload Attachments {totalCount > 0 && `(${uploadedCount}/${totalCount})`}
+          Total Attachments: {displayFiles.length}
         </Text>
         <Text style={styles.uploadDesc}>
-          Upload all attachments to the server for order {saleOrderNumber}
+          {existingFiles.length > 0 && `(${existingFiles.length} already uploaded) `}
+          Upload {pendingCount > 0 && `${pendingCount} new file${pendingCount > 1 ? 's' : ''}`} to the server for order {saleOrderNumber}
         </Text>
         <TouchableOpacity 
           style={[
             styles.uploadButton, 
-            (uploading || totalCount === 0) && { opacity: 0.7 }
+            (uploading || pendingCount === 0) && { opacity: 0.7 }
           ]} 
           onPress={uploadFiles}
-          disabled={uploading || totalCount === 0}
+          disabled={uploading || pendingCount === 0}
         >
           {uploading ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -230,7 +282,7 @@ export default function AttachmentScreen() {
             <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
           )}
           <Text style={styles.uploadButtonText}>
-            {uploading ? "Uploading..." : "Upload Attachments"}
+            {uploading ? "Uploading..." : `Upload New Files (${pendingCount})`}
           </Text>
         </TouchableOpacity>
       </View>
@@ -278,7 +330,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     paddingHorizontal: 2,
   },
+  cellName: {
+    flex: 2,
+    textAlign: "left",
+    fontSize: 12,
+    paddingHorizontal: 4,
+  },
   statusCell: {
+    flex: 1,
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -291,7 +351,7 @@ const styles = StyleSheet.create({
     height: 28,
   },
   removeButton: {
-    padding: 4,
+    paddingLeft: 4,
   },
   fileList: {
     flex: 1,
