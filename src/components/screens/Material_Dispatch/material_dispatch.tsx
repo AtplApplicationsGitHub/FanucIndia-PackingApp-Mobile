@@ -26,6 +26,7 @@ import {
 import {
   createDispatchHeader,
   linkSalesOrder,
+  uploadAttachments,
   type CreateDispatchHeaderRequest,
   type LinkDispatchSORequest,
   type ApiResult,
@@ -74,9 +75,12 @@ const MaterialDispatchScreen: React.FC = () => {
     vehicleNo: "",
   });
   const [dispatchId, setDispatchId] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [fileName, setFileName] = useState<string>("No file chosen");
   const [expanded, setExpanded] = useState(true);
-  const [showSaved, setShowSaved] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [showError, setShowError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const animatedHeight = useState(new Animated.Value(1))[0];
   const salesOpacity = useState(new Animated.Value(0))[0];
@@ -86,6 +90,11 @@ const MaterialDispatchScreen: React.FC = () => {
   const onChange = (k: keyof DispatchForm, v: string) =>
     setForm((prev) => ({ ...prev, [k]: v }));
 
+  const isFormValid = useMemo(() => {
+    const { customer, address, transporter, vehicleNo } = form;
+    return !!customer?.trim() && !!address?.trim() && !!transporter?.trim() && !!vehicleNo?.trim();
+  }, [form]);
+
   const handleChooseFile = async () => {
     const res = await DocumentPicker.getDocumentAsync({
       multiple: false,
@@ -93,18 +102,25 @@ const MaterialDispatchScreen: React.FC = () => {
     });
     if (res.canceled) return;
     const file = res.assets?.[0];
-    if (file) setFileName(file.name ?? "Selected file");
+    if (file) {
+      setSelectedFile(file);
+      setFileName(file.name ?? "Selected file");
+    }
   };
 
   const handleClear = () => {
     setForm({ customer: "", address: "", transporter: "", vehicleNo: "" });
     setDispatchId(null);
+    setSelectedFile(null);
     setFileName("No file chosen");
     setItems([]);
   };
 
   const handleAddNew = () => {
-    Alert.alert("Add New", "You can hook this up to create a new record.");
+    handleClear();
+    if (!expanded) {
+      toggleExpand();
+    }
   };
 
   const toggleExpand = () => {
@@ -128,10 +144,6 @@ const MaterialDispatchScreen: React.FC = () => {
 
   const handleSave = async () => {
     const { customer, transporter, address, vehicleNo } = form;
-    if (!customer?.trim() || !transporter?.trim() || !address?.trim() || !vehicleNo?.trim()) {
-      Alert.alert("Validation Error", "All fields are required.");
-      return;
-    }
 
     const payload: CreateDispatchHeaderRequest = {
       customerName: customer.trim(),
@@ -145,21 +157,40 @@ const MaterialDispatchScreen: React.FC = () => {
       if (result.ok) {
         const headerId = result.data.id;
         if (!headerId) {
-          Alert.alert("Error", "Invalid response from server.");
+          setErrorMessage("Invalid response from server.");
+          setShowError(true);
           return;
         }
         setDispatchId(`${headerId}`);
-        Alert.alert("Success", "Dispatch header created successfully!");
-        setShowSaved(true);
+
+        let uploadSuccess = true;
+        if (selectedFile) {
+          const uploadResult: ApiResult = await uploadAttachments(`${headerId}`, [selectedFile]);
+          if (!uploadResult.ok) {
+            uploadSuccess = false;
+            console.warn("File upload failed:", uploadResult.error);
+          }
+        }
+
+        const message = `Dispatch created successfully!${!uploadSuccess ? '\n\nNote: File upload failed.' : ''}`;
+        // Set success modal
+        setShowSuccess(true);
         if (expanded) toggleExpand();
         setTimeout(() => {
-          setShowSaved(false);
+          setShowSuccess(false);
         }, 3000);
+
+        if (uploadSuccess) {
+          setSelectedFile(null);
+          setFileName("No file chosen");
+        }
       } else {
-        Alert.alert("Error", result.error || "Failed to create dispatch header.");
+        setErrorMessage(result.error || "Failed to create dispatch header.");
+        setShowError(true);
       }
     } catch (error) {
-      Alert.alert("Network Error", "An unexpected error occurred. Please try again.");
+      setErrorMessage("An unexpected error occurred. Please try again.");
+      setShowError(true);
     }
   };
 
@@ -185,7 +216,8 @@ const MaterialDispatchScreen: React.FC = () => {
     if (!so) return;
 
     if (!dispatchId) {
-      Alert.alert("Error", "Please create a dispatch header first.");
+      setErrorMessage("Please create a dispatch header first.");
+      setShowError(true);
       return;
     }
 
@@ -201,13 +233,15 @@ const MaterialDispatchScreen: React.FC = () => {
       if (!result.ok) {
         // Remove from local if API fails
         setItems((prev) => prev.filter((x) => x.id !== so));
-        Alert.alert("Error", result.error || "Failed to link sales order.");
+        setErrorMessage(result.error || "Failed to link sales order.");
+        setShowError(true);
       }
       // If success, keep the local item (createdAt is approximate, but fine)
     } catch (error) {
       // Remove from local on network error
       setItems((prev) => prev.filter((x) => x.id !== so));
-      Alert.alert("Network Error", "An unexpected error occurred. Please try again.");
+      setErrorMessage("An unexpected error occurred. Please try again.");
+      setShowError(true);
     }
 
     setValue("");
@@ -236,17 +270,16 @@ const MaterialDispatchScreen: React.FC = () => {
 
   const openScanner = async () => {
     if (!dispatchId) {
-      Alert.alert("Error", "Please create a dispatch header first.");
+      setErrorMessage("Please create a dispatch header first.");
+      setShowError(true);
       return;
     }
 
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        Alert.alert(
-          "Camera Permission",
-          "Camera access is required to scan QR codes and barcodes."
-        );
+        setErrorMessage("Camera access is required to scan QR codes and barcodes.");
+        setShowError(true);
         return;
       }
     }
@@ -353,7 +386,14 @@ const MaterialDispatchScreen: React.FC = () => {
               </Text>
             </View>
 
-            <TouchableOpacity onPress={handleSave} style={styles.saveBtn}>
+            <TouchableOpacity 
+              onPress={handleSave} 
+              disabled={!isFormValid}
+              style={[
+                styles.saveBtn,
+                !isFormValid && { opacity: 0.5 }
+              ]}
+            >
               <Text style={styles.saveText}>Save</Text>
             </TouchableOpacity>
           </View>
@@ -469,6 +509,47 @@ const MaterialDispatchScreen: React.FC = () => {
           </View>
         </Animated.View>
       </View>
+
+      {/* Success Modal */}
+      <Modal
+        visible={showSuccess}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuccess(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.successModal}>
+            <Ionicons name="checkmark-circle" size={48} color="#10B981" />
+            <Text style={styles.modalTitle}>Dispatch created successfully!</Text>
+            <TouchableOpacity
+              onPress={() => setShowSuccess(false)}
+              style={styles.modalButton}
+            >
+              <Text style={styles.modalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        visible={showError}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowError(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.errorModal}>
+            <Text style={styles.modalTitle}>{errorMessage}</Text>
+            <TouchableOpacity
+              onPress={() => setShowError(false)}
+              style={styles.modalButton}
+            >
+              <Text style={styles.modalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Full-screen Scanner */}
       <Modal
@@ -629,6 +710,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     textAlign: "center",
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  successModal: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    width: "80%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  errorModal: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    width: "80%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: C.text,
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 20,
+  },
+  modalButton: {
+    backgroundColor: C.blue,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  modalButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
   },
 });
 

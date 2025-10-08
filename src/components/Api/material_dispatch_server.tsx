@@ -9,6 +9,7 @@ try {
 export const BASE_URL = "https://fanuc.goval.app:444/api";
 const DISPATCH_HEADER_URL = `${BASE_URL}/dispatch/mobile/header`;
 const DISPATCH_SO_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
+const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/attachments`;
 
 export type CreateDispatchHeaderRequest = {
   customerName: string;
@@ -207,6 +208,64 @@ export async function linkSalesOrder(
           Accept: "application/json",
         },
         body: JSON.stringify(payload),
+      })
+    );
+
+    if (!res.ok) {
+      const err = await parseErrorBody(res);
+      return { ok: false, status: res.status, error: err };
+    }
+
+    const data = await res.json().catch(() => ({}));
+    return { ok: true, status: res.status, data };
+  } catch (e: any) {
+    const msg =
+      e?.message === "Request timed out"
+        ? "Network timeout — please check connectivity and try again."
+        : e?.message ?? "Network error";
+    return { ok: false, status: 0, error: msg };
+  }
+}
+
+export async function uploadAttachments(
+  dispatchId: string,
+  files: any[],
+  opts?: { token?: string }
+): Promise<ApiResult> {
+  const token = opts?.token ?? (await getToken());
+  if (!token) {
+    return {
+      ok: false,
+      status: 0,
+      error:
+        "Missing access token. Please login again or setAccessToken(...) after login.",
+    };
+  }
+
+  if (!files || files.length === 0) {
+    return { ok: false, status: 0, error: "No files provided." };
+  }
+
+  try {
+    const url = DISPATCH_ATTACHMENTS_URL(dispatchId);
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append("attachments", {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType,
+      } as any, file.name);
+    });
+
+    const res = await withTimeout(
+      fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          // Do not set Content-Type, let the browser set it with boundary
+          Accept: "application/json",
+        },
+        body: formData,
       })
     );
 
