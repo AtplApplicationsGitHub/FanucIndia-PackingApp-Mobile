@@ -15,6 +15,7 @@ import MaterialFGScreen from "./src/components/screens/Material_FG/material_fg";
 import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/material_dispatch";
 import OrderDetailsScreen from "./src/components/screens/pick_and_pack/OrderDetails";
 import UploadScreen from "./src/components/screens/pick_and_pack/upload";
+import ScanAddSalesOrdersScreen from './src/components/screens/Material_Dispatch/ScanAddSalesOrdersScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -22,6 +23,7 @@ export type RootStackParamList = {
   PickAndPack: undefined;
   MaterialFG: undefined;
   MaterialDispatch: undefined;
+  ScanAddSalesOrders: undefined;
   OrderDetails: { saleOrderNumber: string };
   Upload: { saleOrderNumber: string };
 };
@@ -345,6 +347,13 @@ export default function App() {
           name="MaterialDispatch"
           component={MaterialDispatchScreen}
           options={{ title: "Material Dispatch" }}
+        />
+
+        {/* Scan / Add Sales Orders */}
+        <Stack.Screen 
+          name="ScanAddSalesOrders" 
+          component={ScanAddSalesOrdersScreen}
+          options={{ title: 'Scan / Add Sales Orders' }}
         />
 
         {/* Order Details — dynamic title using route params */}

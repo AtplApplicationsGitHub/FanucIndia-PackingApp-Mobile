@@ -1,93 +1,839 @@
-// src/components/MaterialDispatch/WelcomeScreen.tsx
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+// src/screens/MaterialDispatchScreen.tsx
+import React, { useState, useMemo } from "react";
+import {
+  Alert,
+  Animated,
+  Easing,
+  LayoutAnimation,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  FlatList,
+  Pressable,
+  Modal,
+  StatusBar,
+} from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
+import {
+  CameraView,
+  useCameraPermissions,
+  type BarcodeScanningResult,
+} from "expo-camera";
+import {
+  createDispatchHeader,
+  linkSalesOrder,
+  type CreateDispatchHeaderRequest,
+  type LinkDispatchSORequest,
+  type ApiResult,
+} from "../../Api/material_dispatch_server";
 
-const PRIMARY_YELLOW = "#FACC15"; // yellow-400
-const ACCENT = "#111827";         // gray-900
-const MUTED = "#6B7280";          // gray-500
-const SURFACE = "#FFF9DB";        // soft yellow surface
-
-type Props = {
-  onContinue?: () => void;
+type DispatchForm = {
+  customer: string;
+  address: string;
+  transporter: string;
+  vehicleNo: string;
 };
 
-const MaterialDispatchWelcome: React.FC<Props> = ({ onContinue }) => {
+type SOEntry = {
+  id: string; // SO number
+  createdAt: number; // epoch ms
+};
+
+const C = {
+  bg: "#FFFFFF",
+  card: "#FFFFFF",
+  border: "#E5E7EB",
+  text: "#111827",
+  hint: "#9CA3AF",
+  blue: "#2151F5",
+  red: "#F87171",
+  grayBtn: "#F3F4F6",
+};
+
+const C_sales = {
+  bg: "#F6F7FB",
+  card: "#FFFFFF",
+  border: "#E6E8EF",
+  text: "#0B1220",
+  sub: "#6B7280",
+  blue: "#2151F5",
+  pill: "#F3F4F6",
+  hover: "#F9FAFB",
+  danger: "#EF4444",
+};
+
+const MaterialDispatchScreen: React.FC = () => {
+  const [form, setForm] = useState<DispatchForm>({
+    customer: "",
+    address: "",
+    transporter: "",
+    vehicleNo: "",
+  });
+  const [dispatchId, setDispatchId] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>("No file chosen");
+  const [expanded, setExpanded] = useState(true);
+  const [showSaved, setShowSaved] = useState(false);
+
+  const animatedHeight = useState(new Animated.Value(1))[0];
+  const salesOpacity = useState(new Animated.Value(0))[0];
+
+  const formHeight = 350;
+
+  const onChange = (k: keyof DispatchForm, v: string) =>
+    setForm((prev) => ({ ...prev, [k]: v }));
+
+  const handleChooseFile = async () => {
+    const res = await DocumentPicker.getDocumentAsync({
+      multiple: false,
+      copyToCacheDirectory: true,
+    });
+    if (res.canceled) return;
+    const file = res.assets?.[0];
+    if (file) setFileName(file.name ?? "Selected file");
+  };
+
+  const handleClear = () => {
+    setForm({ customer: "", address: "", transporter: "", vehicleNo: "" });
+    setDispatchId(null);
+    setFileName("No file chosen");
+    setItems([]);
+  };
+
+  const handleAddNew = () => {
+    Alert.alert("Add New", "You can hook this up to create a new record.");
+  };
+
+  const toggleExpand = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const toValue = expanded ? 0 : 1;
+    Animated.timing(animatedHeight, {
+      toValue,
+      duration: 300,
+      easing: Easing.ease,
+      useNativeDriver: false,
+    }).start();
+    const salesToValue = expanded ? 1 : 0;
+    Animated.timing(salesOpacity, {
+      toValue: salesToValue,
+      duration: 300,
+      easing: Easing.ease,
+      useNativeDriver: false,
+    }).start();
+    setExpanded(!expanded);
+  };
+
+  const handleSave = async () => {
+    const { customer, transporter, address, vehicleNo } = form;
+    if (!customer?.trim() || !transporter?.trim() || !address?.trim() || !vehicleNo?.trim()) {
+      Alert.alert("Validation Error", "All fields are required.");
+      return;
+    }
+
+    const payload: CreateDispatchHeaderRequest = {
+      customerName: customer.trim(),
+      transporterName: transporter.trim(),
+      address: address.trim(),
+      vehicleNumber: vehicleNo.trim(),
+    };
+
+    try {
+      const result: ApiResult = await createDispatchHeader(payload);
+      if (result.ok) {
+        const headerId = result.data.id;
+        if (!headerId) {
+          Alert.alert("Error", "Invalid response from server.");
+          return;
+        }
+        setDispatchId(`${headerId}`);
+        Alert.alert("Success", "Dispatch header created successfully!");
+        setShowSaved(true);
+        if (expanded) toggleExpand();
+        setTimeout(() => {
+          setShowSaved(false);
+        }, 3000);
+      } else {
+        Alert.alert("Error", result.error || "Failed to create dispatch header.");
+      }
+    } catch (error) {
+      Alert.alert("Network Error", "An unexpected error occurred. Please try again.");
+    }
+  };
+
+  const formHeightInterpolate = animatedHeight.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, formHeight],
+  });
+
+  const scaleInterpolate = animatedHeight;
+
+  /** ------------------ Sales Orders + Scanner ------------------ */
+  const [value, setValue] = useState("");
+  const [items, setItems] = useState<SOEntry[]>([]);
+  const total = useMemo(() => items.length, [items]);
+
+  function normalizeSO(raw: string) {
+    // Trim, remove internal spaces, uppercase
+    return raw.replace(/\s+/g, "").toUpperCase();
+  }
+
+  async function addSO(raw: string) {
+    const so = normalizeSO(raw);
+    if (!so) return;
+
+    if (!dispatchId) {
+      Alert.alert("Error", "Please create a dispatch header first.");
+      return;
+    }
+
+    setItems((prev) => {
+      if (prev.some((x) => x.id === so)) return prev; // dedupe
+      return [...prev, { id: so, createdAt: Date.now() }];
+    });
+
+    const payload: LinkDispatchSORequest = { saleOrderNumber: so };
+
+    try {
+      const result: ApiResult = await linkSalesOrder(dispatchId, payload);
+      if (!result.ok) {
+        // Remove from local if API fails
+        setItems((prev) => prev.filter((x) => x.id !== so));
+        Alert.alert("Error", result.error || "Failed to link sales order.");
+      }
+      // If success, keep the local item (createdAt is approximate, but fine)
+    } catch (error) {
+      // Remove from local on network error
+      setItems((prev) => prev.filter((x) => x.id !== so));
+      Alert.alert("Network Error", "An unexpected error occurred. Please try again.");
+    }
+
+    setValue("");
+  }
+
+  function removeSO(id: string) {
+    setItems((prev) => prev.filter((x) => x.id !== id));
+  }
+
+  function clearAll() {
+    setItems([]);
+  }
+
+  function formatTime(ts: number) {
+    const d = new Date(ts);
+    const hh = d.getHours() % 12 || 12;
+    const mm = `${d.getMinutes()}`.padStart(2, "0");
+    const ampm = d.getHours() >= 12 ? "PM" : "AM";
+    return `${hh}:${mm} ${ampm}`;
+  }
+
+  // Camera / Scanner state
+  const [scanVisible, setScanVisible] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanLocked, setScanLocked] = useState(false);
+
+  const openScanner = async () => {
+    if (!dispatchId) {
+      Alert.alert("Error", "Please create a dispatch header first.");
+      return;
+    }
+
+    if (!permission?.granted) {
+      const { granted } = await requestPermission();
+      if (!granted) {
+        Alert.alert(
+          "Camera Permission",
+          "Camera access is required to scan QR codes and barcodes."
+        );
+        return;
+      }
+    }
+    setScanLocked(false);
+    setScanVisible(true);
+  };
+
+  const closeScanner = () => {
+    setScanVisible(false);
+    setScanLocked(false);
+  };
+
+  const onScanned = (result: BarcodeScanningResult) => {
+    if (scanLocked) return;
+    setScanLocked(true);
+    const data = result?.data ?? "";
+    addSO(data);
+    setTimeout(() => {
+      closeScanner();
+    }, 250);
+  };
+
+  const canSubmit = value.trim().length > 0;
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header Section */}
-      <View style={styles.header}>
-        <Ionicons name="cube-outline" size={64} color={PRIMARY_YELLOW} />
-        <Text style={styles.title}>Material Dispatch</Text>
-        <Text style={styles.subtitle}>Welcome to Dispatch Module</Text>
+    <View style={styles.safe}>
+      <View style={styles.container}>
+        {/* Header Row */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={toggleExpand} style={styles.arrowBtn}>
+            <Ionicons
+              name={expanded ? "chevron-up-outline" : "chevron-down-outline"}
+              size={24}
+              color={C.text}
+            />
+          </TouchableOpacity>
+
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={handleClear} style={styles.clearBtn}>
+              <Text style={styles.clearText}>Clear</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleAddNew} style={styles.addNewBtn}>
+              <Text style={styles.addNewText}>Add New</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Animated Form Section */}
+        <Animated.View
+          style={{
+            overflow: "hidden",
+            height: formHeightInterpolate,
+            opacity: animatedHeight,
+            transform: [
+              {
+                scaleY: scaleInterpolate,
+              },
+            ],
+          }}
+        >
+          <View style={styles.card}>
+            <TextInput
+              style={styles.input}
+              placeholder="Customer"
+              placeholderTextColor={C.hint}
+              value={form.customer}
+              onChangeText={(t) => onChange("customer", t)}
+            />
+
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Address"
+              placeholderTextColor={C.hint}
+              multiline
+              value={form.address}
+              onChangeText={(t) => onChange("address", t)}
+            />
+
+            <View style={styles.row2}>
+              <TextInput
+                style={[styles.input, styles.half]}
+                placeholder="Transporter"
+                placeholderTextColor={C.hint}
+                value={form.transporter}
+                onChangeText={(t) => onChange("transporter", t)}
+              />
+              <TextInput
+                style={[styles.input, styles.half]}
+                placeholder="Vehicle Number (e.g., KA01AB)"
+                placeholderTextColor={C.hint}
+                autoCapitalize="characters"
+                value={form.vehicleNo}
+                onChangeText={(t) => onChange("vehicleNo", t)}
+              />
+            </View>
+
+            <View style={styles.fileRow}>
+              <TouchableOpacity onPress={handleChooseFile} style={styles.fileBtn}>
+                <Text style={styles.fileBtnText}>Choose File</Text>
+              </TouchableOpacity>
+              <Text style={styles.fileName} numberOfLines={1}>
+                {fileName}
+              </Text>
+            </View>
+
+            <TouchableOpacity onPress={handleSave} style={styles.saveBtn}>
+              <Text style={styles.saveText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+
+        {/* Sales Orders Section */}
+        <Animated.View style={{ opacity: salesOpacity, flex: 1 }}>
+          <Text style={styles_sales.title}>Scan / Add Sales Orders</Text>
+
+          {/* Row with Input (with Scan) + OUTSIDE Submit button */}
+          <View style={styles_sales.inputRow}>
+            {/* Input with embedded Scan button */}
+            <View style={styles_sales.inputWrap}>
+              <TextInput
+                value={value}
+                onChangeText={setValue}
+                placeholder="Scan or type SO, then press Enter"
+                placeholderTextColor={C_sales.sub}
+                style={[styles_sales.input, { paddingRight: 44 }]} // space for scan icon
+                returnKeyType="done"
+                blurOnSubmit
+                onSubmitEditing={() => addSO(value)}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                keyboardType={Platform.select({ ios: "default", android: "visible-password" })}
+              />
+
+              {/* Scan icon INSIDE the input */}
+              <Pressable
+                onPress={openScanner}
+                style={({ pressed }) => [
+                  styles_sales.scanBtn,
+                  pressed && { opacity: 0.85 },
+                ]}
+                hitSlop={10}
+              >
+                <Ionicons name="scan-outline" size={20} color={C_sales.blue} />
+              </Pressable>
+            </View>
+
+            {/* Submit button OUTSIDE the input */}
+            <TouchableOpacity
+              onPress={() => addSO(value)}
+              activeOpacity={0.9}
+              disabled={!canSubmit || !dispatchId}
+              style={[
+                styles_sales.submitBtnOuter,
+                (!canSubmit || !dispatchId) && { opacity: 0.5 },
+              ]}
+            >
+              <Text style={styles_sales.submitTextOuter}>Submit</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles_sales.totalPill}>
+            <Text style={styles_sales.totalText}>
+              Total SOs: <Text style={styles_sales.totalNum}>{total}</Text>
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={clearAll}
+            style={({ pressed }) => [
+              styles_sales.clearBtn,
+              pressed && { opacity: 0.9 },
+              total === 0 && { opacity: 0.5 },
+            ]}
+            disabled={total === 0}
+          >
+            <Text style={styles_sales.clearText}>Clear all</Text>
+          </Pressable>
+
+          <View style={styles_sales.tableCard}>
+            {/* Header */}
+            <View style={[styles_sales.row, styles_sales.headerRow]}>
+              <Text style={[styles_sales.th, { width: 40, textAlign: "left" }]}>#</Text>
+              <Text style={[styles_sales.th, { flex: 1 }]}>SO Number</Text>
+              <Text style={[styles_sales.th, { width: 80 }]}>Timing</Text>
+              <Text style={[styles_sales.th, { width: 72, textAlign: "right" }]}>Action</Text>
+            </View>
+
+            {/* Body */}
+            <FlatList
+              data={items}
+              keyExtractor={(it) => it.id}
+              contentContainerStyle={items.length === 0 && { paddingVertical: 24 }}
+              ItemSeparatorComponent={() => <View style={styles_sales.divider} />}
+              ListEmptyComponent={<Text style={styles_sales.empty}> </Text>}
+              renderItem={({ item, index }) => (
+                <View style={styles_sales.row}>
+                  <Text style={[styles_sales.td, { width: 40 }]}>{index + 1}</Text>
+                  <Text style={[styles_sales.td, { flex: 1 }]} numberOfLines={1}>
+                    {item.id}
+                  </Text>
+                  <Text style={[styles_sales.td, { width: 80 }]}>
+                    {formatTime(item.createdAt)}
+                  </Text>
+                  <View style={[styles_sales.td, { width: 72, alignItems: "flex-end" }]}>
+                    <Pressable
+                      onPress={() => removeSO(item.id)}
+                      hitSlop={8}
+                      style={({ pressed }) => [
+                        styles_sales.iconBtn,
+                        pressed && { backgroundColor: C_sales.hover },
+                      ]}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={C_sales.danger} />
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            />
+          </View>
+        </Animated.View>
       </View>
 
-      {/* Body */}
-      <View style={styles.body}>
-        <Text style={styles.info}>
-          This module helps you manage material dispatch, record movements, and
-          track finished goods.
-        </Text>
-      </View>
-
-      {/* Footer / Button */}
-      <TouchableOpacity style={styles.button} onPress={onContinue}>
-        <Text style={styles.buttonText}>Get Started</Text>
-        <Ionicons name="arrow-forward" size={20} color="#fff" />
-      </TouchableOpacity>
-    </SafeAreaView>
+      {/* Full-screen Scanner */}
+      <Modal
+        visible={scanVisible}
+        onRequestClose={closeScanner}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        transparent={false}
+      >
+        <StatusBar hidden />
+        <View style={styles_scan.fullscreenCameraWrap}>
+          <CameraView
+            style={styles_scan.fullscreenCamera}
+            facing="back"
+            barcodeScannerSettings={{
+              barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e"],
+            }}
+            onBarcodeScanned={scanLocked ? undefined : onScanned}
+          />
+          <View style={styles_scan.fullscreenTopBar}>
+            <Text style={styles_scan.fullscreenTitle}>Scan a code</Text>
+            <Pressable onPress={closeScanner} style={styles_scan.fullscreenCloseBtn}>
+              <Ionicons name="close" size={22} color="#fff" />
+            </Pressable>
+          </View>
+          <View style={styles_scan.fullscreenBottomBar}>
+            <Text style={styles_scan.fullscreenHint}>Align the code within the frame</Text>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 };
 
-export default MaterialDispatchWelcome;
+export default MaterialDispatchScreen;
 
 const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.bg },
   container: {
     flex: 1,
-    backgroundColor: SURFACE,
+    paddingHorizontal: 14,
+    paddingTop: Platform.select({ ios: 8, android: 10 }),
+    backgroundColor: C.bg,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    justifyContent: "space-between",
+  },
+  arrowBtn: {
+    padding: 6,
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  clearBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: C.red,
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  clearText: {
+    color: C.red,
+    fontWeight: "600",
+  },
+  addNewBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: C.grayBtn,
+  },
+  addNewText: {
+    color: C.text,
+    fontWeight: "600",
+  },
+  card: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    padding: 10,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: C.text,
+    marginBottom: 10,
+    backgroundColor: "#FFFFFF",
+  },
+  textArea: {
+    minHeight: 90,
+    textAlignVertical: "top",
+  },
+  row2: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+  },
+  half: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  fileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 10,
+    marginBottom: 10,
+  },
+  fileBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: C.grayBtn,
+  },
+  fileBtnText: {
+    color: C.text,
+    fontWeight: "600",
+  },
+  fileName: {
+    flex: 1,
+    color: C.text,
+  },
+  saveBtn: {
+    backgroundColor: C.blue,
+    borderRadius: 10,
+    alignItems: "center",
+    paddingVertical: 14,
+  },
+  saveText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  banner: {
+    backgroundColor: "#C4B5FD",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 14,
+    marginVertical: 8,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  bannerText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+});
+
+const styles_sales = StyleSheet.create({
+  title: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: C_sales.text,
+    marginBottom: 10,
+  },
+
+  /** New ROW: input (with Scan) + OUTSIDE Submit button */
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  inputWrap: {
+    position: "relative",
+    flex: 1,
+  },
+  input: {
+    backgroundColor: C_sales.card,
+    borderColor: C_sales.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.select({ ios: 12, android: 10 }),
+    fontSize: 15,
+    color: C_sales.text,
+  },
+  scanBtn: {
+    position: "absolute",
+    right: 6,
+    top: 0,
+    bottom: 0,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    width: 36,
   },
-  header: {
+
+  /** Outside submit button */
+  submitBtnOuter: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: C_sales.pill,
+    borderWidth: 1,
+    borderColor: C_sales.border,
+  },
+  submitTextOuter: { color: C_sales.blue, fontWeight: "700", fontSize: 14 },
+
+  totalPill: {
+    alignSelf: "stretch",
+    marginTop: 10,
+    backgroundColor: C_sales.pill,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: C_sales.border,
+  },
+  totalText: { color: C_sales.sub, fontSize: 13 },
+  totalNum: { fontWeight: "700", color: C_sales.text },
+  clearBtn: {
+    marginTop: 10,
+    backgroundColor: C_sales.card,
+    borderColor: C_sales.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
     alignItems: "center",
-    marginBottom: 30,
+    justifyContent: "center",
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: ACCENT,
+  clearText: { color: C_sales.text, fontWeight: "600" },
+  tableCard: {
     marginTop: 12,
+    backgroundColor: C_sales.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C_sales.border,
+    overflow: "hidden",
+    flex: 1,
   },
-  subtitle: {
-    fontSize: 16,
-    color: MUTED,
-    marginTop: 6,
-  },
-  body: {
-    marginBottom: 40,
-    paddingHorizontal: 10,
-  },
-  info: {
-    fontSize: 15,
-    textAlign: "center",
-    color: ACCENT,
-    lineHeight: 22,
-  },
-  button: {
+  row: {
     flexDirection: "row",
-    backgroundColor: PRIMARY_YELLOW,
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 30,
     alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  headerRow: {
+    backgroundColor: "#F8FAFC",
+    borderBottomWidth: 1,
+    borderBottomColor: C_sales.border,
+  },
+  th: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: C_sales.text,
+  },
+  td: {
+    fontSize: 14,
+    color: C_sales.text,
+  },
+  divider: { height: 1, backgroundColor: C_sales.border },
+  iconBtn: {
+    height: 30,
+    width: 30,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  empty: {
+    textAlign: "center",
+    color: C_sales.sub,
+    fontSize: 13,
+  },
+});
+
+const styles_scan = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#000" },
+  camera: { flex: 1 },
+  topBar: {
+    position: "absolute",
+    top: Platform.select({ ios: 50, android: 20 }),
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  title: { color: "#111827", fontWeight: "700", fontSize: 14 },
+  roundBtn: {
+    height: 36,
+    width: 36,
+    borderRadius: 18,
+    backgroundColor: "#FFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
     elevation: 3,
   },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-    marginRight: 8,
+  overlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  frame: {
+    width: "70%",
+    aspectRatio: 1,
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+    borderRadius: 16,
+    opacity: 0.9,
+  },
+  hint: {
+    marginTop: 16,
+    color: "#FFFFFF",
+    fontSize: 14,
+  },
+
+  // Full-screen camera UI
+  fullscreenCameraWrap: { flex: 1, backgroundColor: "#000" },
+  fullscreenCamera: { flex: 1 },
+  fullscreenTopBar: {
+    position: "absolute",
+    top: Platform.select({ ios: 44, android: 16 }),
+    left: 16,
+    right: 16,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 14, flex: 1 },
+  fullscreenCloseBtn: {
+    height: 28,
+    width: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.25)",
+  },
+  fullscreenBottomBar: {
+    position: "absolute",
+    bottom: 24,
+    left: 16,
+    right: 16,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  fullscreenHint: { color: "#fff", fontSize: 12 },
 });
