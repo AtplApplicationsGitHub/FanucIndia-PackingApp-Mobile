@@ -9,6 +9,7 @@ const ORDER_DETAILS_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/dow
 const ORDER_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/data`;
 const ATTACHMENTS_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/attachments`;
 const EXISTING_ATTACHMENTS_URL = `${BASE_URL}/v1/erp-material-files/by-sale-order/{SO_NUMBER}`;
+const UPDATE_ATTACHMENT_DESCRIPTION_URL = `${BASE_URL}/v1/erp-material-files/{FILE_ID}`;
 
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
@@ -48,6 +49,7 @@ export type OrdersSummaryItem = {
 };
 
 export type AttachmentItem = {
+  id?: string; // Added to store FILE_ID for existing attachments
   uri: string;
   name: string;
   type: string;
@@ -73,7 +75,7 @@ function normalizeForUpload(item: StoredMaterialItem) {
     Bin_No: toStr(it.binNo, ""),
     A_D_F: toStr(it.adf, ""),
     Required_Qty: toNum(it.requiredQty, 0),
-    Packing_stage: toNum(it. packedQty, 0),
+    Packing_stage: toNum(it.packedQty, 0),
     Issue_stage: toNum(it.issuedQty, 0),
   };
 }
@@ -130,7 +132,7 @@ export async function downloadOrderDetails(
     binNo: toStr(row?.Bin_No, ""),
     adf: toStr(row?.A_D_F, ""),
     requiredQty: toNum(row?.Required_Qty, 0),
-   packedQty: toNum(row?.Packing_stage, 0),
+    packedQty: toNum(row?.Packing_stage, 0),
     issuedQty: toNum((row as any)?.Issue_stage, 0),
   })) as any;
 
@@ -218,6 +220,10 @@ export async function uploadAttachments(
       type: attachment.type || "application/octet-stream",
       name: attachment.name,
     } as any);
+    // Include description in FormData if provided
+    if (attachment.description) {
+      formData.append(`descriptions[${index}]`, attachment.description);
+    }
   });
 
   const res = await withTimeout(
@@ -263,9 +269,50 @@ export async function fetchExistingAttachments(
   const json = await res.json();
   console.log("Existing attachments raw response:", json); // Debug log to check structure
   return (Array.isArray(json) ? json : []).map((item: any) => ({
+    id: toStr(item.id, ""), // Store the FILE_ID
     uri: (item.sftpPath || "") as string,
     name: (item.fileName || "Unknown File") as string,
     type: (item.mimeType || "application/octet-stream") as string,
     description: item.description || "",
   }));
+}
+
+// ---------------- API: Update Attachment Description ----------------
+export async function updateAttachmentDescription(
+  fileId: string,
+  description: string,
+  token?: string
+): Promise<void> {
+  const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
+  const url = UPDATE_ATTACHMENT_DESCRIPTION_URL.replace("{FILE_ID}", fileId);
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const body = JSON.stringify({ description });
+
+  const res = await withTimeout(
+    fetch(url, {
+      method: "PUT",
+      headers,
+      body,
+    }),
+    15000
+  );
+
+  if (!res.ok) {
+    const msg = await parseErrorBody(res);
+    throw new Error(`Failed to update attachment description (${res.status}): ${msg}`);
+  }
+
+  // Success
+  try {
+    const result = await res.json();
+    console.log("Attachment description update successful:", result);
+  } catch {
+    console.log("Attachment description update successful (no JSON in response)");
+  }
 }

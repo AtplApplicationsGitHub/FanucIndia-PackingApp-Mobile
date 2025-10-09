@@ -7,7 +7,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 // Adjust these import paths if your file structure differs
 import LoginScreen from "./src/components/screens/Login/login";
 import HomeScreen from "./src/components/screens/Home_screen/home_screen";
-import PickAndPackScreen from "./src/components/screens/pick_and_pack/SalesOrder_Screen";
+import SalesOrderScreen from "./src/components/screens/pick_and_pack/SalesOrder_Screen";
 import MaterialFGScreen from "./src/components/screens/Material_FG/material_fg";
 import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/material_dispatch";
 import OrderDetailsScreen from "./src/components/screens/pick_and_pack/OrderDetails";
@@ -61,7 +61,7 @@ export default function App() {
         {/* Pick & Pack list */}
         <Stack.Screen
           name="PickAndPack"
-          component={PickAndPackScreen}
+          component={SalesOrderScreen}
           options={{ 
             title: "Pick and Pack",
             headerRight: () => <RefreshButton />,

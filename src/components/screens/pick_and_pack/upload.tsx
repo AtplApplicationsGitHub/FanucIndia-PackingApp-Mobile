@@ -1,3 +1,4 @@
+// src/screens/AttachmentScreen.tsx
 import React, { useState, useLayoutEffect, useMemo, useEffect } from "react";
 import {
   View,
@@ -9,8 +10,6 @@ import {
   Alert,
   SafeAreaView,
   ActivityIndicator,
-  Modal,
-  Animated,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
@@ -41,9 +40,6 @@ export default function AttachmentScreen() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<AttachmentItem[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [successModalVisible, setSuccessModalVisible] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
-  const fadeAnim = useState(new Animated.Value(0))[0];
 
   useEffect(() => {
     const loadExisting = async () => {
@@ -147,25 +143,7 @@ export default function AttachmentScreen() {
       // Clear new files state
       setFiles([]);
       
-      // Show success modal
-      setSuccessMessage(`${pendingFiles.length} new file${pendingFiles.length > 1 ? 's' : ''} uploaded successfully!`);
-      setSuccessModalVisible(true);
-      
-      // Fade in animation
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-
-      // Auto-dismiss modal after 2 seconds
-      setTimeout(() => {
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }).start(() => setSuccessModalVisible(false));
-      }, 2000);
+      Alert.alert("Success", `${pendingFiles.length} new file(s) uploaded successfully!`);
     } catch (e: any) {
       console.error("Upload error:", e);
       // Update status to failed for pending files
@@ -243,21 +221,6 @@ export default function AttachmentScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Success Modal */}
-      <Modal
-        animationType="none"
-        transparent={true}
-        visible={successModalVisible}
-        onRequestClose={() => setSuccessModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <Animated.View style={[styles.modalContent, { opacity: fadeAnim }]}>
-            <Ionicons name="checkmark-circle" size={48} color="#28a745" />
-            <Text style={styles.modalText}>{successMessage}</Text>
-          </Animated.View>
-        </View>
-      </Modal>
-
       {/* Add File Button */}
       <TouchableOpacity 
         style={styles.addButton} 
@@ -428,29 +391,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 6,
     fontSize: 14,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    backgroundColor: "#fff",
-    padding: 20,
-    borderRadius: 12,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  modalText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 10,
-    textAlign: "center",
   },
 });
