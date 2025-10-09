@@ -145,42 +145,42 @@ const MaterialFGTransferScreen: React.FC = () => {
     setMessageDlg({ show: true, title, subtitle, onOk });
 
   const addItem = async () => {
-    const loc = location.trim();
-    const so = soNumber.trim();
+  const loc = location.trim();
+  const so = soNumber.trim();
 
-    if (!loc) {
-      showMessage("Missing location", "Please enter or scan a location.");
-      locationRef.current?.focus();
-      return;
-    }
-    if (!so) {
-      showMessage("Missing SO number", "Please enter or scan a Sales Order number.");
-      soRef.current?.focus();
-      return;
-    }
+  if (!loc) {
+    showMessage("Missing location", "Please enter or scan a location.");
+    locationRef.current?.focus();
+    return;
+  }
+  if (!so) {
+    showMessage("Missing SO number", "Please enter or scan a Sales Order number.");
+    soRef.current?.focus();
+    return;
+  }
 
-    try {
-      const res: AssignLocationResponse = await assignFgLocation({ saleOrderNumber: so, fgLocation: loc });
-      // On success, add/update locally
-      const existingIndex = items.findIndex((item) => item.location === loc && item.soNumber === so);
-      const newTimeISO = new Date().toISOString();
-      if (existingIndex !== -1) {
-        setItems((prev) =>
-          prev.map((item, i) => (i === existingIndex ? { ...item, timeISO: newTimeISO } : item))
-        );
-      } else {
-        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        setItems((prev) => [{ id, location: loc, soNumber: so, timeISO: newTimeISO }, ...prev]);
-      }
-      setSoNumber("");
-      soRef.current?.focus();
-      // Optional: Show success message
-      showMessage(res.message, `SO ${so} assigned to ${loc}`);
-    } catch (error: any) {
-      showMessage("Update Failed", error.message);
-      // Do not add to local list on failure
+  try {
+    const res: AssignLocationResponse = await assignFgLocation({ saleOrderNumber: so, fgLocation: loc });
+    // On success, add/update locally
+    const existingIndex = items.findIndex((item) => item.location === loc && item.soNumber === so);
+    const newTimeISO = new Date().toISOString();
+    if (existingIndex !== -1) {
+      setItems((prev) =>
+        prev.map((item, i) => (i === existingIndex ? { ...item, timeISO: newTimeISO } : item))
+      );
+    } else {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      setItems((prev) => [{ id, location: loc, soNumber: so, timeISO: newTimeISO }, ...prev]);
     }
-  };
+    setSoNumber("");
+    soRef.current?.focus();
+    // Optional: Show success message
+    showMessage("Success", `SO ${so} assigned to ${loc}`);
+  } catch (error: any) {
+    showMessage("Error", `Sales Order number " ${so} " not found`);
+    // Do not add to local list on failure
+  }
+};
 
   const clearForm = () => {
     setLocation("");

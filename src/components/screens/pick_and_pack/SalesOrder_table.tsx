@@ -1,4 +1,3 @@
-// src/screens/SalesOrder_table.tsx
 import React from "react";
 import {
   View,
@@ -16,21 +15,15 @@ type Props = {
   data?: OrdersSummaryItem[];
   refreshing?: boolean;
   onRefresh?: () => void;
-
-  // Actions
   onRowPress?: (o: OrdersSummaryItem) => void;
   onDownload?: (o: OrdersSummaryItem) => void;
   onView?: (o: OrdersSummaryItem) => void;
   onUpload?: (o: OrdersSummaryItem) => void;
   onDocument?: (o: OrdersSummaryItem) => void;
-
-  // State maps (keyed by saleOrderNumber)
   downloadedMap?: Record<string, boolean>;
   issueCompletedMap?: Record<string, boolean>;
   packCompletedMap?: Record<string, boolean>;
   phaseMap?: Record<string, "issue" | "packing">;
-
-  // Which SO is currently uploading (SO number) — null/undefined if none
   uploading?: string | null;
 };
 
@@ -109,11 +102,11 @@ const Row: React.FC<{
     (isUploading
       ? "Uploading..."
       : !downloaded
-      ? currentPhase === "packing"
-        ? "Download for packing"
-        : "Not downloaded"
+      ? "Not downloaded"
       : currentPhase === "issue" && !issueCompleted
       ? "Issuing in progress"
+      : currentPhase === "issue" && issueCompleted
+      ? "Issue completed"
       : currentPhase === "packing" && !packCompleted
       ? "Packing in progress"
       : "Ready to upload");
@@ -136,8 +129,9 @@ const Row: React.FC<{
     ((currentPhase === "issue" && !issueCompleted) ||
       (currentPhase === "packing" && !packCompleted));
   const showReadyActions =
-    (currentPhase === "issue" && issueCompleted) ||
-    (currentPhase === "packing" && packCompleted);
+    downloaded &&
+    ((currentPhase === "issue" && issueCompleted) ||
+      (currentPhase === "packing" && packCompleted));
 
   const rowStyle = [
     styles.row,
@@ -240,8 +234,8 @@ const Row: React.FC<{
               {isUploading ? (
                 <ActivityIndicator size="small" color={C.blue} />
               ) : (
-                onUpload && (
-                  <IconTap onPress={onUpload} ariaLabel="Upload data">
+                onUpload && currentPhase === "issue" && issueCompleted && (
+                  <IconTap onPress={onUpload} ariaLabel="Upload issue data">
                     <Ionicons
                       name="cloud-upload-outline"
                       size={22}
@@ -250,16 +244,12 @@ const Row: React.FC<{
                   </IconTap>
                 )
               )}
-              {onDocument && (
-                <IconTap
-                  onPress={onDocument}
-                  disabled={isUploading}
-                  ariaLabel="Open documents"
-                >
+              {onUpload && currentPhase === "packing" && packCompleted && (
+                <IconTap onPress={onUpload} ariaLabel="Upload packing data">
                   <Ionicons
-                    name="document-outline"
+                    name="cloud-upload-outline"
                     size={22}
-                    color={isUploading ? C.gray : C.icon}
+                    color={C.blue}
                   />
                 </IconTap>
               )}

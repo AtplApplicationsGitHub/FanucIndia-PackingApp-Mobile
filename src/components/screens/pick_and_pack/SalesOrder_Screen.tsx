@@ -1,4 +1,3 @@
-// src/screens/SalesOrdersScreen.tsx
 import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
@@ -13,18 +12,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import SalesOrdersStyledTable from "./SalesOrder_table";
-import {
-  fetchOrdersSummary,
-  downloadOrderDetails,
-  uploadIssueData,
-  type OrdersSummaryItem,
-} from "../../Api/SalesOrder_server";
-import {
-  hasOrderDetails,
-  getOrderDetails,
-  deleteOrderDetails,
-  type StoredMaterialItem,
-} from "../../Storage/sale_order_storage";
+import { fetchOrdersSummary, downloadOrderDetails, uploadIssueData, type OrdersSummaryItem } from "../../Api/SalesOrder_server";
+import { hasOrderDetails, getOrderDetails, deleteOrderDetails, type StoredMaterialItem } from "../../Storage/sale_order_storage";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -111,10 +100,14 @@ const SalesOrdersScreen: React.FC = () => {
     try {
       const orders = await fetchOrdersSummary();
       setList(orders);
-      setPhaseMap(
+      // Only set phase to "issue" for new orders not already in phaseMap
+      setPhaseMap((prev) =>
         orders.reduce(
-          (acc, o) => ({ ...acc, [o.saleOrderNumber]: "issue" }),
-          {} as Record<string, Phase>
+          (acc, o) => ({
+            ...acc,
+            [o.saleOrderNumber]: acc[o.saleOrderNumber] || "issue",
+          }),
+          prev
         )
       );
       await refreshMaps(orders);
@@ -130,10 +123,14 @@ const SalesOrdersScreen: React.FC = () => {
     try {
       const orders = await fetchOrdersSummary();
       setList(orders);
-      setPhaseMap(
+      // Preserve existing phaseMap entries
+      setPhaseMap((prev) =>
         orders.reduce(
-          (acc, o) => ({ ...acc, [o.saleOrderNumber]: "issue" }),
-          {} as Record<string, Phase>
+          (acc, o) => ({
+            ...acc,
+            [o.saleOrderNumber]: acc[o.saleOrderNumber] || "issue",
+          }),
+          prev
         )
       );
       await refreshMaps(orders);
@@ -154,7 +151,6 @@ const SalesOrdersScreen: React.FC = () => {
       try {
         await downloadOrderDetails(o.saleOrderNumber);
         await refreshMaps(list);
-        // Show attractive modal instead of Alert
         showModal({
           title: "Download Complete",
           message: `Order ${o.saleOrderNumber} details have been downloaded successfully.`,
@@ -196,7 +192,6 @@ const SalesOrdersScreen: React.FC = () => {
         const packComplete = computePackCompletion(stored?.orderDetails);
         await deleteOrderDetails(so);
 
-        const currentPhase = phaseMap[so] || "issue";
         let newList = list;
         if (packComplete) {
           newList = list.filter((order) => order.saleOrderNumber !== so);
@@ -211,7 +206,6 @@ const SalesOrdersScreen: React.FC = () => {
         setList(newList);
         await refreshMaps(newList);
 
-        // Replace success Alert with a polished modal
         const msg = packComplete
           ? "Order fully completed and uploaded."
           : "Issue data uploaded. Download again to proceed with packing.";
@@ -226,7 +220,7 @@ const SalesOrdersScreen: React.FC = () => {
         setUploading(null);
       }
     },
-    [list, phaseMap, refreshMaps]
+    [list, refreshMaps]
   );
 
   return (

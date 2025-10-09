@@ -21,8 +21,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.kishore1809.Fanuc"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -30,11 +29,6 @@
     "plugins": [
       "expo-secure-store",
       "expo-build-properties"
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "f1337ed7-f1c8-449a-93e0-2991b674c625"
-      }
-    }
+    ]
   }
 }
