@@ -1,8 +1,17 @@
 // src/screens/SalesOrdersScreen.tsx
 import React, { useEffect, useState, useCallback } from "react";
-import { View, Text, ActivityIndicator, StyleSheet, Alert } from "react-native";
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  StyleSheet,
+  Alert,
+  Modal,
+  TouchableOpacity,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import SalesOrdersStyledTable from "./SalesOrder_table";
 import {
   fetchOrdersSummary,
@@ -27,6 +36,8 @@ export type RootStackParamList = {
   MaterialDispatch: undefined;
 };
 
+type Phase = "issue" | "packing";
+
 const SalesOrdersScreen: React.FC = () => {
   const navigation = useNavigation<any>();
 
@@ -39,7 +50,19 @@ const SalesOrdersScreen: React.FC = () => {
   const [downloadedMap, setDownloadedMap] = useState<Record<string, boolean>>({});
   const [issueCompletedMap, setIssueCompletedMap] = useState<Record<string, boolean>>({});
   const [packCompletedMap, setPackCompletedMap] = useState<Record<string, boolean>>({});
-  const [phaseMap, setPhaseMap] = useState<Record<string, "issue" | "packing">>({});
+  const [phaseMap, setPhaseMap] = useState<Record<string, Phase>>({});
+
+  // Success/info modal state
+  const [modal, setModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: "success" | "info";
+  }>({ visible: false, title: "", message: "", type: "info" });
+
+  const showModal = (opts: { title: string; message: string; type?: "success" | "info" }) =>
+    setModal({ visible: true, title: opts.title, message: opts.message, type: opts.type ?? "info" });
+  const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
   const computeIssueCompletion = (items: StoredMaterialItem[] | undefined) => {
     if (!items || items.length === 0) return false;
@@ -91,7 +114,7 @@ const SalesOrdersScreen: React.FC = () => {
       setPhaseMap(
         orders.reduce(
           (acc, o) => ({ ...acc, [o.saleOrderNumber]: "issue" }),
-          {} as Record<string, "issue" | "packing">
+          {} as Record<string, Phase>
         )
       );
       await refreshMaps(orders);
@@ -110,7 +133,7 @@ const SalesOrdersScreen: React.FC = () => {
       setPhaseMap(
         orders.reduce(
           (acc, o) => ({ ...acc, [o.saleOrderNumber]: "issue" }),
-          {} as Record<string, "issue" | "packing">
+          {} as Record<string, Phase>
         )
       );
       await refreshMaps(orders);
@@ -131,7 +154,12 @@ const SalesOrdersScreen: React.FC = () => {
       try {
         await downloadOrderDetails(o.saleOrderNumber);
         await refreshMaps(list);
-        Alert.alert("Downloaded", `Order ${o.saleOrderNumber} details downloaded.`);
+        // Show attractive modal instead of Alert
+        showModal({
+          title: "Download Complete",
+          message: `Order ${o.saleOrderNumber} details have been downloaded successfully.`,
+          type: "success",
+        });
       } catch (e: any) {
         Alert.alert("Download failed", e?.message ?? "Try again.");
       }
@@ -162,9 +190,12 @@ const SalesOrdersScreen: React.FC = () => {
         if (!stored || !stored.orderDetails || stored.orderDetails.length === 0) {
           throw new Error("No order details found. Please download first.");
         }
+
         await uploadIssueData(so, stored.orderDetails);
+
         const packComplete = computePackCompletion(stored?.orderDetails);
         await deleteOrderDetails(so);
+
         const currentPhase = phaseMap[so] || "issue";
         let newList = list;
         if (packComplete) {
@@ -179,10 +210,16 @@ const SalesOrdersScreen: React.FC = () => {
         }
         setList(newList);
         await refreshMaps(newList);
+
+        // Replace success Alert with a polished modal
         const msg = packComplete
           ? "Order fully completed and uploaded."
-          : `Issue data uploaded. Download again to proceed with packing.`;
-        Alert.alert("Uploaded", msg);
+          : "Issue data uploaded. Download again to proceed with packing.";
+        showModal({
+          title: packComplete ? "Upload Complete" : "Issue Data Uploaded",
+          message: msg,
+          type: "success",
+        });
       } catch (e: any) {
         Alert.alert("Upload failed", e?.message ?? "Try again.");
       } finally {
@@ -193,7 +230,6 @@ const SalesOrdersScreen: React.FC = () => {
   );
 
   return (
-    // Remove TOP safe inset to reduce the gap under the nav header
     <SafeAreaView style={styles.safe} edges={["left", "right", "bottom"]}>
       <View style={styles.container}>
         {loading ? (
@@ -219,16 +255,118 @@ const SalesOrdersScreen: React.FC = () => {
           />
         )}
       </View>
+
+      {/* Attractive, reusable success/info modal */}
+      <Modal
+        visible={modal.visible}
+        animationType="fade"
+        transparent
+        onRequestClose={closeModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <View
+                style={[
+                  styles.modalIconCircle,
+                  modal.type === "success" ? styles.successBg : styles.infoBg,
+                ]}
+              >
+                <Ionicons
+                  name={modal.type === "success" ? "checkmark-done" : "information-circle"}
+                  size={28}
+                  color="#FFFFFF"
+                />
+              </View>
+            </View>
+
+            <Text style={styles.modalTitle}>{modal.title}</Text>
+            <Text style={styles.modalMessage}>{modal.message}</Text>
+
+            <TouchableOpacity onPress={closeModal} style={styles.modalPrimaryBtn}>
+              <Text style={styles.modalPrimaryBtnText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
 
 export default SalesOrdersScreen;
 
+const C = {
+  bg: "#FFFFFF",
+  text: "#0B1220",
+  sub: "#6B7280",
+  border: "#E5E7EB",
+  success: "#16A34A",
+  info: "#2151F5",
+  overlay: "rgba(0,0,0,0.35)",
+  btn: "#111827",
+  btnText: "#FFFFFF",
+};
+
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   container: { flex: 1 },
   title: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
-  loadingText: { marginTop: 8, color: "#6B7280" },
+  loadingText: { marginTop: 8, color: C.sub },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: C.overlay,
+    padding: 24,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: C.bg,
+    borderRadius: 16,
+    padding: 20,
+    paddingTop: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  modalIconWrap: { marginBottom: 12 },
+  modalIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successBg: { backgroundColor: C.success },
+  infoBg: { backgroundColor: C.info },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: C.text,
+    textAlign: "center",
+    marginTop: 6,
+  },
+  modalMessage: {
+    fontSize: 14,
+    color: C.sub,
+    textAlign: "center",
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  modalPrimaryBtn: {
+    marginTop: 16,
+    width: "100%",
+    backgroundColor: C.info,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalPrimaryBtnText: { color: C.btnText, fontWeight: "700", fontSize: 16 },
 });

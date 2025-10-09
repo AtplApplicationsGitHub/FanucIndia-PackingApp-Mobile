@@ -35,6 +35,13 @@ export default function App() {
         initialRouteName="Login"
         screenOptions={{
           headerTitleAlign: "center",
+          headerTitleStyle: {
+            fontSize: 16,
+            fontWeight: "600",
+          },
+          headerStyle: {
+            // Optional: Add consistent background if needed
+          },
         }}
       >
         {/* Login */}
@@ -66,7 +73,9 @@ export default function App() {
         <Stack.Screen
           name="MaterialFG"
           component={MaterialFGScreen}
-          options={{ title: "Material FG / Transfer" }}
+          options={{ 
+            title: "Material FG/Transfer", // Shortened slightly for better fit
+          }}
         />
 
         {/* Material Dispatch */}
@@ -76,13 +85,12 @@ export default function App() {
           options={{ title: "Material Dispatch" }}
         />
 
-
         {/* Order Details — dynamic title using route params */}
         <Stack.Screen
           name="OrderDetails"
           component={OrderDetailsScreen}
           options={({ route }) => ({
-            title: `SO: ${route?.params?.saleOrderNumber ?? ""}`,
+            title: `SO: ${route?.params?.saleOrderNumber?.substring(0, 20) ?? ""}${route?.params?.saleOrderNumber?.length > 20 ? "..." : ""}`, // Truncate long SO numbers for fit
           })}
         />
 
