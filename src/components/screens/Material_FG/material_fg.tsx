@@ -1,4 +1,3 @@
-// src/screens/MaterialFGTransferScreen.tsx
 import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -145,42 +144,57 @@ const MaterialFGTransferScreen: React.FC = () => {
     setMessageDlg({ show: true, title, subtitle, onOk });
 
   const addItem = async () => {
-  const loc = location.trim();
-  const so = soNumber.trim();
+    const loc = location.trim();
+    const so = soNumber.trim();
 
-  if (!loc) {
-    showMessage("Missing location", "Please enter or scan a location.");
-    locationRef.current?.focus();
-    return;
-  }
-  if (!so) {
-    showMessage("Missing SO number", "Please enter or scan a Sales Order number.");
-    soRef.current?.focus();
-    return;
-  }
-
-  try {
-    const res: AssignLocationResponse = await assignFgLocation({ saleOrderNumber: so, fgLocation: loc });
-    // On success, add/update locally
-    const existingIndex = items.findIndex((item) => item.location === loc && item.soNumber === so);
-    const newTimeISO = new Date().toISOString();
-    if (existingIndex !== -1) {
-      setItems((prev) =>
-        prev.map((item, i) => (i === existingIndex ? { ...item, timeISO: newTimeISO } : item))
-      );
-    } else {
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      setItems((prev) => [{ id, location: loc, soNumber: so, timeISO: newTimeISO }, ...prev]);
+    if (!loc) {
+      showMessage("Missing location", "Please enter or scan a location.");
+      locationRef.current?.focus();
+      return;
     }
+    if (!so) {
+      showMessage("Missing SO number", "Please enter or scan a Sales Order number.");
+      soRef.current?.focus();
+      return;
+    }
+
+    try {
+  const res: AssignLocationResponse = await assignFgLocation({
+    saleOrderNumber: so,
+    fgLocation: loc,
+  });
+
+  // On success, add/update locally
+  const existingIndex = items.findIndex(
+    (item) => item.location === loc && item.soNumber === so
+  );
+  const newTimeISO = new Date().toISOString();
+
+  if (existingIndex !== -1) {
+    setItems((prev) =>
+      prev.map((item, i) =>
+        i === existingIndex ? { ...item, timeISO: newTimeISO } : item
+      )
+    );
+  } else {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setItems((prev) => [
+      { id, location: loc, soNumber: so, timeISO: newTimeISO },
+      ...prev,
+    ]);
+  }
+
+  setSoNumber("");
+  soRef.current?.focus();
+} catch (error: any) {
+  if (error.message.includes("Sales Order number")) {
     setSoNumber("");
     soRef.current?.focus();
-    // Optional: Show success message
-    showMessage("Success", `SO ${so} assigned to ${loc}`);
-  } catch (error: any) {
-    showMessage("Error", `Sales Order number " ${so} " not found`);
-    // Do not add to local list on failure
   }
-};
+  showMessage("Error", error.message);
+}
+
+  };
 
   const clearForm = () => {
     setLocation("");
@@ -248,10 +262,14 @@ const MaterialFGTransferScreen: React.FC = () => {
         }
         setSoNumber("");
         soRef.current?.focus();
-        // Optional: Show success message
-        showMessage(res.message, `SO ${so} assigned to ${currentLoc}`);
+        // Show success message
+        showMessage("Success", `SO ${so} assigned to ${currentLoc}`);
       } catch (error: any) {
-        showMessage("Update Failed", error.message);
+        if (error.message.includes("Sales Order number")) {
+          setSoNumber("");
+          soRef.current?.focus();
+        }
+        showMessage("Error", error.message);
       }
       scanLockRef.current = false;
     } else {
@@ -396,7 +414,7 @@ const MaterialFGTransferScreen: React.FC = () => {
       {/* Message Dialog */}
       <Dialog
         visible={messageDlg.show}
-        icon={<Ionicons name="information-circle-outline" size={22} color={COLORS.accent} />}
+        icon={<Ionicons name={messageDlg.title === "Success" ? "checkmark-circle-outline" : "information-circle-outline"} size={22} color={messageDlg.title === "Success" ? COLORS.primary : COLORS.accent} />}
         title={messageDlg.title}
         message={messageDlg.subtitle}
         okText="OK"

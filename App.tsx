@@ -14,7 +14,7 @@ import OrderDetailsScreen from "./src/components/screens/pick_and_pack/OrderDeta
 import UploadScreen from "./src/components/screens/pick_and_pack/upload";
 import { RefreshButton } from "./src/components/Storage_Clear/Storage_Clear";
 
-export type RootStackParamList = {
+export type bRootStackParamList = {
   Login: undefined;
   Home: { displayName?: string } | undefined;
   PickAndPack: undefined;

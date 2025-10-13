@@ -1,4 +1,3 @@
-// src/screens/OrderDetailsScreen.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -148,7 +147,10 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
 
   const { totalItems, completedItems, totalRequired, totalIssued, completedPackedItems, totalPacked } = useMemo(() => {
     const ti = materials.length;
-    const ci = materials.filter((m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)).length;
+    const ci = materials.filter((m) => 
+      (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) && 
+      (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
+    ).length;
     const cp = materials.filter((m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)).length;
     const tr = materials.reduce((s, m) => s + (Number(m.requiredQty) || 0), 0);
     const tiq = materials.reduce((s, m) => s + (Number(m.issuedQty) || 0), 0);
@@ -156,7 +158,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     return { totalItems: ti, completedItems: ci, completedPackedItems: cp, totalRequired: tr, totalIssued: tiq, totalPacked: tpq };
   }, [materials]);
 
-  const isOrderIssuedComplete = completedItems === totalItems;
+  const isOrderIssuedComplete = materials.every((m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0));
 
   const persist = (rows: MaterialRow[]) => {
     saveOrderDetails(saleOrderNumber, rows as unknown as StoredMaterialItem[]);
@@ -244,16 +246,26 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     }, 250);
   };
 
-  const setIssuedQtyAt = (index: number, raw: string) => {
+  const validateNumberInput = (raw: string) => {
     const digits = raw.replace(/[^\d]/g, "");
-    const next = digits === "" ? "0" : digits;
+    if (digits === "" || isNaN(Number(digits))) {
+      return { isValid: false, value: 0 };
+    }
+    return { isValid: true, value: Number(digits) };
+  };
+
+  const setIssuedQtyAt = (index: number, raw: string) => {
+    const { isValid, value } = validateNumberInput(raw);
+    if (!isValid) {
+      openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
+    }
     setMaterials((prev) => {
       const clone = [...prev];
       const row = clone[index];
       const req = Number(row.requiredQty) || 0;
-      let val = Number(next);
+      let val = value;
       if (val > req) {
-        openDialog("Please enter a valid issue number.", "", "danger");
+        openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
         val = req;
       }
       if (val < 0) val = 0;
@@ -263,15 +275,17 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
   };
 
   const setPackedQtyAt = (index: number, raw: string) => {
-    const digits = raw.replace(/[^\d]/g, "");
-    const next = digits === "" ? "0" : digits;
+    const { isValid, value } = validateNumberInput(raw);
+    if (!isValid) {
+      openDialog("Invalid Input", "Please enter a valid pack number.", "danger");
+    }
     setMaterials((prev) => {
       const clone = [...prev];
       const row = clone[index];
       const req = Number(row.requiredQty) || 0;
-      let val = Number(next);
+      let val = value;
       if (val > req) {
-        openDialog("Please enter a valid pack number.", "", "danger");
+        openDialog("Invalid Input", "Please enter a valid pack number.", "danger");
         val = req;
       }
       if (val < 0) val = 0;
@@ -309,15 +323,9 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
               </Text>
             </View>
             <View style={styles.chip}>
-              <Text style={styles.chipTitle}>Issued</Text>
+              <Text style={styles.chipTitle}>{isOrderIssuedComplete ? "Packed" : "Issued"}</Text>
               <Text style={styles.chipValue}>
-                {totalIssued}/{totalRequired}
-              </Text>
-            </View>
-            <View style={styles.chip}>
-              <Text style={styles.chipTitle}>Packed</Text>
-              <Text style={styles.chipValue}>
-                {totalPacked}/{totalRequired}
+                {isOrderIssuedComplete ? totalPacked : totalIssued}/{totalRequired}
               </Text>
             </View>
           </View>
@@ -356,7 +364,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
           {/* Fixed Table head */}
           <View style={styles.card}>
             <View style={styles.tableHead}>
-              <View  style={[styles.cell, styles.flex15, styles.left]}>
+              <View style={[styles.cell, styles.flex15, styles.left]}>
                 <Text style={styles.headText}>Material Code</Text>
               </View>
               <View style={[styles.cell, styles.flex45, styles.left]}>
@@ -368,9 +376,11 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
               <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                 <Text style={styles.headText}>Issue</Text>
               </View>
-              <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
-                <Text style={styles.headText}>Packing</Text>
-              </View>
+              {isOrderIssuedComplete && (
+                <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                  <Text style={styles.headText}>Packing</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -382,7 +392,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
           contentContainerStyle={styles.bodyListContent}
           style={styles.list}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
-          // Make scrolling solid & predictable:
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.select({ ios: "on-drag", android: "on-drag" })}
           showsVerticalScrollIndicator
@@ -400,7 +409,11 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             const issuedColor = isPacked ? C.greenText : (isIssued ? C.yellowText : C.headerText);
             const pillIssued = isIssued && req > 0;
             const pillPacked = isPacked && req > 0;
-            const truncatedDesc = item.description ? (String(item.description).length > 30 ? String(item.description).substring(0, 30) + "..." : String(item.description)) : "";
+            const truncatedDesc = item.description
+              ? String(item.description).length > 30
+                ? String(item.description).substring(0, 30) + "..."
+                : String(item.description)
+              : "";
             return (
               <View style={styles.card}>
                 <Pressable
@@ -416,7 +429,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                         binNo: item.binNo as any,
                         adf: String(item.adf ?? ""),
                         requiredQty: req,
-
                         issuedQty: Number(item.issuedQty ?? 0),
                         packedQty: Number(item.packedQty ?? 0),
                       },
@@ -463,22 +475,19 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                     />
                   </View>
 
-                  <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
-                    <TextInput
-                      value={String(item.packedQty ?? 0)}
-                      onChangeText={(t) => setPackedQtyAt(index, t)}
-                      keyboardType="number-pad"
-                      inputMode="numeric"
-                      maxLength={3}
-                      editable={isOrderIssuedComplete}
-                      style={[
-                        styles.issueInput, 
-                        pillPacked && { borderColor: C.greenText + "66" },
-                        !isOrderIssuedComplete && { backgroundColor: "#f3f4f6", color: C.subText }
-                      ]}
-                      onEndEditing={saveOnEndEditing}
-                    />
-                  </View>
+                  {isOrderIssuedComplete && (
+                    <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                      <TextInput
+                        value={String(item.packedQty ?? 0)}
+                        onChangeText={(t) => setPackedQtyAt(index, t)}
+                        keyboardType="number-pad"
+                        inputMode="numeric"
+                        maxLength={3}
+                        style={[styles.issueInput, pillPacked && { borderColor: C.greenText + "66" }]}
+                        onEndEditing={saveOnEndEditing}
+                      />
+                    </View>
+                  )}
                 </Pressable>
               </View>
             );
@@ -528,7 +537,8 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
           visible={descModal.visible}
           transparent
           animationType="fade"
-          onRequestClose={() => setDescModal({ visible: false })}>
+          onRequestClose={() => setDescModal({ visible: false })}
+        >
           <View style={styles.descOverlay}>
             <View style={styles.descCard}>
               <View style={styles.descHeader}>
@@ -727,7 +737,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: C.headerText,
     fontWeight: "700",
-
   },
 
   // Full-screen camera

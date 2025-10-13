@@ -189,30 +189,28 @@ const SalesOrdersScreen: React.FC = () => {
 
         await uploadIssueData(so, stored.orderDetails);
 
-        const issueComplete = computeIssueCompletion(stored?.orderDetails);
         const packComplete = computePackCompletion(stored?.orderDetails);
-
         await deleteOrderDetails(so);
 
         let newList = list;
-        if (phaseMap[so] === "packing" && packComplete) {
+        if (packComplete) {
           newList = list.filter((order) => order.saleOrderNumber !== so);
           setPhaseMap((prev) => {
             const newP = { ...prev };
             delete newP[so];
             return newP;
           });
-        } else if (phaseMap[so] === "issue" && issueComplete) {
+        } else {
           setPhaseMap((prev) => ({ ...prev, [so]: "packing" }));
         }
         setList(newList);
         await refreshMaps(newList);
 
-        const msg = phaseMap[so] === "packing" && packComplete
+        const msg = packComplete
           ? "Order fully completed and uploaded."
           : "Issue data uploaded. Download again to proceed with packing.";
         showModal({
-          title: phaseMap[so] === "packing" && packComplete ? "Upload Complete" : "Issue Data Uploaded",
+          title: packComplete ? "Upload Complete" : "Issue Data Uploaded",
           message: msg,
           type: "success",
         });
@@ -222,7 +220,7 @@ const SalesOrdersScreen: React.FC = () => {
         setUploading(null);
       }
     },
-    [list, phaseMap, refreshMaps]
+    [list, refreshMaps]
   );
 
   return (

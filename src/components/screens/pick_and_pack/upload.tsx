@@ -1,4 +1,3 @@
-// src/screens/AttachmentScreen.tsx
 import React, { useState, useLayoutEffect, useMemo, useEffect } from "react";
 import {
   View,
@@ -182,12 +181,12 @@ export default function AttachmentScreen() {
 
   const renderItem = ({ item, index }: { item: FileItem; index: number }) => (
     <View style={styles.row}>
-      <Text style={styles.cell}>{index + 1}</Text>
-      <Text style={styles.cellName} numberOfLines={1} ellipsizeMode="middle">
-        {item.name || "Unknown File"}
+      <Text style={styles.cellSNo}>{index + 1}</Text>
+      <Text style={styles.cellName} numberOfLines={1} ellipsizeMode="tail">
+        {item.name.length > 10 ? `${item.name.substring(0, 10)}...` : item.name}
       </Text>
       <TextInput
-        style={[styles.cell, styles.input]}
+        style={[styles.cellDescription, styles.input]}
         placeholder="Enter description"
         value={item.description}
         onChangeText={(text) => {
@@ -244,10 +243,10 @@ export default function AttachmentScreen() {
         <>
           {/* Table Header */}
           <View style={styles.tableHeader}>
-            <Text style={styles.headerCell}>S/No</Text>
-            <Text style={styles.headerCell}>File Name</Text>
-            <Text style={styles.headerCell}>Description</Text>
-            <Text style={styles.headerCell}>Status</Text>
+            <Text style={styles.headerCellSNo}>S/No</Text>
+            <Text style={styles.headerCellName}>File Name</Text>
+            <Text style={styles.headerCellDescription}>Description</Text>
+            <Text style={styles.headerCellStatus}>Status</Text>
           </View>
 
           <FlatList
@@ -308,14 +307,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: "#f9f9f9",
     borderRadius: 6,
-    padding: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     marginBottom: 8,
   },
-  headerCell: { 
-    flex: 1, 
+  headerCellSNo: { 
+    width: 50,
     fontWeight: "bold", 
     textAlign: "center", 
-    fontSize: 12 
+    fontSize: 12,
+  },
+  headerCellName: { 
+    flex: 2,
+    fontWeight: "bold", 
+    textAlign: "left", 
+    fontSize: 12,
+    paddingLeft: 8,
+  },
+  headerCellDescription: { 
+    flex: 3,
+    fontWeight: "bold", 
+    textAlign: "left", 
+    fontSize: 12,
+    paddingLeft: 8,
+  },
+  headerCellStatus: { 
+    flex: 1.5,
+    fontWeight: "bold", 
+    textAlign: "center", 
+    fontSize: 12,
   },
   row: {
     flexDirection: "row",
@@ -324,20 +344,23 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignItems: "center",
   },
-  cell: { 
-    flex: 1, 
+  cellSNo: { 
+    width: 50,
     textAlign: "center", 
     fontSize: 12,
-    paddingHorizontal: 2,
   },
   cellName: {
     flex: 2,
     textAlign: "left",
     fontSize: 12,
-    paddingHorizontal: 4,
+    paddingLeft: 8,
+  },
+  cellDescription: { 
+    flex: 3,
+    paddingLeft: 8,
   },
   statusCell: {
-    flex: 1,
+    flex: 1.5,
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
@@ -347,11 +370,11 @@ const styles = StyleSheet.create({
     borderColor: "#ccc",
     borderRadius: 4,
     fontSize: 12,
-    paddingHorizontal: 4,
-    height: 28,
+    paddingHorizontal: 8,
+    height: 32,
   },
   removeButton: {
-    paddingLeft: 4,
+    paddingLeft: 8,
   },
   fileList: {
     flex: 1,

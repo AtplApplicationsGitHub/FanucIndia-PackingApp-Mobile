@@ -1,11 +1,9 @@
 // src/Api/material_fg_server.ts
 import * as SecureStore from "expo-secure-store";
 
-/** ------------ Config ------------ */
 export const BASE_URL = "https://fanuc.goval.app:444/api";
 const ASSIGN_LOCATION_URL = `${BASE_URL}/fg-storage/assign-location`;
 
-/** ------------ Types ------------ */
 export type AssignLocationRequest = {
   saleOrderNumber: string;
   fgLocation: string;
@@ -73,7 +71,7 @@ export async function assignFgLocation(
 
   const json = (await res.json()) as AssignLocationResponse;
   return {
-    message: json?.message ?? "FG Location updated successfully.",
+    message: json?.message ?? ".",
     saleOrderNumber: json?.saleOrderNumber ?? input.saleOrderNumber,
     fgLocation: json?.fgLocation ?? input.fgLocation,
   };

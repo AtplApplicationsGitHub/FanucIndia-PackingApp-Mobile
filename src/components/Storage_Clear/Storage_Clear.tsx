@@ -146,7 +146,7 @@ export const RefreshButton = () => {
         style={{ padding: 5, backgroundColor: "transparent" }}
         activeOpacity={0.7}
       >
-        <Ionicons name="trash-outline" size={24} color="#FF3B30" />
+        <Ionicons name="refresh-outline" size={24} color="#2151F5" />
       </TouchableOpacity>
 
       {/* Confirmation Modal */}
