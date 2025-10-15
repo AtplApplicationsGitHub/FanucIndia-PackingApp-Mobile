@@ -1,5 +1,5 @@
 // src/screens/MaterialDispatchScreen.tsx
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Alert,
   Animated,
@@ -26,11 +26,13 @@ import {
 import {
   createDispatchHeader,
   linkSalesOrder,
+  deleteSalesOrderLink,
   uploadAttachments,
   type CreateDispatchHeaderRequest,
   type LinkDispatchSORequest,
   type ApiResult,
 } from "../../Api/material_dispatch_server";
+import { loadDispatchData, saveDispatchData, clearDispatchData } from "../../Storage/material_dispatch_storage";
 
 type DispatchForm = {
   customer: string;
@@ -40,8 +42,9 @@ type DispatchForm = {
 };
 
 type SOEntry = {
-  id: string; // SO number
-  createdAt: number; // epoch ms
+  soId: string;
+  linkId: number;
+  createdAt: number;
 };
 
 const C = {
@@ -81,6 +84,7 @@ const MaterialDispatchScreen: React.FC = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [showNewFormModal, setShowNewFormModal] = useState(false);
 
   const animatedHeight = useState(new Animated.Value(1))[0];
   const salesOpacity = useState(new Animated.Value(0))[0];
@@ -117,10 +121,16 @@ const MaterialDispatchScreen: React.FC = () => {
   };
 
   const handleAddNew = () => {
+    setShowNewFormModal(true);
+  };
+
+  const confirmNewForm = async () => {
+    await clearDispatchData();
     handleClear();
     if (!expanded) {
       toggleExpand();
     }
+    setShowNewFormModal(false);
   };
 
   const toggleExpand = () => {
@@ -221,25 +231,28 @@ const MaterialDispatchScreen: React.FC = () => {
       return;
     }
 
-    setItems((prev) => {
-      if (prev.some((x) => x.id === so)) return prev; // dedupe
-      return [...prev, { id: so, createdAt: Date.now() }];
-    });
-
     const payload: LinkDispatchSORequest = { saleOrderNumber: so };
 
     try {
-      const result: ApiResult = await linkSalesOrder(dispatchId, payload);
-      if (!result.ok) {
-        // Remove from local if API fails
-        setItems((prev) => prev.filter((x) => x.id !== so));
+      const result: ApiResult<DispatchSOLink> = await linkSalesOrder(dispatchId, payload);
+      if (result.ok) {
+        const link = result.data;
+        setItems((prev) => {
+          if (prev.some((x) => x.soId === so)) return prev; // dedupe
+          return [
+            ...prev,
+            {
+              soId: so,
+              linkId: link.id,
+              createdAt: new Date(link.createdAt).getTime(),
+            },
+          ];
+        });
+      } else {
         setErrorMessage(result.error || "Failed to link sales order.");
         setShowError(true);
       }
-      // If success, keep the local item (createdAt is approximate, but fine)
     } catch (error) {
-      // Remove from local on network error
-      setItems((prev) => prev.filter((x) => x.id !== so));
       setErrorMessage("An unexpected error occurred. Please try again.");
       setShowError(true);
     }
@@ -247,8 +260,25 @@ const MaterialDispatchScreen: React.FC = () => {
     setValue("");
   }
 
-  function removeSO(id: string) {
-    setItems((prev) => prev.filter((x) => x.id !== id));
+  async function removeSO(linkId: number) {
+    if (!dispatchId) {
+      setErrorMessage("Please create a dispatch header first.");
+      setShowError(true);
+      return;
+    }
+
+    try {
+      const result: ApiResult = await deleteSalesOrderLink(linkId);
+      if (result.ok) {
+        setItems((prev) => prev.filter((x) => x.linkId !== linkId));
+      } else {
+        setErrorMessage(result.error || "Failed to remove sales order.");
+        setShowError(true);
+      }
+    } catch (error) {
+      setErrorMessage("An unexpected error occurred. Please try again.");
+      setShowError(true);
+    }
   }
 
   function clearAll() {
@@ -304,6 +334,47 @@ const MaterialDispatchScreen: React.FC = () => {
 
   const canSubmit = value.trim().length > 0;
 
+  // Load from local storage on mount
+  useEffect(() => {
+    const loadData = async () => {
+      const data = await loadDispatchData();
+      if (data) {
+        setForm(data.form);
+        setDispatchId(data.dispatchId);
+        setItems(data.items || []);
+        setFileName(data.fileName || "No file chosen");
+        if (data.selectedFile) {
+          setSelectedFile({
+            name: data.selectedFile.name,
+            uri: data.selectedFile.uri,
+            mimeType: data.selectedFile.mimeType,
+            size: data.selectedFile.size,
+          } as DocumentPicker.DocumentPickerAsset);
+        }
+      }
+    };
+    loadData();
+  }, []);
+
+  // Save to local storage when state changes
+  useEffect(() => {
+    const dataToSave = {
+      form,
+      dispatchId,
+      items,
+      fileName,
+      selectedFile: selectedFile
+        ? {
+            name: selectedFile.name,
+            uri: selectedFile.uri,
+            mimeType: selectedFile.mimeType,
+            size: selectedFile.size,
+          }
+        : null,
+    };
+    saveDispatchData(dataToSave);
+  }, [form, dispatchId, items, fileName, selectedFile]);
+
   return (
     <View style={styles.safe}>
       <View style={styles.container}>
@@ -317,11 +388,7 @@ const MaterialDispatchScreen: React.FC = () => {
             />
           </TouchableOpacity>
 
-          <View style={styles.headerActions}>
-            <TouchableOpacity onPress={handleClear} style={styles.clearBtn}>
-              <Text style={styles.clearText}>Clear</Text>
-            </TouchableOpacity>
-
+          <View style={styles.headerActions}>          
             <TouchableOpacity onPress={handleAddNew} style={styles.addNewBtn}>
               <Text style={styles.addNewText}>Add New</Text>
             </TouchableOpacity>
@@ -401,18 +468,14 @@ const MaterialDispatchScreen: React.FC = () => {
 
         {/* Sales Orders Section */}
         <Animated.View style={{ opacity: salesOpacity, flex: 1 }}>
-          <Text style={styles_sales.title}>Scan / Add Sales Orders</Text>
-
-          {/* Row with Input (with Scan) + OUTSIDE Submit button */}
           <View style={styles_sales.inputRow}>
-            {/* Input with embedded Scan button */}
             <View style={styles_sales.inputWrap}>
               <TextInput
                 value={value}
                 onChangeText={setValue}
                 placeholder="Scan or type SO, then press Enter"
                 placeholderTextColor={C_sales.sub}
-                style={[styles_sales.input, { paddingRight: 44 }]} // space for scan icon
+                style={[styles_sales.input, { paddingRight: 44 }]} 
                 returnKeyType="done"
                 blurOnSubmit
                 onSubmitEditing={() => addSO(value)}
@@ -421,7 +484,6 @@ const MaterialDispatchScreen: React.FC = () => {
                 keyboardType={Platform.select({ ios: "default", android: "visible-password" })}
               />
 
-              {/* Scan icon INSIDE the input */}
               <Pressable
                 onPress={openScanner}
                 style={({ pressed }) => [
@@ -454,22 +516,11 @@ const MaterialDispatchScreen: React.FC = () => {
             </Text>
           </View>
 
-          <Pressable
-            onPress={clearAll}
-            style={({ pressed }) => [
-              styles_sales.clearBtn,
-              pressed && { opacity: 0.9 },
-              total === 0 && { opacity: 0.5 },
-            ]}
-            disabled={total === 0}
-          >
-            <Text style={styles_sales.clearText}>Clear all</Text>
-          </Pressable>
 
           <View style={styles_sales.tableCard}>
             {/* Header */}
             <View style={[styles_sales.row, styles_sales.headerRow]}>
-              <Text style={[styles_sales.th, { width: 40, textAlign: "left" }]}>#</Text>
+              <Text style={[styles_sales.th, { width: 40, textAlign: "left" }]}>S/No</Text>
               <Text style={[styles_sales.th, { flex: 1 }]}>SO Number</Text>
               <Text style={[styles_sales.th, { width: 80 }]}>Timing</Text>
               <Text style={[styles_sales.th, { width: 72, textAlign: "right" }]}>Action</Text>
@@ -478,7 +529,7 @@ const MaterialDispatchScreen: React.FC = () => {
             {/* Body */}
             <FlatList
               data={items}
-              keyExtractor={(it) => it.id}
+              keyExtractor={(it) => it.linkId.toString()}
               contentContainerStyle={items.length === 0 && { paddingVertical: 24 }}
               ItemSeparatorComponent={() => <View style={styles_sales.divider} />}
               ListEmptyComponent={<Text style={styles_sales.empty}> </Text>}
@@ -486,14 +537,14 @@ const MaterialDispatchScreen: React.FC = () => {
                 <View style={styles_sales.row}>
                   <Text style={[styles_sales.td, { width: 40 }]}>{index + 1}</Text>
                   <Text style={[styles_sales.td, { flex: 1 }]} numberOfLines={1}>
-                    {item.id}
+                    {item.soId}
                   </Text>
                   <Text style={[styles_sales.td, { width: 80 }]}>
                     {formatTime(item.createdAt)}
                   </Text>
-                  <View style={[styles_sales.td, { width: 72, alignItems: "flex-end" }]}>
+             <View style={[styles_sales.td, { width: 72, alignItems: 'flex-end' }]}>
                     <Pressable
-                      onPress={() => removeSO(item.id)}
+                      onPress={() => removeSO(item.linkId)}
                       hitSlop={8}
                       style={({ pressed }) => [
                         styles_sales.iconBtn,
@@ -510,6 +561,43 @@ const MaterialDispatchScreen: React.FC = () => {
         </Animated.View>
       </View>
 
+      {/* New Form Confirmation Modal */}
+      <Modal
+        visible={showNewFormModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNewFormModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmationModal}>
+
+            <Text style={styles.confirmationTitle}>Start New Form</Text>
+            
+            {/* Message */}
+            <Text style={styles.confirmationMessage}>
+          Are you sure you want to start a new form? This action will clear all current data 
+            </Text>
+            
+            {/* Button Container */}
+            <View style={styles.confirmationButtons}>
+              <TouchableOpacity 
+                onPress={() => setShowNewFormModal(false)} 
+                style={[styles.confirmationButton, styles.cancelButton]}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                onPress={confirmNewForm} 
+                style={[styles.confirmationButton, styles.confirmButton]}
+              >
+                <Text style={styles.confirmButtonText}>Okay</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Success Modal */}
       <Modal
         visible={showSuccess}
@@ -519,7 +607,6 @@ const MaterialDispatchScreen: React.FC = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.successModal}>
-            <Ionicons name="checkmark-circle" size={48} color="#10B981" />
             <Text style={styles.modalTitle}>Dispatch created successfully!</Text>
             <TouchableOpacity
               onPress={() => setShowSuccess(false)}
@@ -717,6 +804,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "center",
     alignItems: "center",
+    padding: 20,
   },
   successModal: {
     backgroundColor: "#FFFFFF",
@@ -759,6 +847,73 @@ const styles = StyleSheet.create({
   modalButtonText: {
     color: "#FFFFFF",
     fontWeight: "600",
+  },
+  // New Form Confirmation Modal Styles
+  confirmationModal: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
+    alignItems: "center",
+  },
+  confirmationIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#EFF4FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  confirmationTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  confirmationMessage: {
+    fontSize: 15,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  confirmationButtons: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  confirmationButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButton: {
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  confirmButton: {
+    backgroundColor: "#2151F5",
+  },
+  cancelButtonText: {
+    color: "#374151",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  confirmButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 15,
   },
 });
 

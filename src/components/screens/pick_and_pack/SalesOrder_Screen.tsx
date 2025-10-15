@@ -147,21 +147,22 @@ const SalesOrdersScreen: React.FC = () => {
 
   // Actions
   const handleDownload = useCallback(
-    async (o: OrdersSummaryItem) => {
-      try {
-        await downloadOrderDetails(o.saleOrderNumber);
-        await refreshMaps(list);
-        showModal({
-          title: "Download Complete",
-          message: `Order ${o.saleOrderNumber} details have been downloaded successfully.`,
-          type: "success",
-        });
-      } catch (e: any) {
-        Alert.alert("Download failed", e?.message ?? "Try again.");
-      }
-    },
-    [list, refreshMaps]
-  );
+  async (o: OrdersSummaryItem) => {
+    try {
+      await downloadOrderDetails(o.saleOrderNumber);
+      await refreshMaps(list);
+      showModal({
+        title: "Download Complete",
+        message: `Sales Order ${o.saleOrderNumber} details have been successfully downloaded.`,
+        type: "success",
+      });
+    } catch (e: any) {
+      Alert.alert("Download Failed", e?.message ?? "Please try again.");
+    }
+  },
+  [list, refreshMaps]
+);
+
 
   const handleView = useCallback(
     (o: OrdersSummaryItem) => {

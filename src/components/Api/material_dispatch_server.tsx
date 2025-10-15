@@ -10,6 +10,7 @@ export const BASE_URL = "https://fanuc.goval.app:444/api";
 const DISPATCH_HEADER_URL = `${BASE_URL}/dispatch/mobile/header`;
 const DISPATCH_SO_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
 const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/attachments`;
+const DISPATCH_SO_DELETE_URL = (soId: number) => `${BASE_URL}/dispatch/so/${soId}`;
 
 export type CreateDispatchHeaderRequest = {
   customerName: string;
@@ -217,6 +218,48 @@ export async function linkSalesOrder(
     }
 
     const data = await res.json().catch(() => ({}));
+    return { ok: true, status: res.status, data };
+  } catch (e: any) {
+    const msg =
+      e?.message === "Request timed out"
+        ? "Network timeout — please check connectivity and try again."
+        : e?.message ?? "Network error";
+    return { ok: false, status: 0, error: msg };
+  }
+}
+
+export async function deleteSalesOrderLink(
+  soLinkId: number,
+  opts?: { token?: string }
+): Promise<ApiResult> {
+  const token = opts?.token ?? (await getToken());
+  if (!token) {
+    return {
+      ok: false,
+      status: 0,
+      error:
+        "Missing access token. Please login again or setAccessToken(...) after login.",
+    };
+  }
+
+  try {
+    const url = DISPATCH_SO_DELETE_URL(soLinkId);
+    const res = await withTimeout(
+      fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      })
+    );
+
+    if (!res.ok) {
+      const err = await parseErrorBody(res);
+      return { ok: false, status: res.status, error: err };
+    }
+
+    const data = await res.json().catch(() => ({ message: "SO Number removed" }));
     return { ok: true, status: res.status, data };
   } catch (e: any) {
     const msg =
