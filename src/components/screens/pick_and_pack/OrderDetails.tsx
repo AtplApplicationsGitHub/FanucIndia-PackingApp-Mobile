@@ -247,6 +247,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
   };
 
   const validateNumberInput = (raw: string) => {
+    // Allows empty string, which FlatList will handle by rendering the state value.
     const digits = raw.replace(/[^\d]/g, "");
     if (digits === "" || isNaN(Number(digits))) {
       return { isValid: false, value: 0 };
@@ -254,41 +255,84 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     return { isValid: true, value: Number(digits) };
   };
 
+  // 🐛 FIX: Implement logic to reset to 0 if value > requiredQty
   const setIssuedQtyAt = (index: number, raw: string) => {
     const { isValid, value } = validateNumberInput(raw);
-    if (!isValid) {
-      openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
-    }
+    
     setMaterials((prev) => {
       const clone = [...prev];
       const row = clone[index];
       const req = Number(row.requiredQty) || 0;
       let val = value;
+
+      if (!isValid) {
+        // Only show dialog for non-numeric input, but don't change state as RN TextInput can handle partial non-numeric input.
+        // The list item will re-render with the previous value if the text is invalid and no valid number is parsed.
+        // However, if we parse it to 0, it will display 0 briefly, then revert.
+        // For simplicity with `validateNumberInput` returning {isValid: false, value: 0} for empty/invalid, 
+        // we'll update to 0 if the raw input is NOT a number (or is an empty string which is not desired).
+        if (raw.trim() !== "") {
+            openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
+        }
+        if (raw.trim() === "") {
+             // Allow user to clear to 0, which is handled below by val=0.
+             val = 0;
+        } else if (!isValid) {
+             // If input is non-empty and non-numeric, do nothing to the state value (revert to old value in the UI).
+             return prev;
+        }
+      } 
+      
       if (val > req) {
-        openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
-        val = req;
+        // User requested to reset to 0 if value > requiredQty
+        openDialog(
+          "Invalid Quantity", 
+          `Issue quantity cannot exceed required quantity (${req}). Resetting to 0.`, 
+          "danger"
+        );
+        val = 0; // Reset to 0 as per user request
       }
-      if (val < 0) val = 0;
+      
+      if (val < 0) val = 0; // Prevent negative values
+
       clone[index] = { ...row, issuedQty: val };
       return clone;
     });
   };
 
+  // 🐛 FIX: Implement logic to reset to 0 if value > requiredQty
   const setPackedQtyAt = (index: number, raw: string) => {
     const { isValid, value } = validateNumberInput(raw);
-    if (!isValid) {
-      openDialog("Invalid Input", "Please enter a valid pack number.", "danger");
-    }
+    
     setMaterials((prev) => {
       const clone = [...prev];
       const row = clone[index];
       const req = Number(row.requiredQty) || 0;
       let val = value;
+      
+      if (!isValid) {
+        if (raw.trim() !== "") {
+            openDialog("Invalid Input", "Please enter a valid pack number.", "danger");
+        }
+        if (raw.trim() === "") {
+             val = 0;
+        } else if (!isValid) {
+             return prev;
+        }
+      } 
+      
       if (val > req) {
-        openDialog("Invalid Input", "Please enter a valid pack number.", "danger");
-        val = req;
+        // User requested to reset to 0 if value > requiredQty
+        openDialog(
+          "Invalid Quantity", 
+          `Packed quantity cannot exceed required quantity (${req}). Resetting to 0.`, 
+          "danger"
+        );
+        val = 0; // Reset to 0 as per user request
       }
-      if (val < 0) val = 0;
+      
+      if (val < 0) val = 0; // Prevent negative values
+      
       clone[index] = { ...row, packedQty: val };
       return clone;
     });

@@ -65,7 +65,7 @@ export async function assignFgLocation(
 
   if (!res.ok) {
     const msg = await parseErrorBody(res);
-    throw new Error(`Failed to assign FG location (${res.status}): ${msg}`);
+    throw new Error(`${msg}`);
   }
 
 

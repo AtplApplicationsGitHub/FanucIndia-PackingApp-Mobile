@@ -7,7 +7,7 @@ const BASE_URL = "https://fanuc.goval.app:444/api";
 const ORDERS_SUMMARY_URL = `${BASE_URL}/user-dashboard/orders-summary`;
 const ORDER_DETAILS_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/download-details`;
 const ORDER_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/data`;
-const ATTACHMENTS_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/attachments`;
+const ATTACHMENTS_UPLOAD_URL = `${BASE_URL}/v1/erp-material-files/upload-with-descriptions`;
 const EXISTING_ATTACHMENTS_URL = `${BASE_URL}/v1/erp-material-files/by-sale-order/{SO_NUMBER}`;
 const UPDATE_ATTACHMENT_DESCRIPTION_URL = `${BASE_URL}/v1/erp-material-files/{FILE_ID}`;
 
@@ -193,7 +193,7 @@ export async function uploadIssueData(
   }
 }
 
-// ---------------- API: Upload Attachments ----------------
+// ---------------- API: Upload Attachments (Updated for new endpoint) ----------------
 export async function uploadAttachments(
   saleOrderNumber: string,
   attachments: AttachmentItem[],
@@ -204,48 +204,61 @@ export async function uploadAttachments(
   }
 
   const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
-  const url = ATTACHMENTS_UPLOAD_URL.replace("{SO_NUMBER}", saleOrderNumber);
 
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-  const formData = new FormData();
-  
-  // Append each file to FormData
-  attachments.forEach((attachment, index) => {
-    formData.append("attachments", {
+  // Upload one by one to avoid 413 error
+  for (const attachment of attachments) {
+    const formData = new FormData();
+    
+    // Append saleOrderNumber
+    formData.append("saleOrderNumber", saleOrderNumber);
+    
+    // Append the single file
+    formData.append("files", {
       uri: attachment.uri,
       type: attachment.type || "application/octet-stream",
       name: attachment.name,
     } as any);
-    // Include description in FormData if provided
-    if (attachment.description) {
-      formData.append(`descriptions[${index}]`, attachment.description);
+
+    // Create descriptions JSON object for this single file
+    const descriptions: Record<string, string> = {};
+    descriptions[attachment.name] = attachment.description || "";
+    
+    // Append descriptions as JSON string
+    formData.append("descriptions", JSON.stringify(descriptions));
+    
+    console.log("Uploading attachment with description:", {
+      saleOrderNumber,
+      fileName: attachment.name,
+      description: attachment.description || ""
+    });
+
+    const res = await withTimeout(
+      fetch(ATTACHMENTS_UPLOAD_URL, { 
+        method: "POST", 
+        headers, 
+        body: formData 
+      }), 
+      60000 // Increased timeout for file uploads
+    );
+
+    if (!res.ok) {
+      const msg = await parseErrorBody(res);
+      console.error("Attachment upload failed for file:", attachment.name, { status: res.status, message: msg });
+      throw new Error(`Attachment upload failed (${res.status}): ${msg}`);
     }
-  });
 
-  const res = await withTimeout(
-    fetch(url, { 
-      method: "POST", 
-      headers, 
-      body: formData 
-    }), 
-    30000
-  );
-
-  if (!res.ok) {
-    const msg = await parseErrorBody(res);
-    throw new Error(`Attachment upload failed (${res.status}): ${msg}`);
-  }
-
-  // Success
-  try {
-    const result = await res.json();
-    console.log("Attachment upload successful:", result);
-  } catch {
-    console.log("Attachment upload successful (no JSON in response)");
+    // Success for this file
+    try {
+      const result = await res.json();
+      console.log("Attachment upload successful for file:", attachment.name, result);
+    } catch {
+      console.log("Attachment upload successful for file:", attachment.name, "(no JSON in response)");
+    }
   }
 }
 

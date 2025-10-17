@@ -100,7 +100,6 @@ const SalesOrdersScreen: React.FC = () => {
     try {
       const orders = await fetchOrdersSummary();
       setList(orders);
-      // Only set phase to "issue" for new orders not already in phaseMap
       setPhaseMap((prev) =>
         orders.reduce(
           (acc, o) => ({
@@ -123,7 +122,6 @@ const SalesOrdersScreen: React.FC = () => {
     try {
       const orders = await fetchOrdersSummary();
       setList(orders);
-      // Preserve existing phaseMap entries
       setPhaseMap((prev) =>
         orders.reduce(
           (acc, o) => ({
@@ -145,24 +143,22 @@ const SalesOrdersScreen: React.FC = () => {
     load();
   }, [load]);
 
-  // Actions
   const handleDownload = useCallback(
-  async (o: OrdersSummaryItem) => {
-    try {
-      await downloadOrderDetails(o.saleOrderNumber);
-      await refreshMaps(list);
-      showModal({
-        title: "Download Complete",
-        message: `Sales Order ${o.saleOrderNumber} details have been successfully downloaded.`,
-        type: "success",
-      });
-    } catch (e: any) {
-      Alert.alert("Download Failed", e?.message ?? "Please try again.");
-    }
-  },
-  [list, refreshMaps]
-);
-
+    async (o: OrdersSummaryItem) => {
+      try {
+        await downloadOrderDetails(o.saleOrderNumber);
+        await refreshMaps(list);
+        showModal({
+          title: "Download Complete",
+          message: `Sales Order ${o.saleOrderNumber} details have been successfully downloaded.`,
+          type: "success",
+        });
+      } catch (e: any) {
+        Alert.alert("Download Failed", e?.message ?? "Please try again.");
+      }
+    },
+    [list, refreshMaps]
+  );
 
   const handleView = useCallback(
     (o: OrdersSummaryItem) => {
@@ -181,6 +177,7 @@ const SalesOrdersScreen: React.FC = () => {
   const handleUpload = useCallback(
     async (o: OrdersSummaryItem) => {
       const so = o.saleOrderNumber;
+      if (uploading) return; // Prevent multiple uploads
       setUploading(so);
       try {
         const stored = await getOrderDetails(so);
@@ -189,11 +186,11 @@ const SalesOrdersScreen: React.FC = () => {
         }
 
         await uploadIssueData(so, stored.orderDetails);
+        await deleteOrderDetails(so); // Clear local storage
 
         const packComplete = computePackCompletion(stored?.orderDetails);
-        await deleteOrderDetails(so);
-
         let newList = list;
+
         if (packComplete) {
           newList = list.filter((order) => order.saleOrderNumber !== so);
           setPhaseMap((prev) => {
@@ -204,8 +201,10 @@ const SalesOrdersScreen: React.FC = () => {
         } else {
           setPhaseMap((prev) => ({ ...prev, [so]: "packing" }));
         }
+
         setList(newList);
         await refreshMaps(newList);
+        await onRefresh(); // Trigger page refresh
 
         const msg = packComplete
           ? "Order fully completed and uploaded."
@@ -216,10 +215,43 @@ const SalesOrdersScreen: React.FC = () => {
           type: "success",
         });
       } catch (e: any) {
-        Alert.alert("Upload failed", e?.message ?? "Try again.");
+        Alert.alert("Upload Failed", e?.message ?? "Try again.");
       } finally {
         setUploading(null);
       }
+    },
+    [list, refreshMaps, onRefresh, uploading]
+  );
+
+  const handleDelete = useCallback(
+    (o: OrdersSummaryItem) => {
+      Alert.alert(
+        "Confirm Delete",
+        "Are you sure you want to delete?",
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+          {
+            text: "Delete",
+            onPress: async () => {
+              try {
+                await deleteOrderDetails(o.saleOrderNumber);
+                await refreshMaps(list);
+                showModal({
+                  title: "Delete Complete",
+                  message: `Local data for Sales Order ${o.saleOrderNumber} has been deleted.`,
+                  type: "success",
+                });
+              } catch (e: any) {
+                Alert.alert("Delete Failed", e?.message ?? "Please try again.");
+              }
+            },
+            style: "destructive",
+          },
+        ]
+      );
     },
     [list, refreshMaps]
   );
@@ -242,6 +274,7 @@ const SalesOrdersScreen: React.FC = () => {
             onView={handleView}
             onUpload={handleUpload}
             onDocument={handleDocument}
+            onDelete={handleDelete}
             downloadedMap={downloadedMap}
             issueCompletedMap={issueCompletedMap}
             packCompletedMap={packCompletedMap}
@@ -251,7 +284,6 @@ const SalesOrdersScreen: React.FC = () => {
         )}
       </View>
 
-      {/* Attractive, reusable success/info modal */}
       <Modal
         visible={modal.visible}
         animationType="fade"
@@ -309,7 +341,6 @@ const styles = StyleSheet.create({
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
   loadingText: { marginTop: 8, color: C.sub },
 
-  // Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: C.overlay,

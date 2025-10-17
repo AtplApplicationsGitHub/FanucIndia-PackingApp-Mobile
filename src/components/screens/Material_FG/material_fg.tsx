@@ -148,52 +148,56 @@ const MaterialFGTransferScreen: React.FC = () => {
     const so = soNumber.trim();
 
     if (!loc) {
-      showMessage("Missing location", "Please enter or scan a location.");
-      locationRef.current?.focus();
+      showMessage("Missing location", "Please enter or scan a location.", () => {
+        locationRef.current?.focus();
+      });
       return;
     }
     if (!so) {
-      showMessage("Missing SO number", "Please enter or scan a Sales Order number.");
-      soRef.current?.focus();
+      showMessage("Missing SO number", "Please enter or scan a Sales Order number.", () => {
+        soRef.current?.focus();
+      });
       return;
     }
 
     try {
-  const res: AssignLocationResponse = await assignFgLocation({
-    saleOrderNumber: so,
-    fgLocation: loc,
-  });
+      const res: AssignLocationResponse = await assignFgLocation({
+        saleOrderNumber: so,
+        fgLocation: loc,
+      });
 
-  // On success, add/update locally
-  const existingIndex = items.findIndex(
-    (item) => item.location === loc && item.soNumber === so
-  );
-  const newTimeISO = new Date().toISOString();
+      // On success, add/update locally
+      const existingIndex = items.findIndex(
+        (item) => item.location === loc && item.soNumber === so
+      );
+      const newTimeISO = new Date().toISOString();
 
-  if (existingIndex !== -1) {
-    setItems((prev) =>
-      prev.map((item, i) =>
-        i === existingIndex ? { ...item, timeISO: newTimeISO } : item
-      )
-    );
-  } else {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    setItems((prev) => [
-      { id, location: loc, soNumber: so, timeISO: newTimeISO },
-      ...prev,
-    ]);
-  }
+      if (existingIndex !== -1) {
+        setItems((prev) =>
+          prev.map((item, i) =>
+            i === existingIndex ? { ...item, timeISO: newTimeISO } : item
+          )
+        );
+      } else {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        setItems((prev) => [
+          { id, location: loc, soNumber: so, timeISO: newTimeISO },
+          ...prev,
+        ]);
+      }
 
-  setSoNumber("");
-  soRef.current?.focus();
-} catch (error: any) {
-  if (error.message.includes("Sales Order number")) {
-    setSoNumber("");
-    soRef.current?.focus();
-  }
-  showMessage("Error", error.message);
-}
-
+      setSoNumber("");
+      soRef.current?.focus();
+    } catch (error: any) {
+      setSoNumber("");
+      showMessage(
+        "Error",
+        error.message,
+        () => {
+          soRef.current?.focus();
+        }
+      );
+    }
   };
 
   const clearForm = () => {
@@ -236,9 +240,10 @@ const MaterialFGTransferScreen: React.FC = () => {
     } else if (scanModal.target === "so") {
       const currentLoc = location.trim();
       if (!currentLoc) {
-        showMessage("Missing location", "Please enter or scan a location first.");
-        setSoNumber("");
-        locationRef.current?.focus();
+        showMessage("Missing location", "Please enter or scan a location first.", () => {
+          setSoNumber("");
+          locationRef.current?.focus();
+        });
         scanLockRef.current = false;
         return;
       }
@@ -248,28 +253,39 @@ const MaterialFGTransferScreen: React.FC = () => {
       closeScanner();
 
       try {
-        const res: AssignLocationResponse = await assignFgLocation({ saleOrderNumber: so, fgLocation: currentLoc });
+        const res: AssignLocationResponse = await assignFgLocation({
+          saleOrderNumber: so,
+          fgLocation: currentLoc,
+        });
         // On success, add/update locally
-        const existingIndex = items.findIndex((item) => item.location === currentLoc && item.soNumber === so);
+        const existingIndex = items.findIndex(
+          (item) => item.location === currentLoc && item.soNumber === so
+        );
         const newTimeISO = new Date().toISOString();
         if (existingIndex !== -1) {
           setItems((prev) =>
-            prev.map((item, i) => (i === existingIndex ? { ...item, timeISO: newTimeISO } : item))
+            prev.map((item, i) =>
+              i === existingIndex ? { ...item, timeISO: newTimeISO } : item
+            )
           );
         } else {
           const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          setItems((prev) => [{ id, location: currentLoc, soNumber: so, timeISO: newTimeISO }, ...prev]);
+          setItems((prev) => [
+            { id, location: currentLoc, soNumber: so, timeISO: newTimeISO },
+            ...prev,
+          ]);
         }
         setSoNumber("");
         soRef.current?.focus();
-        // Show success message
-        showMessage("Success", `SO ${so} assigned to ${currentLoc}`);
       } catch (error: any) {
-        if (error.message.includes("Sales Order number")) {
-          setSoNumber("");
-          soRef.current?.focus();
-        }
-        showMessage("Error", error.message);
+        setSoNumber("");
+        showMessage(
+          "Error",
+          error.message,
+          () => {
+            soRef.current?.focus();
+          }
+        );
       }
       scanLockRef.current = false;
     } else {
@@ -322,7 +338,7 @@ const MaterialFGTransferScreen: React.FC = () => {
                 ref={soRef}
                 value={soNumber}
                 onChangeText={setSoNumber}
-                placeholder="Enter/scan SO number (Enter to save)"
+                placeholder="Enter/scan SO number"
                 placeholderTextColor={COLORS.muted}
                 returnKeyType="done"
                 onSubmitEditing={addItem}
@@ -564,7 +580,7 @@ const styles = StyleSheet.create({
   btnPrimary2Text: { color: "#fff", fontWeight: "700" },
   btnDestructive: { backgroundColor: COLORS.danger },
 
-  // Optional focus frame / mask (kept if you want to style camera overlay later)
+  // Optional focus frame / mask
   scanFullWrap: { flex: 1, backgroundColor: "#000" },
   focusFrame: {
     position: "absolute",

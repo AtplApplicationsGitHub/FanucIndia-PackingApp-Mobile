@@ -1,4 +1,3 @@
-// src/Api/material_dispatch_server.ts
 import * as SecureStore from "expo-secure-store";
 
 let AsyncStorage: any = null;
@@ -194,9 +193,12 @@ export async function linkSalesOrder(
   }
 
   const { saleOrderNumber } = payload;
-  if (!saleOrderNumber?.trim()) {
+  const normalizedSO = saleOrderNumber.replace(/\s+/g, "").toUpperCase();
+  if (!normalizedSO) {
     return { ok: false, status: 0, error: "Sale order number is required." };
   }
+
+  const normalizedPayload: LinkDispatchSORequest = { saleOrderNumber: normalizedSO };
 
   try {
     const url = DISPATCH_SO_URL(dispatchId);
@@ -208,7 +210,7 @@ export async function linkSalesOrder(
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(normalizedPayload),
       })
     );
 

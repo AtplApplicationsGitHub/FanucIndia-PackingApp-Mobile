@@ -17,6 +17,7 @@ import { RefreshButton } from "./src/components/Storage_Clear/Storage_Clear";
 export type bRootStackParamList = {
   Login: undefined;
   Home: { displayName?: string } | undefined;
+  SalesOrderScreen :undefined;
   PickAndPack: undefined;
   MaterialFG: undefined;
   MaterialDispatch: undefined;

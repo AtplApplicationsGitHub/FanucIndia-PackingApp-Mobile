@@ -1,5 +1,4 @@
-// src/screens/MaterialDispatchScreen.tsx
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Alert,
   Animated,
@@ -90,6 +89,9 @@ const MaterialDispatchScreen: React.FC = () => {
   const salesOpacity = useState(new Animated.Value(0))[0];
 
   const formHeight = 350;
+
+  const customerRef = useRef<TextInput>(null);
+  const soRef = useRef<TextInput>(null);
 
   const onChange = (k: keyof DispatchForm, v: string) =>
     setForm((prev) => ({ ...prev, [k]: v }));
@@ -183,12 +185,11 @@ const MaterialDispatchScreen: React.FC = () => {
         }
 
         const message = `Dispatch created successfully!${!uploadSuccess ? '\n\nNote: File upload failed.' : ''}`;
-        // Set success modal
         setShowSuccess(true);
         if (expanded) toggleExpand();
         setTimeout(() => {
           setShowSuccess(false);
-        }, 3000);
+        }, 500);
 
         if (uploadSuccess) {
           setSelectedFile(null);
@@ -217,7 +218,6 @@ const MaterialDispatchScreen: React.FC = () => {
   const total = useMemo(() => items.length, [items]);
 
   function normalizeSO(raw: string) {
-    // Trim, remove internal spaces, uppercase
     return raw.replace(/\s+/g, "").toUpperCase();
   }
 
@@ -231,23 +231,28 @@ const MaterialDispatchScreen: React.FC = () => {
       return;
     }
 
+    // Check for duplicate SO
+    if (items.some((x) => x.soId === so)) {
+      setErrorMessage(`Sales Order ${so} is already linked to this dispatch.`);
+      setShowError(true);
+      setValue("");
+      return;
+    }
+
     const payload: LinkDispatchSORequest = { saleOrderNumber: so };
 
     try {
       const result: ApiResult<DispatchSOLink> = await linkSalesOrder(dispatchId, payload);
       if (result.ok) {
         const link = result.data;
-        setItems((prev) => {
-          if (prev.some((x) => x.soId === so)) return prev; // dedupe
-          return [
-            ...prev,
-            {
-              soId: so,
-              linkId: link.id,
-              createdAt: new Date(link.createdAt).getTime(),
-            },
-          ];
-        });
+        setItems((prev) => [
+          ...prev,
+          {
+            soId: so,
+            linkId: link.id,
+            createdAt: new Date(link.createdAt).getTime(),
+          },
+        ]);
       } else {
         setErrorMessage(result.error || "Failed to link sales order.");
         setShowError(true);
@@ -351,10 +356,24 @@ const MaterialDispatchScreen: React.FC = () => {
             size: data.selectedFile.size,
           } as DocumentPicker.DocumentPickerAsset);
         }
+        if (data.dispatchId) {
+          setExpanded(false);
+          animatedHeight.setValue(0);
+          salesOpacity.setValue(1);
+        }
       }
     };
     loadData();
   }, []);
+
+  // Focus logic
+  useEffect(() => {
+    if (dispatchId) {
+      soRef.current?.focus();
+    } else {
+      customerRef.current?.focus();
+    }
+  }, [dispatchId]);
 
   // Save to local storage when state changes
   useEffect(() => {
@@ -380,13 +399,15 @@ const MaterialDispatchScreen: React.FC = () => {
       <View style={styles.container}>
         {/* Header Row */}
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={toggleExpand} style={styles.arrowBtn}>
-            <Ionicons
-              name={expanded ? "chevron-up-outline" : "chevron-down-outline"}
-              size={24}
-              color={C.text}
-            />
-          </TouchableOpacity>
+          {dispatchId && (
+            <TouchableOpacity onPress={toggleExpand} style={styles.arrowBtn}>
+              <Ionicons
+                name={expanded ? "chevron-up-outline" : "chevron-down-outline"}
+                size={24}
+                color={C.text}
+              />
+            </TouchableOpacity>
+          )}
 
           <View style={styles.headerActions}>          
             <TouchableOpacity onPress={handleAddNew} style={styles.addNewBtn}>
@@ -410,6 +431,7 @@ const MaterialDispatchScreen: React.FC = () => {
         >
           <View style={styles.card}>
             <TextInput
+              ref={customerRef}
               style={styles.input}
               placeholder="Customer"
               placeholderTextColor={C.hint}
@@ -471,6 +493,7 @@ const MaterialDispatchScreen: React.FC = () => {
           <View style={styles_sales.inputRow}>
             <View style={styles_sales.inputWrap}>
               <TextInput
+                ref={soRef}
                 value={value}
                 onChangeText={setValue}
                 placeholder="Scan or type SO, then press Enter"
@@ -496,7 +519,6 @@ const MaterialDispatchScreen: React.FC = () => {
               </Pressable>
             </View>
 
-            {/* Submit button OUTSIDE the input */}
             <TouchableOpacity
               onPress={() => addSO(value)}
               activeOpacity={0.9}
@@ -516,9 +538,7 @@ const MaterialDispatchScreen: React.FC = () => {
             </Text>
           </View>
 
-
           <View style={styles_sales.tableCard}>
-            {/* Header */}
             <View style={[styles_sales.row, styles_sales.headerRow]}>
               <Text style={[styles_sales.th, { width: 40, textAlign: "left" }]}>S/No</Text>
               <Text style={[styles_sales.th, { flex: 1 }]}>SO Number</Text>
@@ -526,7 +546,6 @@ const MaterialDispatchScreen: React.FC = () => {
               <Text style={[styles_sales.th, { width: 72, textAlign: "right" }]}>Action</Text>
             </View>
 
-            {/* Body */}
             <FlatList
               data={items}
               keyExtractor={(it) => it.linkId.toString()}
@@ -542,7 +561,7 @@ const MaterialDispatchScreen: React.FC = () => {
                   <Text style={[styles_sales.td, { width: 80 }]}>
                     {formatTime(item.createdAt)}
                   </Text>
-             <View style={[styles_sales.td, { width: 72, alignItems: 'flex-end' }]}>
+                  <View style={[styles_sales.td, { width: 72, alignItems: "flex-end" }]}>
                     <Pressable
                       onPress={() => removeSO(item.linkId)}
                       hitSlop={8}
@@ -570,15 +589,10 @@ const MaterialDispatchScreen: React.FC = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmationModal}>
-
             <Text style={styles.confirmationTitle}>Start New Form</Text>
-            
-            {/* Message */}
             <Text style={styles.confirmationMessage}>
-          Are you sure you want to start a new form? This action will clear all current data 
+              Are you sure you want to start a new form? This action will clear all current data 
             </Text>
-            
-            {/* Button Container */}
             <View style={styles.confirmationButtons}>
               <TouchableOpacity 
                 onPress={() => setShowNewFormModal(false)} 
@@ -586,7 +600,6 @@ const MaterialDispatchScreen: React.FC = () => {
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
               <TouchableOpacity 
                 onPress={confirmNewForm} 
                 style={[styles.confirmationButton, styles.confirmButton]}
@@ -798,7 +811,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
   },
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -848,7 +860,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
   },
-  // New Form Confirmation Modal Styles
   confirmationModal: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
@@ -924,14 +935,11 @@ const styles_sales = StyleSheet.create({
     color: C_sales.text,
     marginBottom: 10,
   },
-
-  /** New ROW: input (with Scan) + OUTSIDE Submit button */
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-
   inputWrap: {
     position: "relative",
     flex: 1,
@@ -955,8 +963,6 @@ const styles_sales = StyleSheet.create({
     alignItems: "center",
     width: 36,
   },
-
-  /** Outside submit button */
   submitBtnOuter: {
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -966,7 +972,6 @@ const styles_sales = StyleSheet.create({
     borderColor: C_sales.border,
   },
   submitTextOuter: { color: C_sales.blue, fontWeight: "700", fontSize: 14 },
-
   totalPill: {
     alignSelf: "stretch",
     marginTop: 10,
@@ -1085,8 +1090,6 @@ const styles_scan = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
   },
-
-  // Full-screen camera UI
   fullscreenCameraWrap: { flex: 1, backgroundColor: "#000" },
   fullscreenCamera: { flex: 1 },
   fullscreenTopBar: {

@@ -9,6 +9,7 @@ import {
   Alert,
   SafeAreaView,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
@@ -25,6 +26,8 @@ interface FileItem {
   mimeType?: string;
 }
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 export default function AttachmentScreen() {
   const route = useRoute();
   const navigation = useNavigation();
@@ -39,6 +42,9 @@ export default function AttachmentScreen() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<AttachmentItem[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
 
   useEffect(() => {
     const loadExisting = async () => {
@@ -71,25 +77,47 @@ export default function AttachmentScreen() {
     [existingFiles, files]
   );
 
-  // File Picker (supports any file type)
+  const getUniqueName = (baseName: string): string => {
+    let name = baseName;
+    let counter = 1;
+    while (displayFiles.some(f => f.name === name)) {
+      const extIndex = baseName.lastIndexOf('.');
+      const ext = extIndex > -1 ? baseName.slice(extIndex) : '';
+      const nameWithoutExt = extIndex > -1 ? baseName.slice(0, extIndex) : baseName;
+      name = `${nameWithoutExt} (${counter})${ext}`;
+      counter++;
+    }
+    return name;
+  };
+
   const pickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: "*/*", // allows all files
+        type: "*/*",
         copyToCacheDirectory: true,
-        multiple: true, // Allow multiple file selection
+        multiple: true,
       });
 
       if (result.canceled) return;
 
-      const newFiles: FileItem[] = result.assets.map((file, index) => ({
-        id: `${Date.now()}-${index}`,
-        name: file.name || "Unknown",
-        description: "",
-        status: "Pending",
-        uri: file.uri,
-        mimeType: file.mimeType,
-      }));
+      const validFiles = result.assets.filter(file => file.size <= MAX_FILE_SIZE);
+      const largeFiles = result.assets.filter(file => file.size > MAX_FILE_SIZE);
+
+      if (largeFiles.length > 0) {
+        Alert.alert("File Too Large", `Some files exceed the 10MB limit and were not added: ${largeFiles.map(f => f.name).join(', ')}`);
+      }
+
+      const newFiles: FileItem[] = validFiles.map((file, index) => {
+        const uniqueName = getUniqueName(file.name || "Unknown");
+        return {
+          id: `${Date.now()}-${index}`,
+          name: uniqueName,
+          description: "",
+          status: "Pending",
+          uri: file.uri,
+          mimeType: file.mimeType,
+        };
+      });
 
       setFiles(prev => [...prev, ...newFiles]);
     } catch (error) {
@@ -107,7 +135,6 @@ export default function AttachmentScreen() {
     }
   };
 
-  // Upload Files
   const uploadFiles = async () => {
     const pendingFiles = files.filter(f => f.status === "Pending");
     if (pendingFiles.length === 0) {
@@ -120,12 +147,10 @@ export default function AttachmentScreen() {
     setUploading(true);
     
     try {
-      // Update pending files to uploading status
       setFiles(prev => prev.map(f => 
         f.status === "Pending" ? { ...f, status: "Uploading" as const } : f
       ));
 
-      // Prepare attachments for upload (only pending/new)
       const attachments: AttachmentItem[] = pendingFiles.map(file => ({
         uri: file.uri,
         name: file.name,
@@ -133,23 +158,24 @@ export default function AttachmentScreen() {
         description: file.description,
       }));
 
-      // Upload attachments
       await uploadAttachments(saleOrderNumber, attachments);
-
-      // Reload existing attachments (now includes the new ones)
       await loadExistingAttachments();
-      
-      // Clear new files state
       setFiles([]);
-      
-      Alert.alert("Success", `${pendingFiles.length} new file(s) uploaded successfully!`);
+      setModalTitle("Success");
+      setModalMessage(`${pendingFiles.length} new file(s) uploaded successfully!`);
+      setModalVisible(true);
     } catch (e: any) {
       console.error("Upload error:", e);
-      // Update status to failed for pending files
       setFiles(prev => prev.map(f => 
         f.status === "Uploading" ? { ...f, status: "Failed" as const } : f
       ));
-      Alert.alert("Upload Failed", e?.message ?? "Please try again.");
+      let errorMessage = e?.message ?? "Please try again.";
+      if (errorMessage.includes('413')) {
+        errorMessage = "The file(s) are too large to upload. Please select smaller files or upload fewer at a time.";
+      }
+      setModalTitle("Upload Failed");
+      setModalMessage(errorMessage);
+      setModalVisible(true);
     } finally {
       setUploading(false);
     }
@@ -161,10 +187,10 @@ export default function AttachmentScreen() {
 
   const getStatusColor = (status: FileItem["status"]) => {
     switch (status) {
-      case "Uploaded": return "green";
-      case "Failed": return "red";
-      case "Uploading": return "blue";
-      default: return "orange";
+      case "Uploaded": return "#4CAF50"; // Green
+      case "Failed": return "#F44336"; // Red
+      case "Uploading": return "#2196F3"; // Blue
+      default: return "#FF9800"; // Orange
     }
   };
 
@@ -183,20 +209,17 @@ export default function AttachmentScreen() {
     <View style={styles.row}>
       <Text style={styles.cellSNo}>{index + 1}</Text>
       <Text style={styles.cellName} numberOfLines={1} ellipsizeMode="tail">
-        {item.name.length > 10 ? `${item.name.substring(0, 10)}...` : item.name}
+        {item.name.length > 25 ? `${item.name.substring(0, 25)}...` : item.name}
       </Text>
       <TextInput
-        style={[styles.cellDescription, styles.input]}
+        style={styles.cellDescription}
         placeholder="Enter description"
         value={item.description}
         onChangeText={(text) => {
-          if (item.status !== "Uploaded") {
-            const updated = [...files];
-            const fileIndex = updated.findIndex(f => f.id === item.id);
-            if (fileIndex !== -1) {
-              updated[fileIndex].description = text;
-              setFiles(updated);
-            }
+          if (item.status !== "Uploaded" && !uploading) {
+            setFiles(prev => prev.map(f => 
+              f.id === item.id ? { ...f, description: text } : f
+            ));
           }
         }}
         editable={!uploading && item.status === "Pending"}
@@ -211,7 +234,7 @@ export default function AttachmentScreen() {
             onPress={() => removeFile(item.id)}
             disabled={uploading}
           >
-            <Ionicons name="close-circle" size={16} color="#ff4444" />
+            <Ionicons name="close-circle" size={16} color="#F44336" />
           </TouchableOpacity>
         )}
       </View>
@@ -220,28 +243,25 @@ export default function AttachmentScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Add File Button */}
       <TouchableOpacity 
         style={styles.addButton} 
         onPress={pickFile}
         disabled={uploading}
       >
-        <Ionicons name="add-circle-outline" size={20} color="#007bff" />
+        <Ionicons name="add-circle-outline" size={20} color="#2196F3" />
         <Text style={styles.addButtonText}>Add New Files</Text>
       </TouchableOpacity>
 
-      {/* File List */}
       {displayFiles.length === 0 ? (
         <View style={styles.emptyState}>
-          <Ionicons name="folder-outline" size={48} color="#aaa" />
+          <Ionicons name="folder-outline" size={48} color="#B0BEC5" />
           <Text style={styles.emptyText}>No attachments yet</Text>
-          <Text style={{ color: "#888", fontSize: 12, textAlign: "center" }}>
+          <Text style={styles.emptySubText}>
             Add your first attachment using the button above
           </Text>
         </View>
       ) : (
         <>
-          {/* Table Header */}
           <View style={styles.tableHeader}>
             <Text style={styles.headerCellSNo}>S/No</Text>
             <Text style={styles.headerCellName}>File Name</Text>
@@ -258,13 +278,12 @@ export default function AttachmentScreen() {
         </>
       )}
 
-      {/* Upload Button */}
       <View style={styles.footer}>
         <Text style={styles.uploadLabel}>
           Total Attachments: {displayFiles.length}
         </Text>
         <Text style={styles.uploadDesc}>
-          {existingFiles.length > 0 && `(${existingFiles.length} already uploaded) `}
+          {(existingFiles.length > 0 && `(${existingFiles.length} already uploaded) `) || ""}
           Upload {pendingCount > 0 && `${pendingCount} new file${pendingCount > 1 ? 's' : ''}`} to the server for order {saleOrderNumber}
         </Text>
         <TouchableOpacity 
@@ -278,44 +297,75 @@ export default function AttachmentScreen() {
           {uploading ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+            <>
+              <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+              <Text style={styles.uploadButtonText}>
+                {`Upload New Files (${pendingCount})`}
+              </Text>
+            </>
           )}
-          <Text style={styles.uploadButtonText}>
-            {uploading ? "Uploading..." : `Upload New Files (${pendingCount})`}
-          </Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={modalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{modalTitle}</Text>
+            <Text style={styles.modalMessage}>{modalMessage}</Text>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={styles.modalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  container: { 
+    flex: 1, 
+    backgroundColor: "#fff", 
+    padding: 16 
+  },
   addButton: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: "#ccc",
+    borderColor: "#B0BEC5",
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
   },
-  addButtonText: { color: "#007bff", marginLeft: 6, fontWeight: "500" },
+  addButtonText: { 
+    color: "#2196F3", 
+    marginLeft: 6, 
+    fontWeight: "500" 
+  },
   tableHeader: {
     flexDirection: "row",
-    backgroundColor: "#f9f9f9",
-    borderRadius: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    marginBottom: 8,
+    backgroundColor: "#F5F5F5",
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
   },
   headerCellSNo: { 
-    width: 50,
+    width: 40,
     fontWeight: "bold", 
     textAlign: "center", 
     fontSize: 12,
+    color: "#757575",
   },
   headerCellName: { 
     flex: 2,
@@ -323,6 +373,7 @@ const styles = StyleSheet.create({
     textAlign: "left", 
     fontSize: 12,
     paddingLeft: 8,
+    color: "#757575",
   },
   headerCellDescription: { 
     flex: 3,
@@ -330,30 +381,34 @@ const styles = StyleSheet.create({
     textAlign: "left", 
     fontSize: 12,
     paddingLeft: 8,
+    color: "#757575",
   },
   headerCellStatus: { 
     flex: 1.5,
     fontWeight: "bold", 
     textAlign: "center", 
     fontSize: 12,
+    color: "#757575",
   },
   row: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: "#eee",
-    paddingVertical: 8,
+    borderBottomColor: "#E0E0E0",
+    paddingVertical: 12,
     alignItems: "center",
   },
   cellSNo: { 
-    width: 50,
+    width: 40,
     textAlign: "center", 
     fontSize: 12,
+    color: "#424242",
   },
   cellName: {
     flex: 2,
     textAlign: "left",
     fontSize: 12,
     paddingLeft: 8,
+    color: "#424242",
   },
   cellDescription: { 
     flex: 3,
@@ -362,12 +417,13 @@ const styles = StyleSheet.create({
   statusCell: {
     flex: 1.5,
     flexDirection: "row",
-    justifyContent: "center",
+    justifyContent: "space-between",
     alignItems: "center",
+    paddingRight: 8,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: "#B0BEC5",
     borderRadius: 4,
     fontSize: 12,
     paddingHorizontal: 8,
@@ -386,22 +442,23 @@ const styles = StyleSheet.create({
     padding: 40,
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: "#ccc",
+    borderColor: "#B0BEC5",
     borderRadius: 8,
   },
-  emptyText: { fontSize: 14, fontWeight: "500", marginTop: 8 },
+  emptyText: { fontSize: 14, fontWeight: "500", marginTop: 8, color: "#757575" },
+  emptySubText: { fontSize: 12, color: "#B0BEC5", textAlign: "center" },
   footer: { 
     marginTop: 16, 
     alignItems: "center",
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: "#eee",
+    borderTopColor: "#E0E0E0",
   },
-  uploadLabel: { fontWeight: "bold", fontSize: 14 },
-  uploadDesc: { fontSize: 12, color: "#555", marginBottom: 10, textAlign: "center" },
+  uploadLabel: { fontWeight: "bold", fontSize: 14, color: "#424242" },
+  uploadDesc: { fontSize: 12, color: "#757575", marginBottom: 10, textAlign: "center" },
   uploadButton: {
     flexDirection: "row",
-    backgroundColor: "#007bff",
+    backgroundColor: "#2196F3",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
@@ -414,5 +471,38 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 6,
     fontSize: 14,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    padding: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    width: "80%",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  modalMessage: {
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  modalButton: {
+    backgroundColor: "#2196F3",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  modalButtonText: {
+    color: "#fff",
+    fontWeight: "600",
   },
 });
