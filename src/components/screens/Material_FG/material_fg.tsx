@@ -191,7 +191,7 @@ const MaterialFGTransferScreen: React.FC = () => {
     } catch (error: any) {
       setSoNumber("");
       showMessage(
-        "Error",
+        "SO Number Not Found",
         error.message,
         () => {
           soRef.current?.focus();
@@ -280,7 +280,7 @@ const MaterialFGTransferScreen: React.FC = () => {
       } catch (error: any) {
         setSoNumber("");
         showMessage(
-          "Error",
+          "SO Number Not Found",
           error.message,
           () => {
             soRef.current?.focus();

@@ -80,7 +80,7 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
       // Navigate to Home
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (err: any) {
-      showModal("Login Error", err?.message || "Unable to connect. Please try again.");
+      showModal("Login Failed", err?.message || "Unable to connect. Please try again.");
     } finally {
       setLoading(false);
     }

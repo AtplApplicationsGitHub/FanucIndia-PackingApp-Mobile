@@ -14,7 +14,8 @@ import {
 import { useRoute, useNavigation } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
 import * as SecureStore from "expo-secure-store";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons } from '@expo/vector-icons';
+
 import { uploadAttachments, fetchExistingAttachments, type AttachmentItem } from "../../Api/SalesOrder_server";
 
 interface FileItem {
@@ -24,6 +25,7 @@ interface FileItem {
   status: "Pending" | "Uploading" | "Uploaded" | "Failed";
   uri: string;
   mimeType?: string;
+  timestamp: number;
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -68,12 +70,13 @@ export default function AttachmentScreen() {
         status: "Uploaded" as const,
         uri: att.uri,
         mimeType: att.type,
+        timestamp: 0,
       })),
     [existingAttachments]
   );
 
   const displayFiles = useMemo(
-    () => [...existingFiles, ...files],
+    () => [...existingFiles, ...files].sort((a, b) => b.timestamp - a.timestamp),
     [existingFiles, files]
   );
 
@@ -93,7 +96,7 @@ export default function AttachmentScreen() {
   const pickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: "*/*",
+        type: ['image/*', '*/*'],
         copyToCacheDirectory: true,
         multiple: true,
       });
@@ -116,6 +119,7 @@ export default function AttachmentScreen() {
           status: "Pending",
           uri: file.uri,
           mimeType: file.mimeType,
+          timestamp: Date.now(),
         };
       });
 
@@ -151,12 +155,20 @@ export default function AttachmentScreen() {
         f.status === "Pending" ? { ...f, status: "Uploading" as const } : f
       ));
 
-      const attachments: AttachmentItem[] = pendingFiles.map(file => ({
-        uri: file.uri,
-        name: file.name,
-        type: file.mimeType || "application/octet-stream",
-        description: file.description,
-      }));
+      const attachments: AttachmentItem[] = pendingFiles.map(file => {
+        console.log("Preparing upload for file:", {
+          name: file.name,
+          uri: file.uri,
+          type: file.mimeType || "application/octet-stream",
+          description: file.description || ""
+        });
+        return {
+          uri: file.uri,
+          name: file.name,
+          type: file.mimeType || "application/octet-stream",
+          description: file.description || ""
+        };
+      });
 
       await uploadAttachments(saleOrderNumber, attachments);
       await loadExistingAttachments();
@@ -185,12 +197,18 @@ export default function AttachmentScreen() {
     setFiles(prev => prev.filter(f => f.id !== id));
   };
 
+  const updateFileDescription = (id: string, description: string) => {
+    setFiles(prev => prev.map(f => 
+      f.id === id ? { ...f, description, timestamp: Date.now() } : f
+    ));
+  };
+
   const getStatusColor = (status: FileItem["status"]) => {
     switch (status) {
-      case "Uploaded": return "#4CAF50"; // Green
-      case "Failed": return "#F44336"; // Red
-      case "Uploading": return "#2196F3"; // Blue
-      default: return "#FF9800"; // Orange
+      case "Uploaded": return "#4CAF50";
+      case "Failed": return "#F44336";
+      case "Uploading": return "#2196F3";
+      default: return "#FF9800";
     }
   };
 
@@ -209,17 +227,15 @@ export default function AttachmentScreen() {
     <View style={styles.row}>
       <Text style={styles.cellSNo}>{index + 1}</Text>
       <Text style={styles.cellName} numberOfLines={1} ellipsizeMode="tail">
-        {item.name.length > 25 ? `${item.name.substring(0, 25)}...` : item.name}
+        {item.name}
       </Text>
       <TextInput
-        style={styles.cellDescription}
+        style={[styles.cellDescription, styles.input]}
         placeholder="Enter description"
         value={item.description}
         onChangeText={(text) => {
           if (item.status !== "Uploaded" && !uploading) {
-            setFiles(prev => prev.map(f => 
-              f.id === item.id ? { ...f, description: text } : f
-            ));
+            updateFileDescription(item.id, text);
           }
         }}
         editable={!uploading && item.status === "Pending"}
@@ -361,21 +377,13 @@ const styles = StyleSheet.create({
     borderBottomColor: "#E0E0E0",
   },
   headerCellSNo: { 
-    width: 40,
+    flex: 1,
     fontWeight: "bold", 
     textAlign: "center", 
     fontSize: 12,
     color: "#757575",
   },
   headerCellName: { 
-    flex: 2,
-    fontWeight: "bold", 
-    textAlign: "left", 
-    fontSize: 12,
-    paddingLeft: 8,
-    color: "#757575",
-  },
-  headerCellDescription: { 
     flex: 3,
     fontWeight: "bold", 
     textAlign: "left", 
@@ -383,8 +391,16 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
     color: "#757575",
   },
+  headerCellDescription: { 
+    flex: 4,
+    fontWeight: "bold", 
+    textAlign: "left", 
+    fontSize: 12,
+    paddingLeft: 8,
+    color: "#757575",
+  },
   headerCellStatus: { 
-    flex: 1.5,
+    flex: 2,
     fontWeight: "bold", 
     textAlign: "center", 
     fontSize: 12,
@@ -398,36 +414,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   cellSNo: { 
-    width: 40,
+    flex: 1,
     textAlign: "center", 
     fontSize: 12,
     color: "#424242",
   },
   cellName: {
-    flex: 2,
+    flex: 3,
     textAlign: "left",
     fontSize: 12,
     paddingLeft: 8,
     color: "#424242",
   },
   cellDescription: { 
-    flex: 3,
+    flex: 4,
     paddingLeft: 8,
   },
+  input: {
+    fontSize: 12,
+    paddingHorizontal: 8,
+    height: 35,
+  },
   statusCell: {
-    flex: 1.5,
+    flex: 2,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingRight: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#B0BEC5",
-    borderRadius: 4,
-    fontSize: 12,
-    paddingHorizontal: 8,
-    height: 32,
   },
   removeButton: {
     paddingLeft: 8,

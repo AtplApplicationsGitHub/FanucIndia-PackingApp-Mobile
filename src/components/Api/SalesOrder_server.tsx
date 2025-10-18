@@ -1,4 +1,3 @@
-// src/Api/SalesOrder_server.ts
 import * as SecureStore from "expo-secure-store";
 import { File, Paths } from "expo-file-system";
 import { saveOrderDetails, type StoredMaterialItem } from "../Storage/sale_order_storage";
@@ -49,7 +48,7 @@ export type OrdersSummaryItem = {
 };
 
 export type AttachmentItem = {
-  id?: string; // Added to store FILE_ID for existing attachments
+  id?: string;
   uri: string;
   name: string;
   type: string;
@@ -193,7 +192,7 @@ export async function uploadIssueData(
   }
 }
 
-// ---------------- API: Upload Attachments (Updated for new endpoint) ----------------
+// ---------------- API: Upload Attachments ----------------
 export async function uploadAttachments(
   saleOrderNumber: string,
   attachments: AttachmentItem[],
@@ -229,12 +228,16 @@ export async function uploadAttachments(
     descriptions[attachment.name] = attachment.description || "";
     
     // Append descriptions as JSON string
-    formData.append("descriptions", JSON.stringify(descriptions));
+    const descriptionsJson = JSON.stringify(descriptions);
+    formData.append("descriptions", descriptionsJson);
     
-    console.log("Uploading attachment with description:", {
+    console.log("Uploading attachment with details:", {
       saleOrderNumber,
       fileName: attachment.name,
-      description: attachment.description || ""
+      description: attachment.description || "",
+      descriptionsJson, // Log the JSON string for debugging
+      uri: attachment.uri,
+      type: attachment.type || "application/octet-stream"
     });
 
     const res = await withTimeout(
@@ -243,7 +246,7 @@ export async function uploadAttachments(
         headers, 
         body: formData 
       }), 
-      60000 // Increased timeout for file uploads
+      60000
     );
 
     if (!res.ok) {
@@ -280,9 +283,9 @@ export async function fetchExistingAttachments(
   }
 
   const json = await res.json();
-  console.log("Existing attachments raw response:", json); // Debug log to check structure
+  console.log("Existing attachments raw response:", json);
   return (Array.isArray(json) ? json : []).map((item: any) => ({
-    id: toStr(item.id, ""), // Store the FILE_ID
+    id: toStr(item.id, ""),
     uri: (item.sftpPath || "") as string,
     name: (item.fileName || "Unknown File") as string,
     type: (item.mimeType || "application/octet-stream") as string,

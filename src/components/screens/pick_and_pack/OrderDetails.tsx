@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { RouteProp } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   CameraView,
   useCameraPermissions,
@@ -30,7 +30,7 @@ import {
 export type RootStackParamList = {
   Login: undefined;
   Home: { displayName?: string } | undefined;
-  SalesOrder_Screen: undefined;
+  SalesOrderScreen: undefined;
   OrderDetails: { saleOrderNumber: string };
   MaterialFG: undefined;
   MaterialDispatch: undefined;
@@ -47,6 +47,7 @@ const C = {
   card: "#FFFFFF",
   border: "#E5E7EB",
   greenBg: "#E6F9EC",
+  ccent: "#111827",
   greenText: "#166534",
   yellowBg: "#FEF3C7",
   yellowText: "#92400E",
@@ -168,6 +169,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     const codeTrim = materialCodeInput.trim();
     if (!codeTrim) {
       openDialog("Please scan or type a material code.", "", "danger");
+      setCode("");
       return;
     }
 
@@ -177,6 +179,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
 
     if (idx === -1) {
       openDialog("Not found", `Material code "${codeTrim}" is not in this order.`, "danger");
+      setCode("");
       return;
     }
 
@@ -190,6 +193,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
         const curPacked = Number(row.packedQty) || 0;
         if (curPacked >= req) {
           openDialog("Already complete", "This material is already fully packed.", "danger");
+          setCode("");
           return prev;
         }
         const nextPacked = curPacked + 1;
@@ -199,6 +203,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
         const curIssued = Number(row.issuedQty) || 0;
         if (curIssued >= req) {
           openDialog("Already complete", "This material is already fully issued.", "danger");
+          setCode("");
           return prev;
         }
         const nextIssued = curIssued + 1;
@@ -255,7 +260,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     return { isValid: true, value: Number(digits) };
   };
 
-  // 🐛 FIX: Implement logic to reset to 0 if value > requiredQty
   const setIssuedQtyAt = (index: number, raw: string) => {
     const { isValid, value } = validateNumberInput(raw);
     
@@ -266,41 +270,31 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
       let val = value;
 
       if (!isValid) {
-        // Only show dialog for non-numeric input, but don't change state as RN TextInput can handle partial non-numeric input.
-        // The list item will re-render with the previous value if the text is invalid and no valid number is parsed.
-        // However, if we parse it to 0, it will display 0 briefly, then revert.
-        // For simplicity with `validateNumberInput` returning {isValid: false, value: 0} for empty/invalid, 
-        // we'll update to 0 if the raw input is NOT a number (or is an empty string which is not desired).
         if (raw.trim() !== "") {
             openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
         }
         if (raw.trim() === "") {
-             // Allow user to clear to 0, which is handled below by val=0.
              val = 0;
         } else if (!isValid) {
-             // If input is non-empty and non-numeric, do nothing to the state value (revert to old value in the UI).
              return prev;
         }
       } 
       
       if (val > req) {
-        // User requested to reset to 0 if value > requiredQty
         openDialog(
           "Invalid Quantity", 
-          `Issue quantity cannot exceed required quantity (${req}). Resetting to 0.`, 
-          "danger"
+          `Issue quantity cannot exceed required quantity (${req}). ` 
         );
-        val = 0; // Reset to 0 as per user request
+        val = 0;
       }
       
-      if (val < 0) val = 0; // Prevent negative values
+      if (val < 0) val = 0;
 
       clone[index] = { ...row, issuedQty: val };
       return clone;
     });
   };
 
-  // 🐛 FIX: Implement logic to reset to 0 if value > requiredQty
   const setPackedQtyAt = (index: number, raw: string) => {
     const { isValid, value } = validateNumberInput(raw);
     
@@ -322,16 +316,14 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
       } 
       
       if (val > req) {
-        // User requested to reset to 0 if value > requiredQty
         openDialog(
           "Invalid Quantity", 
-          `Packed quantity cannot exceed required quantity (${req}). Resetting to 0.`, 
-          "danger"
+          `Packed quantity cannot exceed required quantity (${req}). `
         );
-        val = 0; // Reset to 0 as per user request
+        val = 0;
       }
       
-      if (val < 0) val = 0; // Prevent negative values
+      if (val < 0) val = 0;
       
       clone[index] = { ...row, packedQty: val };
       return clone;
@@ -396,7 +388,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                 accessibilityLabel="Open scanner"
                 hitSlop={10}
               >
-                <Ionicons name="scan-outline" size={22} color={C.icon} />
+                <MaterialCommunityIcons name="qrcode-scan" size={20} color={C.accent} />
               </Pressable>
             </View>
 
@@ -776,7 +768,7 @@ const styles = StyleSheet.create({
 
   issueInput: {
     minWidth: 44,
-    height: 30,
+    height: 45,
     paddingHorizontal: 8,
     textAlign: "center",
     color: C.headerText,

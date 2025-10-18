@@ -4,13 +4,11 @@ import {
   Text,
   ActivityIndicator,
   StyleSheet,
-  Alert,
   Modal,
   TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
 import SalesOrdersStyledTable from "./SalesOrder_table";
 import { fetchOrdersSummary, downloadOrderDetails, uploadIssueData, type OrdersSummaryItem } from "../../Api/SalesOrder_server";
 import { hasOrderDetails, getOrderDetails, deleteOrderDetails, type StoredMaterialItem } from "../../Storage/sale_order_storage";
@@ -46,12 +44,24 @@ const SalesOrdersScreen: React.FC = () => {
     visible: boolean;
     title: string;
     message: string;
-    type: "success" | "info";
+    type: "success" | "info" | "delete";
+    onConfirmDelete?: () => void;
   }>({ visible: false, title: "", message: "", type: "info" });
 
-  const showModal = (opts: { title: string; message: string; type?: "success" | "info" }) =>
-    setModal({ visible: true, title: opts.title, message: opts.message, type: opts.type ?? "info" });
-  const closeModal = () => setModal((m) => ({ ...m, visible: false }));
+  const showModal = (opts: { 
+    title: string; 
+    message: string; 
+    type?: "success" | "info" | "delete";
+    onConfirmDelete?: () => void;
+  }) =>
+    setModal({ 
+      visible: true, 
+      title: opts.title, 
+      message: opts.message, 
+      type: opts.type ?? "info",
+      onConfirmDelete: opts.onConfirmDelete,
+    });
+  const closeModal = () => setModal((m) => ({ ...m, visible: false, onConfirmDelete: undefined }));
 
   const computeIssueCompletion = (items: StoredMaterialItem[] | undefined) => {
     if (!items || items.length === 0) return false;
@@ -111,7 +121,11 @@ const SalesOrdersScreen: React.FC = () => {
       );
       await refreshMaps(orders);
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to load orders");
+      showModal({
+        title: "Error",
+        message: e?.message ?? "Failed to load orders",
+        type: "info",
+      });
     } finally {
       setLoading(false);
     }
@@ -133,7 +147,11 @@ const SalesOrdersScreen: React.FC = () => {
       );
       await refreshMaps(orders);
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Refresh failed");
+      showModal({
+        title: "Error",
+        message: e?.message ?? "Refresh failed",
+        type: "info",
+      });
     } finally {
       setRefreshing(false);
     }
@@ -154,7 +172,11 @@ const SalesOrdersScreen: React.FC = () => {
           type: "success",
         });
       } catch (e: any) {
-        Alert.alert("Download Failed", e?.message ?? "Please try again.");
+        showModal({
+          title: "Download Failed",
+          message: e?.message ?? "Please try again.",
+          type: "info",
+        });
       }
     },
     [list, refreshMaps]
@@ -215,7 +237,11 @@ const SalesOrdersScreen: React.FC = () => {
           type: "success",
         });
       } catch (e: any) {
-        Alert.alert("Upload Failed", e?.message ?? "Try again.");
+        showModal({
+          title: "Upload Failed",
+          message: e?.message ?? "Try again.",
+          type: "info",
+        });
       } finally {
         setUploading(null);
       }
@@ -225,33 +251,28 @@ const SalesOrdersScreen: React.FC = () => {
 
   const handleDelete = useCallback(
     (o: OrdersSummaryItem) => {
-      Alert.alert(
-        "Confirm Delete",
-        "Are you sure you want to delete?",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-          },
-          {
-            text: "Delete",
-            onPress: async () => {
-              try {
-                await deleteOrderDetails(o.saleOrderNumber);
-                await refreshMaps(list);
-                showModal({
-                  title: "Delete Complete",
-                  message: `Local data for Sales Order ${o.saleOrderNumber} has been deleted.`,
-                  type: "success",
-                });
-              } catch (e: any) {
-                Alert.alert("Delete Failed", e?.message ?? "Please try again.");
-              }
-            },
-            style: "destructive",
-          },
-        ]
-      );
+      showModal({
+        title: "Confirm Delete",
+        message: "Are you sure you want to delete?",
+        type: "delete",
+        onConfirmDelete: async () => {
+          try {
+            await deleteOrderDetails(o.saleOrderNumber);
+            await refreshMaps(list);
+            showModal({
+              title: "Delete Complete",
+              message: `Local data for Sales Order ${o.saleOrderNumber} has been deleted.`,
+              type: "success",
+            });
+          } catch (e: any) {
+            showModal({
+              title: "Delete Failed",
+              message: e?.message ?? "Please try again.",
+              type: "info",
+            });
+          }
+        },
+      });
     },
     [list, refreshMaps]
   );
@@ -292,27 +313,32 @@ const SalesOrdersScreen: React.FC = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <View style={styles.modalIconWrap}>
-              <View
-                style={[
-                  styles.modalIconCircle,
-                  modal.type === "success" ? styles.successBg : styles.infoBg,
-                ]}
-              >
-                <Ionicons
-                  name={modal.type === "success" ? "checkmark-done" : "information-circle"}
-                  size={28}
-                  color="#FFFFFF"
-                />
-              </View>
-            </View>
-
             <Text style={styles.modalTitle}>{modal.title}</Text>
             <Text style={styles.modalMessage}>{modal.message}</Text>
 
-            <TouchableOpacity onPress={closeModal} style={styles.modalPrimaryBtn}>
-              <Text style={styles.modalPrimaryBtnText}>OK</Text>
-            </TouchableOpacity>
+            {modal.type === "delete" ? (
+              <View style={styles.modalButtonRow}>
+                <TouchableOpacity
+                  onPress={closeModal}
+                  style={[styles.modalButton, styles.modalSecondaryBtn]}
+                >
+                  <Text style={styles.modalSecondaryBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    modal.onConfirmDelete?.();
+                    closeModal();
+                  }}
+                  style={[styles.modalButton, styles.modalDeleteBtn]}
+                >
+                  <Text style={styles.modalPrimaryBtnText}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity onPress={closeModal} style={styles.modalPrimaryBtn}>
+                <Text style={styles.modalPrimaryBtnText}>OK</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
@@ -329,6 +355,7 @@ const C = {
   border: "#E5E7EB",
   success: "#16A34A",
   info: "#2151F5",
+  delete: "#DC2626",
   overlay: "rgba(0,0,0,0.35)",
   btn: "#111827",
   btnText: "#FFFFFF",
@@ -362,16 +389,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
-  modalIconWrap: { marginBottom: 12 },
-  modalIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  successBg: { backgroundColor: C.success },
-  infoBg: { backgroundColor: C.info },
   modalTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -394,5 +411,33 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
   },
-  modalPrimaryBtnText: { color: C.btnText, fontWeight: "700", fontSize: 16 },
+  modalPrimaryBtnText: {
+    color: C.btnText,
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    marginTop: 16,
+    width: "100%",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalSecondaryBtn: {
+    backgroundColor: C.border,
+  },
+  modalSecondaryBtnText: {
+    color: C.text,
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  modalDeleteBtn: {
+    backgroundColor: C.delete,
+  },
 });

@@ -16,7 +16,7 @@ import {
   StatusBar,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons ,MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   CameraView,
   useCameraPermissions,
@@ -52,6 +52,7 @@ const C = {
   border: "#E5E7EB",
   text: "#111827",
   hint: "#9CA3AF",
+    accent: "#111827",
   blue: "#2151F5",
   red: "#F87171",
   grayBtn: "#F3F4F6",
@@ -458,7 +459,7 @@ const MaterialDispatchScreen: React.FC = () => {
               />
               <TextInput
                 style={[styles.input, styles.half]}
-                placeholder="Vehicle Number (e.g., KA01AB)"
+                placeholder="Vehicle Number"
                 placeholderTextColor={C.hint}
                 autoCapitalize="characters"
                 value={form.vehicleNo}
@@ -496,7 +497,7 @@ const MaterialDispatchScreen: React.FC = () => {
                 ref={soRef}
                 value={value}
                 onChangeText={setValue}
-                placeholder="Scan or type SO, then press Enter"
+                placeholder= "Scan or enter SO"
                 placeholderTextColor={C_sales.sub}
                 style={[styles_sales.input, { paddingRight: 44 }]} 
                 returnKeyType="done"
@@ -515,7 +516,7 @@ const MaterialDispatchScreen: React.FC = () => {
                 ]}
                 hitSlop={10}
               >
-                <Ionicons name="scan-outline" size={20} color={C_sales.blue} />
+                <MaterialCommunityIcons name="qrcode-scan" size={20} color={C.accent} />
               </Pressable>
             </View>
 
