@@ -10,6 +10,7 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Modal,
+  ScrollView,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
@@ -37,7 +38,7 @@ export default function AttachmentScreen() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: `Upload Attachments for SO ${saleOrderNumber}`,
+      title: `SO ${saleOrderNumber}`,
     });
   }, [navigation, saleOrderNumber]);
 
@@ -259,15 +260,42 @@ export default function AttachmentScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <TouchableOpacity 
-        style={styles.addButton} 
-        onPress={pickFile}
-        disabled={uploading}
-      >
-        <Ionicons name="add-circle-outline" size={20} color="#2196F3" />
-        <Text style={styles.addButtonText}>Add New Files</Text>
-      </TouchableOpacity>
+      {/* Header Section */}
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.addButton} 
+          onPress={pickFile}
+          disabled={uploading}
+        >
+          <Ionicons name="add-circle-outline" size={20} color="#2196F3" />
+          <Text style={styles.addButtonText}>New Files</Text>
+        </TouchableOpacity>
 
+        <View style={styles.uploadInfo}>
+          <TouchableOpacity 
+            style={[
+              styles.uploadButton, 
+              (uploading || pendingCount === 0) && { opacity: 0.7 }
+            ]} 
+            onPress={uploadFiles}
+            disabled={uploading || pendingCount === 0}
+          >
+            {uploading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                <Text style={styles.uploadButtonText}>
+                  {`Upload (${pendingCount})`}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+
+      {/* File List Section */}
       {displayFiles.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="folder-outline" size={48} color="#B0BEC5" />
@@ -290,38 +318,10 @@ export default function AttachmentScreen() {
             renderItem={renderItem}
             keyExtractor={(item) => item.id}
             style={styles.fileList}
+            contentContainerStyle={styles.listContent}
           />
         </>
       )}
-
-      <View style={styles.footer}>
-        <Text style={styles.uploadLabel}>
-          Total Attachments: {displayFiles.length}
-        </Text>
-        <Text style={styles.uploadDesc}>
-          {(existingFiles.length > 0 && `(${existingFiles.length} already uploaded) `) || ""}
-          Upload {pendingCount > 0 && `${pendingCount} new file${pendingCount > 1 ? 's' : ''}`} to the server for order {saleOrderNumber}
-        </Text>
-        <TouchableOpacity 
-          style={[
-            styles.uploadButton, 
-            (uploading || pendingCount === 0) && { opacity: 0.7 }
-          ]} 
-          onPress={uploadFiles}
-          disabled={uploading || pendingCount === 0}
-        >
-          {uploading ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
-              <Text style={styles.uploadButtonText}>
-                {`Upload New Files (${pendingCount})`}
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
 
       <Modal
         visible={modalVisible}
@@ -352,26 +352,71 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff", 
     padding: 16 
   },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
   addButton: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: "#B0BEC5",
     padding: 12,
     borderRadius: 8,
-    marginBottom: 16,
+    flex: 1,
+    marginRight: 12,
+    justifyContent: "center",
   },
   addButtonText: { 
     color: "#2196F3", 
     marginLeft: 6, 
-    fontWeight: "500" 
+    fontWeight: "500",
+    fontSize: 14,
+  },
+  uploadInfo: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  uploadLabel: { 
+    fontWeight: "bold", 
+    fontSize: 14, 
+    color: "#424242",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  uploadButton: {
+    flexDirection: "row",
+    backgroundColor: "#2196F3",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 120,
+  },
+  uploadButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    marginLeft: 6,
+    fontSize: 14,
+  },
+  uploadDescContainer: {
+    marginBottom: 16,
+    alignItems: "center",
+  },
+  uploadDesc: { 
+    fontSize: 12, 
+    color: "#757575", 
+    textAlign: "center",
+    lineHeight: 16,
   },
   tableHeader: {
     flexDirection: "row",
     backgroundColor: "#F5F5F5",
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
     borderBottomColor: "#E0E0E0",
@@ -412,6 +457,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#E0E0E0",
     paddingVertical: 12,
     alignItems: "center",
+    minHeight: 50,
   },
   cellSNo: { 
     flex: 1,
@@ -433,7 +479,8 @@ const styles = StyleSheet.create({
   input: {
     fontSize: 12,
     paddingHorizontal: 8,
-    height: 35,
+    height: 40,
+    textAlignVertical: "center",
   },
   statusCell: {
     flex: 2,
@@ -448,6 +495,9 @@ const styles = StyleSheet.create({
   fileList: {
     flex: 1,
   },
+  listContent: {
+    flexGrow: 1,
+  },
   emptyState: {
     flex: 1,
     alignItems: "center",
@@ -457,33 +507,19 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
     borderColor: "#B0BEC5",
     borderRadius: 8,
+    marginTop: 20,
   },
-  emptyText: { fontSize: 14, fontWeight: "500", marginTop: 8, color: "#757575" },
-  emptySubText: { fontSize: 12, color: "#B0BEC5", textAlign: "center" },
-  footer: { 
-    marginTop: 16, 
-    alignItems: "center",
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#E0E0E0",
+  emptyText: { 
+    fontSize: 14, 
+    fontWeight: "500", 
+    marginTop: 8, 
+    color: "#757575" 
   },
-  uploadLabel: { fontWeight: "bold", fontSize: 14, color: "#424242" },
-  uploadDesc: { fontSize: 12, color: "#757575", marginBottom: 10, textAlign: "center" },
-  uploadButton: {
-    flexDirection: "row",
-    backgroundColor: "#2196F3",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: "center",
-    minWidth: 200,
-    justifyContent: "center",
-  },
-  uploadButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    marginLeft: 6,
-    fontSize: 14,
+  emptySubText: { 
+    fontSize: 12, 
+    color: "#B0BEC5", 
+    textAlign: "center",
+    marginTop: 4,
   },
   modalContainer: {
     flex: 1,
@@ -507,6 +543,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     marginBottom: 20,
+    lineHeight: 20,
   },
   modalButton: {
     backgroundColor: "#2196F3",

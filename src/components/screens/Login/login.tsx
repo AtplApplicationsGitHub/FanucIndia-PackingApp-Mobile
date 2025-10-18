@@ -9,14 +9,14 @@ import {
   Platform,
   ActivityIndicator,
   Animated,
-  Modal, // <-- use Modal instead of Alert
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { RootStackParamList } from "../../../../App"; // adjust if your App.tsx path differs
+import type { RootStackParamList } from "../../../../App";
 import { loginApiWithEmail } from "../../Api/server";
 
 type NavProps = NativeStackScreenProps<RootStackParamList, "Login">;
@@ -34,7 +34,6 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // modal state
   const [modal, setModal] = useState<{ visible: boolean; title: string; message: string }>({
     visible: false,
     title: "",
@@ -56,7 +55,6 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
     try {
       setLoading(true);
 
-      // send exactly what Postman sends
       const result = await loginApiWithEmail(email.trim(), pwd);
 
       const token =
@@ -66,18 +64,13 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
         throw new Error(result?.message || "Login failed (no token in response).");
       }
 
-      // Extract user name from response (adjust shape if needed)
       const userData = (result as any)?.data?.user;
       const displayName =
         userData?.name || userData?.displayName || userData?.username || email.trim();
 
-      // Securely store token (per-user)
       await SecureStore.setItemAsync("authToken", String(token));
-
-      // Store non-sensitive name
       await AsyncStorage.setItem("displayName", String(displayName));
 
-      // Navigate to Home
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (err: any) {
       showModal("Login Failed", err?.message || "Unable to connect. Please try again.");
@@ -96,22 +89,31 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
           <Text style={styles.welcome}>Welcome back, Fanuc.</Text>
 
           <View style={styles.card}>
-            <FloatingLabelInput
+            {/* Email / Username */}
+            <InputField
               label="Email / Username"
               icon={<Ionicons name="person-outline" size={20} color={MUTED} />}
               value={email}
               onChangeText={setEmail}
+              placeholderTextColor={MUTED}
               autoCapitalize="none"
               autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="username"
+              autoComplete="username"
               returnKeyType="next"
             />
 
-            <FloatingLabelInput
+            {/* Password */}
+            <InputField
               label="Password"
               icon={<MaterialCommunityIcons name="lock-outline" size={20} color={MUTED} />}
               value={pwd}
               onChangeText={setPwd}
+              placeholderTextColor={MUTED}
               secureTextEntry={!showPwd}
+              textContentType="password"
+              autoComplete="password"
               returnKeyType="done"
               onSubmitEditing={handleLogin}
               rightAdornment={
@@ -142,12 +144,7 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
       </KeyboardAvoidingView>
 
       {/* ---------- Modal Popup ---------- */}
-      <Modal
-        animationType="fade"
-        transparent
-        visible={modal.visible}
-        onRequestClose={closeModal}
-      >
+      <Modal animationType="fade" transparent visible={modal.visible} onRequestClose={closeModal}>
         <View style={mstyles.backdrop}>
           <View style={mstyles.sheet}>
             <View style={mstyles.headerRow}>
@@ -171,14 +168,18 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
 
 export default LoginScreen;
 
-/* ----------------------- Floating Label Input ----------------------- */
-type FProps = React.ComponentProps<typeof TextInput> & {
+/* ----------------------- INPUT (placeholder only) ----------------------- */
+/** 
+ * Shows the label as a native placeholder that disappears as the user types.
+ * No floating animation. Keeps left/right icons and your styling.
+ */
+type InputProps = React.ComponentProps<typeof TextInput> & {
   label: string;
   icon?: React.ReactNode;
   rightAdornment?: React.ReactNode;
 };
 
-const FloatingLabelInput: React.FC<FProps> = ({
+const InputField: React.FC<InputProps> = ({
   label,
   icon,
   rightAdornment,
@@ -186,24 +187,11 @@ const FloatingLabelInput: React.FC<FProps> = ({
   style,
   onFocus,
   onBlur,
+  placeholder,
+  placeholderTextColor = MUTED,
   ...rest
 }) => {
   const [focused, setFocused] = useState(false);
-  const anim = useRef(new Animated.Value(0)).current;
-
-  const hasText = !!value && String(value).length > 0;
-
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: focused || hasText ? 1 : 0,
-      duration: 150,
-      useNativeDriver: false,
-    }).start();
-  }, [focused, hasText, anim]);
-
-  const labelTop = anim.interpolate({ inputRange: [0, 1], outputRange: [16, 6] });
-  const labelFont = anim.interpolate({ inputRange: [0, 1], outputRange: [15, 12] });
-  const labelColor = anim.interpolate({ inputRange: [0, 1], outputRange: [MUTED, "#6B7280"] });
 
   const borderColor = focused ? PRIMARY_YELLOW : FIELD_BORDER;
 
@@ -211,22 +199,13 @@ const FloatingLabelInput: React.FC<FProps> = ({
     <View style={{ gap: 6 }}>
       <View style={[styles.field, { borderColor }]}>
         {icon ? <View style={{ marginRight: 8 }}>{icon}</View> : null}
+
         <View style={{ flex: 1, justifyContent: "center" }}>
-          <Animated.Text
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              left: 0,
-              top: labelTop as unknown as number,
-              fontSize: labelFont as unknown as number,
-              color: labelColor as unknown as string,
-            }}
-          >
-            {label}
-          </Animated.Text>
           <TextInput
             {...rest}
             value={value}
+            placeholder={placeholder ?? label}
+            placeholderTextColor={placeholderTextColor}
             onFocus={(e) => {
               setFocused(true);
               onFocus?.(e);
@@ -238,6 +217,7 @@ const FloatingLabelInput: React.FC<FProps> = ({
             style={[styles.input, style]}
           />
         </View>
+
         {rightAdornment ? <View style={{ marginLeft: 8 }}>{rightAdornment}</View> : null}
       </View>
     </View>
@@ -273,7 +253,7 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 14,
   },
-  input: { flex: 1, fontSize: 15, color: ACCENT, paddingTop: 16, paddingBottom: 6 },
+  input: { flex: 1, fontSize: 15, color: ACCENT },
   cta: {
     backgroundColor: PRIMARY_YELLOW,
     height: 52,
