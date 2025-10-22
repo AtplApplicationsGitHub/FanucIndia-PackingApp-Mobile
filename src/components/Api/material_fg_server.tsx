@@ -1,8 +1,8 @@
-// src/Api/material_fg_server.ts
 import * as SecureStore from "expo-secure-store";
+import { API_ENDPOINTS } from "./api";
 
-export const BASE_URL = "https://fanuc.goval.app:444/api";
-const ASSIGN_LOCATION_URL = `${BASE_URL}/fg-storage/assign-location`;
+// export const BASE_URL = "https://fanuc.goval.app:444/api";
+// const ASSIGN_LOCATION_URL = `${BASE_URL}/fg-storage/assign-location`;
 
 export type AssignLocationRequest = {
   saleOrderNumber: string;
@@ -52,7 +52,7 @@ export async function assignFgLocation(
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
   const res = await withTimeout(
-    fetch(ASSIGN_LOCATION_URL, {
+    fetch(API_ENDPOINTS.MATERIAL_FG.ASSIGN_LOCATION, {
       method: "PATCH",
       headers,
       body: JSON.stringify({

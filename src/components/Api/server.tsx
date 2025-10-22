@@ -1,7 +1,7 @@
-// src/components/Api/server.ts
+import { API_ENDPOINTS } from "./api";
 
-const BASE_URL = "https://fanuc.goval.app:444/api";
-const MOBILE_LOGIN_URL = `${BASE_URL}/auth/mobile-login`;
+// const BASE_URL = "https://fanuc.goval.app:444/api";
+// const MOBILE_LOGIN_URL = `${BASE_URL}/auth/mobile-login`;
 
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
@@ -33,7 +33,7 @@ export type LoginResponse = {
 
 export async function loginApiWithEmail(email: string, password: string): Promise<LoginResponse> {
   const res = await withTimeout(
-    fetch(MOBILE_LOGIN_URL, {
+    fetch(API_ENDPOINTS.AUTH.MOBILE_LOGIN, {
       method: "POST",
       headers: {
         Accept: "application/json",
