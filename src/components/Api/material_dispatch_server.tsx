@@ -300,7 +300,7 @@ export async function uploadAttachments(
         uri: file.uri,
         name: file.name,
         type: file.mimeType,
-      } as any, file.name);
+      } as any);
     });
 
     const res = await withTimeout(
