@@ -13,7 +13,7 @@ import {
   FlatList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { RouteProp } from "@react-navigation/native";
+import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   CameraView,
@@ -30,10 +30,11 @@ import {
 export type RootStackParamList = {
   Login: undefined;
   Home: { displayName?: string } | undefined;
-  SalesOrderScreen: undefined;
-  OrderDetails: { saleOrderNumber: string };
+  PickAndPack: undefined;
   MaterialFG: undefined;
   MaterialDispatch: undefined;
+  OrderDetails: { saleOrderNumber: string };
+  Upload: { saleOrderNumber: string };
 };
 
 type OrderDetailsScreenRouteProp = RouteProp<RootStackParamList, "OrderDetails">;
@@ -73,8 +74,14 @@ type DescModalData = {
   packedQty?: number;
 };
 
-const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
+const OrderDetailsScreen: React.FC<Props> = () => {
+  const route = useRoute<OrderDetailsScreenRouteProp>();
   const { saleOrderNumber } = route.params;
+  
+  const navigation = useNavigation<{
+    navigate: (screen: keyof RootStackParamList, params?: any) => void;
+    goBack: () => void;
+  }>();
 
   const [loading, setLoading] = useState(true);
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
@@ -106,7 +113,11 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     message: string,
     emphasis: "normal" | "danger" = "normal"
   ) => setDialog({ visible: true, title, message, emphasis });
+  
   const closeDialog = () => setDialog((d) => ({ ...d, visible: false }));
+
+  const [initialIssuedComplete, setInitialIssuedComplete] = useState(false);
+  const [initialPackedComplete, setInitialPackedComplete] = useState(false);
 
   useEffect(() => {
     const loadDetails = async () => {
@@ -126,6 +137,10 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
             })
           );
           setMaterials(withIssued);
+          const isIssued = withIssued.every((m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0));
+          const isPacked = withIssued.every((m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0));
+          setInitialIssuedComplete(isIssued);
+          setInitialPackedComplete(isPacked);
         } else {
           openDialog("Error", "No order details found or invalid data format.", "danger");
         }
@@ -138,6 +153,30 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     };
     loadDetails();
   }, [saleOrderNumber]);
+
+  // ✅ NEW: AUTO REFRESH EFFECT - Triggers when ALL materials complete
+  useEffect(() => {
+    if (loading) return;
+
+    const isIssuedComplete = materials.every((m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0));
+    const isPackedComplete = materials.every((m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0));
+
+    if (isIssuedComplete && !initialIssuedComplete && !isPackedComplete) {
+      openDialog("All issues completed.", "Upload the issue stage.");
+      setTimeout(() => {
+        closeDialog();
+        // ✅ REFRESH ON RETURN
+        navigation.goBack();
+      }, 200);
+    } else if (isPackedComplete && !initialPackedComplete) {
+      openDialog("All packing completed.", "Upload the packing stage.");
+      setTimeout(() => {
+        closeDialog();
+        // ✅ REFRESH ON RETURN
+        navigation.goBack();
+      }, 200);
+    }
+  }, [materials, loading, initialIssuedComplete, initialPackedComplete, navigation]);
 
   useEffect(() => {
     const sub = Keyboard.addListener("keyboardDidHide", () => {
@@ -252,7 +291,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
   };
 
   const validateNumberInput = (raw: string) => {
-    // Allows empty string, which FlatList will handle by rendering the state value.
     const digits = raw.replace(/[^\d]/g, "");
     if (digits === "" || isNaN(Number(digits))) {
       return { isValid: false, value: 0 };
@@ -271,26 +309,22 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
 
       if (!isValid) {
         if (raw.trim() !== "") {
-            openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
+          openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
         }
-        if (raw.trim() === "") {
-             val = 0;
-        } else if (!isValid) {
-             return prev;
+        val = raw.trim() === "" ? 0 : prev[index].issuedQty ?? 0;
+      } else {
+        if (val > req) {
+          openDialog(
+            "Invalid Quantity", 
+            `Issue quantity cannot exceed required quantity (${req}).`
+          );
+          val = req;
         }
-      } 
-      
-      if (val > req) {
-        openDialog(
-          "Invalid Quantity", 
-          `Issue quantity cannot exceed required quantity (${req}). ` 
-        );
-        val = 0;
+        if (val < 0) val = 0;
       }
       
-      if (val < 0) val = 0;
-
       clone[index] = { ...row, issuedQty: val };
+      persist(clone);
       return clone;
     });
   };
@@ -306,31 +340,25 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
       
       if (!isValid) {
         if (raw.trim() !== "") {
-            openDialog("Invalid Input", "Please enter a valid pack number.", "danger");
+          openDialog("Invalid Input", "Please enter a valid pack number.", "danger");
         }
-        if (raw.trim() === "") {
-             val = 0;
-        } else if (!isValid) {
-             return prev;
+        val = raw.trim() === "" ? 0 : prev[index].packedQty ?? 0;
+      } else {
+        if (val > req) {
+          openDialog(
+            "Invalid Quantity", 
+            `Packed quantity cannot exceed required quantity (${req}).`
+          );
+          val = req;
         }
-      } 
-      
-      if (val > req) {
-        openDialog(
-          "Invalid Quantity", 
-          `Packed quantity cannot exceed required quantity (${req}). `
-        );
-        val = 0;
+        if (val < 0) val = 0;
       }
       
-      if (val < 0) val = 0;
-      
       clone[index] = { ...row, packedQty: val };
+      persist(clone);
       return clone;
     });
   };
-
-  const saveOnEndEditing = () => persist(materials);
 
   // ----- Loading -----
   if (loading) {
@@ -344,7 +372,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
     );
   }
 
-  // ===== Main render: fixed header + scrollable body =====
+  // ===== Main render =====
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
       <View style={styles.content}>
@@ -507,7 +535,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                       inputMode="numeric"
                       maxLength={3}
                       style={[styles.issueInput, pillIssued && { borderColor: C.greenText + "66" }]}
-                      onEndEditing={saveOnEndEditing}
                     />
                   </View>
 
@@ -520,7 +547,6 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
                         inputMode="numeric"
                         maxLength={3}
                         style={[styles.issueInput, pillPacked && { borderColor: C.greenText + "66" }]}
-                        onEndEditing={saveOnEndEditing}
                       />
                     </View>
                   )}
@@ -568,7 +594,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
           </View>
         </Modal>
 
-        {/* Row “View” Modal */}
+        {/* Row "View" Modal */}
         <Modal
           visible={descModal.visible}
           transparent
@@ -863,20 +889,6 @@ const styles = StyleSheet.create({
   },
   infoSmallLabel: { fontSize: 11, color: C.subText, fontWeight: "700" },
   infoSmallValue: { fontSize: 16, color: C.headerText, fontWeight: "800", marginTop: 2 },
-
-  progressWrap: { gap: 8, marginTop: 4 },
-  progressBarTrack: {
-    height: 8,
-    backgroundColor: "#EFEFEF",
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-  progressBarFill: {
-    height: 8,
-    backgroundColor: C.greenText,
-    borderRadius: 999,
-  },
-  progressText: { fontSize: 12, color: C.subText, textAlign: "right" },
 
   // App Dialog
   appDialogOverlay: {

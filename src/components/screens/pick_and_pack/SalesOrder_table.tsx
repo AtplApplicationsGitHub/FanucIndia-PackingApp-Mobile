@@ -43,31 +43,31 @@ const C = {
   blue: "#2563EB",
 };
 
-// Improved responsive column widths
+// Improved responsive column widths with more space for action column on smaller screens
 const getColumnFlex = (screenWidth: number) => {
   if (screenWidth < 350) {
     return {
-      so: 1.2,
-      status: 1.6,
-      items: 0.8,
-      material: 0.9,
-      action: 1.2,
+      so: 0.8,
+      status: 1.2,
+      items: 0.6,
+      material: 0.7,
+      action: 2.0,
     };
   } else if (screenWidth < 400) {
     return {
-      so: 1.1,
-      status: 1.4,
-      items: 0.9,
-      material: 1.0,
-      action: 1.1,
+      so: 0.9,
+      status: 1.3,
+      items: 0.7,
+      material: 0.8,
+      action: 1.6,
     };
   } else {
     return {
       so: 1.0,
       status: 1.3,
-      items: 1.0,
-      material: 1.1,
-      action: 1.0,
+      items: 0.8,
+      material: 0.9,
+      action: 1.3,
     };
   }
 };
@@ -204,6 +204,7 @@ const Row: React.FC<{
       <View style={[styles.cell, { flex: columnFlex.status }]}>
         <Text
           numberOfLines={2}
+          ellipsizeMode="tail"
           style={[
             styles.statusText,
             showReadyActions ? { color: C.greenText, fontWeight: "700" } : undefined,
@@ -216,12 +217,24 @@ const Row: React.FC<{
 
       {/* Items Column */}
       <View style={[styles.cell, styles.centerCell, { flex: columnFlex.items }]}>
-        <Text style={styles.metricText}>{totalItems}</Text>
+        <Text 
+          style={styles.metricText}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {totalItems}
+        </Text>
       </View>
 
       {/* Material Column */}
       <View style={[styles.cell, styles.centerCell, { flex: columnFlex.material }]}>
-        <Text style={styles.metricText}>{totalMaterials}</Text>
+        <Text 
+          style={styles.metricText}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {totalMaterials}
+        </Text>
       </View>
 
       {/* Action Column */}
@@ -405,6 +418,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: C.gray,
+    numberOfLines: 1,
   },
   thCenter: {
     textAlign: "center",
@@ -427,6 +441,7 @@ const styles = StyleSheet.create({
   cell: {
     paddingHorizontal: 4,
     justifyContent: "center",
+    overflow: "hidden",
   },
   centerCell: {
     alignItems: "center",
@@ -458,7 +473,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     alignItems: "center",
-    gap: 1,
+    gap: 4,
     flexWrap: "nowrap",
   },
 

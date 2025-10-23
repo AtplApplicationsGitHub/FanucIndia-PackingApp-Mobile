@@ -14,14 +14,12 @@ import OrderDetailsScreen from "./src/components/screens/pick_and_pack/OrderDeta
 import UploadScreen from "./src/components/screens/pick_and_pack/upload";
 import { RefreshButton } from "./src/components/Storage_Clear/Storage_Clear";
 
-export type bRootStackParamList = {
+export type RootStackParamList = {
   Login: undefined;
   Home: { displayName?: string } | undefined;
-  SalesOrderScreen :undefined;
-  PickAndPack: undefined;
+  PickAndPack: undefined;  // SalesOrderScreen
   MaterialFG: undefined;
   MaterialDispatch: undefined;
-  ScanAddSalesOrders: undefined;
   OrderDetails: { saleOrderNumber: string };
   Upload: { saleOrderNumber: string };
 };
@@ -41,7 +39,7 @@ export default function App() {
             fontWeight: "600",
           },
           headerStyle: {
-            // Optional: Add consistent background if needed
+            backgroundColor: "#F7F7F8",
           },
         }}
       >
@@ -59,12 +57,13 @@ export default function App() {
           options={{ headerShown: false }}
         />
 
-        {/* Pick & Pack list */}
+        {/* Pick & Pack list - NO BACK BUTTON */}
         <Stack.Screen
           name="PickAndPack"
           component={SalesOrderScreen}
           options={{ 
             title: "Pick and Pack",
+            headerLeft: () => null, // ✅ FIXED: Remove back button
             headerRight: () => <RefreshButton />,
             headerRightContainerStyle: { backgroundColor: "transparent" },
           }}
@@ -75,7 +74,7 @@ export default function App() {
           name="MaterialFG"
           component={MaterialFGScreen}
           options={{ 
-            title: "Material FG/Transfer", // Shortened slightly for better fit
+            title: "Material FG/Transfer",
           }}
         />
 
@@ -86,16 +85,19 @@ export default function App() {
           options={{ title: "Material Dispatch" }}
         />
 
-        {/* Order Details — dynamic title using route params */}
+        {/* ✅ FIXED: OrderDetails - NAVIGATES BACK TO PickAndPack ONLY */}
         <Stack.Screen
           name="OrderDetails"
           component={OrderDetailsScreen}
           options={({ route }) => ({
-            title: `SO: ${route?.params?.saleOrderNumber?.substring(0, 20) ?? ""}${route?.params?.saleOrderNumber?.length > 20 ? "..." : ""}`, // Truncate long SO numbers for fit
+            title: `Order ${route.params.saleOrderNumber}`,
+            // ✅ Back button visible, goes to PickAndPack
+            headerBackVisible: true,
+            headerBackTitle: "Pick and Pack", // ✅ Set back button label to "Pick and Pack"
           })}
         />
 
-        {/* Upload — modal presentation for popup */}
+        {/* Upload */}
         <Stack.Screen
           name="Upload"
           component={UploadScreen}
