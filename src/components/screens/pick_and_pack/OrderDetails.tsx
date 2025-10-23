@@ -550,7 +550,7 @@ const OrderDetailsScreen: React.FC<Props> = ({ route }) => {
               style={styles.fullscreenCamera}
               facing="back"
               barcodeScannerSettings={{
-                barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e"],
+                barcodeTypes: ["qr", "pdf417", "code128", "code39", "code93", "codabar", "ean13", "ean8", "upc_a", "upc_e", "itf"],
               }}
               onBarcodeScanned={scanLock ? undefined : onBarcodeScanned}
             />

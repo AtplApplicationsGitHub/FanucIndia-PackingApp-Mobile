@@ -6,12 +6,14 @@ import {
   StyleSheet,
   FlatList,
   Platform,
-  Alert,
 } from "react-native";
-import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
+import {
+  useSafeAreaInsets,
+  SafeAreaView,
+} from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store"; // For secure token access/clear
+import * as SecureStore from "expo-secure-store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 
@@ -22,8 +24,6 @@ type MenuItem = {
   iconName: string;
 };
 
-// If your App.tsx already defines this, you don't need to redefine it there.
-// Just make sure the "Home" route accepts an optional displayName/user param.
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
 const PRIMARY = "#FACC15"; // yellow-400
@@ -34,14 +34,24 @@ const CARD_BG = "#FFFFFF";
 const SOFT_YELLOW = "#FFF7CC";
 
 const MENU: MenuItem[] = [
-  { id: "pick", title: "Pick and Pack", subtitle: "Process materials", iconName: "cube-outline" },
+  {
+    id: "pick",
+    title: "Pick and Pack",
+    subtitle: "Process materials",
+    iconName: "cube-outline",
+  },
   {
     id: "transfer",
     title: "Material FG / Transfer",
     subtitle: "Finished goods & movement",
     iconName: "swap-horizontal",
   },
-  { id: "dispatch", title: "Material Dispatch", subtitle: "Ready for shipment", iconName: "truck-outline" },
+  {
+    id: "dispatch",
+    title: "Material Dispatch",
+    subtitle: "Ready for shipment",
+    iconName: "truck-outline",
+  },
 ];
 
 function pickBestName(input?: {
@@ -54,11 +64,9 @@ function pickBestName(input?: {
     input?.user?.username ||
     input?.user?.email;
   if (fromParams && typeof fromParams === "string") return fromParams.trim();
-
   return undefined;
 }
 
-// Simple local-time greeting
 function computeGreeting(d = new Date()) {
   const h = d.getHours();
   if (h >= 5 && h < 12) return "Good morning";
@@ -71,36 +79,39 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const [displayName, setDisplayName] = useState<string>("User");
   const [greeting, setGreeting] = useState<string>(computeGreeting());
 
-  // Keep greeting updated (in case user leaves the app open across time ranges)
+  // Update greeting every minute
   useEffect(() => {
     const tick = () => setGreeting(computeGreeting());
-    const id = setInterval(tick, 60 * 1000); // update every minute
+    const id = setInterval(tick, 60 * 1000);
     return () => clearInterval(id);
   }, []);
-  useEffect(() => {
-    setGreeting(computeGreeting());
-  }, []);
 
-  // 1) Prefer name passed via navigation params (if any)
+  // Name from navigation params
   useEffect(() => {
     const byParams = pickBestName(route?.params as any);
     if (byParams) setDisplayName(byParams);
   }, [route?.params]);
 
-  // 2) Fallback to AsyncStorage if params missing (supports several common keys)
+  // Fallback to AsyncStorage
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        // Try a few common keys you might have set at login
         const [k1, k2, k3] = await Promise.all([
           AsyncStorage.getItem("displayName"),
           AsyncStorage.getItem("username"),
-          AsyncStorage.getItem("user"), // often JSON
+          AsyncStorage.getItem("user"),
         ]);
 
-        const parsedUser =
-          k3 ? (() => { try { return JSON.parse(k3); } catch { return null; } })() : null;
+        const parsedUser = k3
+          ? (() => {
+              try {
+                return JSON.parse(k3);
+              } catch {
+                return null;
+              }
+            })()
+          : null;
 
         const fromStorage =
           (k1 && k1.trim()) ||
@@ -113,10 +124,12 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           setDisplayName(String(fromStorage).trim());
         }
       } catch {
-        // ignore storage errors; fallback remains "User"
+        // ignore
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [route?.params]);
 
   const onPressItem = (item: MenuItem) => () => {
@@ -130,18 +143,15 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       case "dispatch":
         navigation.navigate("MaterialDispatch");
         break;
-      default:
-        break;
     }
   };
 
   const onLogout = async () => {
     try {
-      // Clear secure token and user data on logout
       await SecureStore.deleteItemAsync("authToken");
       await AsyncStorage.multiRemove(["displayName", "username", "user"]);
     } catch (err) {
-      console.warn("Logout cleanup error:", err); // Non-blocking
+      console.warn("Logout cleanup error:", err);
     }
     navigation.reset({
       index: 0,
@@ -150,7 +160,6 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const username = useMemo(() => {
-    // Small nicety: title-case if it looks like an email/username
     const name = displayName || "User";
     if (name.includes("@")) return name.split("@")[0];
     return name;
@@ -158,54 +167,62 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
-      {/* Header */}
-      <View
-        style={[
-          styles.header,
-          {
-            paddingTop: Math.max(insets.top, 8),
-            paddingBottom: 12,
-          },
-        ]}
-      >
-        <View style={styles.brandLeft} accessible accessibilityRole="header">
-          <View style={styles.logoBadge}>
-            <Ionicons name="flash" size={18} color={HEADER_TEXT} />
+      {/* ---------- TOP NOTCH SAFE AREA (Header) ---------- */}
+      <SafeAreaView edges={["top"]} style={{ backgroundColor: PRIMARY }}>
+        <View style={[styles.header, { paddingHorizontal: 12 }]}>
+          <View style={styles.brandLeft} accessible accessibilityRole="header">
+            <View style={styles.logoBadge}>
+              <Ionicons name="flash" size={18} color={HEADER_TEXT} />
+            </View>
+            <Text
+              style={styles.brandText}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              <Text style={{ fontWeight: "700" }}>Scan Pack</Text>
+              <Text style={{ fontWeight: "700" }}> · FANUC India</Text>
+            </Text>
           </View>
-          <Text style={styles.brandText} numberOfLines={1} adjustsFontSizeToFit>
-            <Text style={{ fontWeight: "700" }}>Scan Pack</Text>
-            <Text style={{ fontWeight: "700" }}> · FANUC India</Text>
-          </Text>
+
+          <TouchableOpacity
+            onPress={onLogout}
+            activeOpacity={0.85}
+            style={styles.logoutBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Logout"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
         </View>
+      </SafeAreaView>
 
-        <TouchableOpacity
-          onPress={onLogout}
-          activeOpacity={0.85}
-          style={styles.logoutBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Logout"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Body */}
+      {/* ---------- MAIN CONTENT ---------- */}
       <View style={styles.content}>
-        {/* Greeting with name (now sourced from login response via storage) */}
         <Text style={styles.greeting}>
           {greeting},{" "}
-          <Text style={{ fontWeight: "700" }}>{username}</Text> 
+          <Text style={{ fontWeight: "700" }}>{username}</Text>
         </Text>
 
         <FlatList
           data={MENU}
           keyExtractor={(it) => it.id}
-          contentContainerStyle={{ paddingVertical: 8, paddingBottom: 16 + insets.bottom }}
+          contentContainerStyle={{
+            paddingVertical: 8,
+            paddingBottom: 16 + insets.bottom,
+          }}
           renderItem={({ item }) => (
-            <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={onPressItem(item)}>
+            <TouchableOpacity
+              style={styles.card}
+              activeOpacity={0.9}
+              onPress={onPressItem(item)}
+            >
               <View style={styles.iconWrap}>
-                <MaterialCommunityIcons name={item.iconName as any} size={22} color="#DC2626" />
+                <MaterialCommunityIcons
+                  name={item.iconName as any}
+                  size={22}
+                  color="#DC2626"
+                />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitle}>{item.title}</Text>
@@ -228,12 +245,13 @@ export default HomeScreen;
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
 
+  /* Header is now inside its own top-only SafeAreaView */
   header: {
     backgroundColor: PRIMARY,
-    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    minHeight: 56, // comfortable baseline
     ...Platform.select({
       android: { elevation: 2 },
       ios: {
@@ -244,7 +262,12 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  brandLeft: { flexDirection: "row", alignItems: "center", flex: 1, minHeight: 44 },
+  brandLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    minHeight: 44,
+  },
   logoBadge: {
     width: 28,
     height: 28,
@@ -254,7 +277,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 8,
   },
-  brandText: { fontSize: 16, color: HEADER_TEXT, fontWeight: "600", flexShrink: 1 },
+  brandText: {
+    fontSize: 16,
+    color: HEADER_TEXT,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
 
   logoutBtn: {
     backgroundColor: "#FFE380",
@@ -295,6 +323,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  cardTitle: { fontSize: 15, color: BODY_TEXT, fontWeight: "700", marginBottom: 2 },
+  cardTitle: {
+    fontSize: 15,
+    color: BODY_TEXT,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
   cardSubtitle: { fontSize: 12.5, color: MUTED },
 });

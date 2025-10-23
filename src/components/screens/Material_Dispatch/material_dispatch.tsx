@@ -666,7 +666,7 @@ const MaterialDispatchScreen: React.FC = () => {
             style={styles_scan.fullscreenCamera}
             facing="back"
             barcodeScannerSettings={{
-              barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e"],
+              barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e", "code39", "code93", "codabar", "itf"],
             }}
             onBarcodeScanned={scanLocked ? undefined : onScanned}
           />

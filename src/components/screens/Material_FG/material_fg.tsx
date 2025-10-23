@@ -453,7 +453,7 @@ const MaterialFGTransferScreen: React.FC = () => {
             style={styles.fullscreenCamera}
             facing="back"
             barcodeScannerSettings={{
-              barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e"],
+              barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e", "code39", "codabar", "code93", "pdf417", "datamatrix"],
             }}
             onBarcodeScanned={scanLockRef.current ? undefined : handleScanned}
           />

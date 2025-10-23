@@ -468,7 +468,6 @@ export default function AttachmentScreen() {
             <Text style={styles.headerCellSNo}>S/No</Text>
             <Text style={styles.headerCellName}>File Name</Text>
             <Text style={styles.headerCellDescription}>Description</Text>
-            <Text style={styles.headerCellActions}>Actions</Text>
             <Text style={styles.headerCellStatus}>Status</Text>
           </View>
 
