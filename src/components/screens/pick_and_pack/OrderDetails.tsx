@@ -416,7 +416,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                 accessibilityLabel="Open scanner"
                 hitSlop={10}
               >
-                <MaterialCommunityIcons name="qrcode-scan" size={20} color={C.accent} />
+                <MaterialCommunityIcons name="qrcode-scan" size={20}  />
               </Pressable>
             </View>
 

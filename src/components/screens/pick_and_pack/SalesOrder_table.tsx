@@ -43,31 +43,28 @@ const C = {
   blue: "#2563EB",
 };
 
-// Improved responsive column widths with more space for action column on smaller screens
+// Updated responsive column widths with more space for SO column
 const getColumnFlex = (screenWidth: number) => {
   if (screenWidth < 350) {
     return {
-      so: 0.8,
-      status: 1.2,
-      items: 0.6,
-      material: 0.7,
-      action: 2.0,
+      so: 1.5, // Increased from 1.2
+      status: 1.4, // Adjusted to balance
+      priority: 1.0, // Added for priority column
+      action: 1.2,
     };
   } else if (screenWidth < 400) {
     return {
-      so: 0.9,
-      status: 1.3,
-      items: 0.7,
-      material: 0.8,
-      action: 1.6,
+      so: 1.4, // Increased from 1.1
+      status: 1.3, // Adjusted to balance
+      priority: 1.0, // Added for priority column
+      action: 1.1,
     };
   } else {
     return {
-      so: 1.0,
-      status: 1.3,
-      items: 0.8,
-      material: 0.9,
-      action: 1.3,
+      so: 1.3, // Increased from 1.0
+      status: 1.2, // Adjusted to balance
+      priority: 1.0, // Added for priority column
+      action: 1.0,
     };
   }
 };
@@ -136,13 +133,7 @@ const Row: React.FC<{
       ? "Packing in progress"
       : "Ready to upload");
 
-  const totalItems =
-    (item as any)?.totalItems != null ? String((item as any).totalItems) : "-";
-
-  const totalMaterials =
-    (item as any)?.totalMaterials != null
-      ? String((item as any).totalMaterials)
-      : "-";
+  const priorityText = (item as any)?.priority ?? "-"; // Assuming priority is a field in OrdersSummaryItem
 
   const showDownloadOnly = !downloaded;
   const showProgressActions =
@@ -173,11 +164,11 @@ const Row: React.FC<{
             accessibilityLabel={`View order ${item.saleOrderNumber}`}
             style={styles.soPressable}
           >
-            <Text 
+            <Text
               style={[
-                styles.soText, 
-                { color: C.blue, textDecorationLine: "underline" }, 
-                isUploading && { opacity: 0.4 }
+                styles.soText,
+                { color: C.blue, textDecorationLine: "underline" },
+                isUploading && { opacity: 0.4 },
               ]}
               numberOfLines={1}
               ellipsizeMode="tail"
@@ -186,11 +177,11 @@ const Row: React.FC<{
             </Text>
           </Pressable>
         ) : (
-          <Text 
+          <Text
             style={[
-              styles.soText, 
-              showReadyActions && { color: C.greenText }, 
-              isUploading && { opacity: 0.4 }
+              styles.soText,
+              showReadyActions && { color: C.greenText },
+              isUploading && { opacity: 0.4 },
             ]}
             numberOfLines={1}
             ellipsizeMode="tail"
@@ -204,7 +195,6 @@ const Row: React.FC<{
       <View style={[styles.cell, { flex: columnFlex.status }]}>
         <Text
           numberOfLines={2}
-          ellipsizeMode="tail"
           style={[
             styles.statusText,
             showReadyActions ? { color: C.greenText, fontWeight: "700" } : undefined,
@@ -215,25 +205,17 @@ const Row: React.FC<{
         </Text>
       </View>
 
-      {/* Items Column */}
-      <View style={[styles.cell, styles.centerCell, { flex: columnFlex.items }]}>
-        <Text 
-          style={styles.metricText}
+      {/* Priority Column */}
+      <View style={[styles.cell, { flex: columnFlex.priority }]}>
+        <Text
           numberOfLines={1}
-          ellipsizeMode="tail"
+          style={[
+            styles.statusText,
+            showReadyActions ? { color: C.greenText, fontWeight: "700" } : undefined,
+            isUploading ? { color: C.blue } : undefined,
+          ]}
         >
-          {totalItems}
-        </Text>
-      </View>
-
-      {/* Material Column */}
-      <View style={[styles.cell, styles.centerCell, { flex: columnFlex.material }]}>
-        <Text 
-          style={styles.metricText}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {totalMaterials}
+          {priorityText}
         </Text>
       </View>
 
@@ -279,7 +261,7 @@ const Row: React.FC<{
               >
                 <Ionicons
                   name="cloud-upload-outline"
-                  size={20}
+                size={20}
                   color={C.blue}
                 />
               </IconTap>
@@ -329,12 +311,7 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
       <View style={styles.tableHeader}>
         <Text style={[styles.thText, { flex: columnFlex.so }]}>SO</Text>
         <Text style={[styles.thText, { flex: columnFlex.status }]}>Status</Text>
-        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.items }]}>
-          Items
-        </Text>
-        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.material }]}>
-          Material
-        </Text>
+        <Text style={[styles.thText, { flex: columnFlex.priority }]}>Priority</Text>
         <Text style={[styles.thText, styles.thRight, { flex: columnFlex.action }]}>
           Action
         </Text>
@@ -418,7 +395,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: C.gray,
-    numberOfLines: 1,
   },
   thCenter: {
     textAlign: "center",
@@ -441,7 +417,6 @@ const styles = StyleSheet.create({
   cell: {
     paddingHorizontal: 4,
     justifyContent: "center",
-    overflow: "hidden",
   },
   centerCell: {
     alignItems: "center",
@@ -473,7 +448,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     alignItems: "center",
-    gap: 4,
+    gap: 1,
     flexWrap: "nowrap",
   },
 
@@ -487,8 +462,8 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
 
-  sep: { 
-    height: 8 
+  sep: {
+    height: 8,
   },
 
   empty: {

@@ -18,6 +18,7 @@ export type RootStackParamList = {
   Login: undefined;
   Home: { displayName?: string } | undefined;
   PickAndPack: undefined;  // SalesOrderScreen
+  SalesOrderScreen: undefined;  // SalesOrderScreen
   MaterialFG: undefined;
   MaterialDispatch: undefined;
   OrderDetails: { saleOrderNumber: string };

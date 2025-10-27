@@ -6,10 +6,9 @@ import {
   StyleSheet,
   Modal,
   TouchableOpacity,
-  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import SalesOrdersStyledTable from "./SalesOrder_table";
 import { fetchOrdersSummary, downloadOrderDetails, uploadIssueData, type OrdersSummaryItem } from "../../Api/SalesOrder_server";
 import { hasOrderDetails, getOrderDetails, deleteOrderDetails, type StoredMaterialItem } from "../../Storage/sale_order_storage";
@@ -17,18 +16,17 @@ import { hasOrderDetails, getOrderDetails, deleteOrderDetails, type StoredMateri
 export type RootStackParamList = {
   Login: undefined;
   Home: { displayName?: string } | undefined;
-  PickAndPack: { refresh?: number } | undefined;
-  MaterialFG: undefined;
-  MaterialDispatch: undefined;
+  SalesOrders: undefined;
   OrderDetails: { saleOrderNumber: string };
   Upload: { saleOrderNumber: string };
+  MaterialFG: undefined;
+  MaterialDispatch: undefined;
 };
 
 type Phase = "issue" | "packing";
 
 const SalesOrdersScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const route = useRoute(); // ✅ FOR AUTO REFRESH
 
   const [list, setList] = useState<OrdersSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,13 +158,6 @@ const SalesOrdersScreen: React.FC = () => {
   }, [refreshMaps]);
 
   useEffect(() => {
-    const refreshParam = route.params?.refresh;
-    if (refreshParam) {
-      onRefresh();
-    }
-  }, [route.params?.refresh, onRefresh]);
-
-  useEffect(() => {
     load();
   }, [load]);
 
@@ -208,7 +199,7 @@ const SalesOrdersScreen: React.FC = () => {
   const handleUpload = useCallback(
     async (o: OrdersSummaryItem) => {
       const so = o.saleOrderNumber;
-      if (uploading) return;
+      if (uploading) return; // Prevent multiple uploads
       setUploading(so);
       try {
         const stored = await getOrderDetails(so);
@@ -217,7 +208,7 @@ const SalesOrdersScreen: React.FC = () => {
         }
 
         await uploadIssueData(so, stored.orderDetails);
-        await deleteOrderDetails(so);
+        await deleteOrderDetails(so); // Clear local storage
 
         const packComplete = computePackCompletion(stored?.orderDetails);
         let newList = list;
@@ -235,13 +226,13 @@ const SalesOrdersScreen: React.FC = () => {
 
         setList(newList);
         await refreshMaps(newList);
-        await onRefresh();
+        await onRefresh(); // Trigger page refresh
 
         const msg = packComplete
-          ? "Order fully completed and uploaded."
-          : "Issue data uploaded. Download again to proceed with packing.";
+          ? ""
+          : "";
         showModal({
-          title: packComplete ? "Upload Complete" : "Issue Data Uploaded",
+          title: packComplete ? "Data Uploaded successfully" : "Data Uploaded successfully",
           message: msg,
           type: "success",
         });
@@ -371,25 +362,11 @@ const C = {
 };
 
 const styles = StyleSheet.create({
-  safe: { 
-    flex: 1, 
-    backgroundColor: C.bg 
-  },
-  container: { 
-    flex: 1, 
-    backgroundColor: C.bg 
-  },
-  loadingWrap: { 
-    flex: 1, 
-    alignItems: "center", 
-    justifyContent: "center", 
-    gap: 8 
-  },
-  loadingText: { 
-    marginTop: 8, 
-    color: C.sub,
-    fontSize: 16
-  },
+  safe: { flex: 1 },
+  container: { flex: 1 },
+  title: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
+  loadingText: { marginTop: 8, color: C.sub },
 
   modalOverlay: {
     flex: 1,
@@ -411,11 +388,6 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
-    ...Platform.select({
-      android: {
-        elevation: 12,
-      },
-    }),
   },
   modalTitle: {
     fontSize: 18,

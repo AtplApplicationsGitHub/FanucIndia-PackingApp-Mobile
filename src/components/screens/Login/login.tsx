@@ -33,6 +33,7 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
   const [pwd, setPwd] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState("Vr.0.01");
 
   const [modal, setModal] = useState<{ visible: boolean; title: string; message: string }>({
     visible: false,
@@ -78,6 +79,8 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
       setLoading(false);
     }
   };
+
+
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -142,6 +145,14 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+                  {/* Version Control Button */}
+            <TouchableOpacity 
+              activeOpacity={0.7}
+              style={styles.versionButton}
+            >
+              <Text style={styles.versionText}>{currentVersion}</Text>
+            </TouchableOpacity>
 
       {/* ---------- Modal Popup ---------- */}
       <Modal animationType="fade" transparent visible={modal.visible} onRequestClose={closeModal}>
@@ -269,6 +280,18 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.6 },
   ctaText: { color: ACCENT, fontWeight: "800", fontSize: 16, letterSpacing: 0.3 },
+  // Version Button Styles
+  versionButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  versionText: {
+    fontSize: 12,
+    color: MUTED,
+    fontWeight: "500",
+  },
 });
 
 /* ------------------------------ Modal Styles ------------------------------ */
