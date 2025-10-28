@@ -43,29 +43,13 @@ const C = {
   blue: "#2563EB",
 };
 
-// Updated responsive column widths with more space for SO column
 const getColumnFlex = (screenWidth: number) => {
   if (screenWidth < 350) {
-    return {
-      so: 1.5, // Increased from 1.2
-      status: 1.4, // Adjusted to balance
-      priority: 1.0, // Added for priority column
-      action: 1.2,
-    };
+    return { so: 1.2, status: 1.6, items: 0.8, material: 0.9, action: 1.2 };
   } else if (screenWidth < 400) {
-    return {
-      so: 1.4, // Increased from 1.1
-      status: 1.3, // Adjusted to balance
-      priority: 1.0, // Added for priority column
-      action: 1.1,
-    };
+    return { so: 1.1, status: 1.4, items: 0.9, material: 1.0, action: 1.1 };
   } else {
-    return {
-      so: 1.3, // Increased from 1.0
-      status: 1.2, // Adjusted to balance
-      priority: 1.0, // Added for priority column
-      action: 1.0,
-    };
+    return { so: 1.0, status: 1.3, items: 1.0, material: 1.1, action: 1.0 };
   }
 };
 
@@ -133,17 +117,14 @@ const Row: React.FC<{
       ? "Packing in progress"
       : "Ready to upload");
 
-  const priorityText = (item as any)?.priority ?? "-"; // Assuming priority is a field in OrdersSummaryItem
+  const totalItems = (item as any)?.totalItems != null ? String((item as any).totalItems) : "-";
+  const totalMaterials = (item as any)?.totalMaterials != null ? String((item as any).totalMaterials) : "-";
 
   const showDownloadOnly = !downloaded;
   const showProgressActions =
-    downloaded &&
-    ((currentPhase === "issue" && !issueCompleted) ||
-      (currentPhase === "packing" && !packCompleted));
+    downloaded && ((currentPhase === "issue" && !issueCompleted) || (currentPhase === "packing" && !packCompleted));
   const showReadyActions =
-    downloaded &&
-    ((currentPhase === "issue" && issueCompleted) ||
-      (currentPhase === "packing" && packCompleted));
+    downloaded && ((currentPhase === "issue" && issueCompleted) || (currentPhase === "packing" && packCompleted));
 
   const isSOClickable = downloaded && !showReadyActions;
 
@@ -155,7 +136,7 @@ const Row: React.FC<{
 
   return (
     <View style={rowStyle}>
-      {/* SO Column */}
+      {/* SO */}
       <View style={[styles.cell, { flex: columnFlex.so }]}>
         {isSOClickable && onView ? (
           <Pressable
@@ -191,7 +172,7 @@ const Row: React.FC<{
         )}
       </View>
 
-      {/* Status Column */}
+      {/* Status */}
       <View style={[styles.cell, { flex: columnFlex.status }]}>
         <Text
           numberOfLines={2}
@@ -205,48 +186,28 @@ const Row: React.FC<{
         </Text>
       </View>
 
-      {/* Priority Column */}
-      <View style={[styles.cell, { flex: columnFlex.priority }]}>
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.statusText,
-            showReadyActions ? { color: C.greenText, fontWeight: "700" } : undefined,
-            isUploading ? { color: C.blue } : undefined,
-          ]}
-        >
-          {priorityText}
-        </Text>
+      {/* Items */}
+      <View style={[styles.cell, styles.centerCell, { flex: columnFlex.items }]}>
+        <Text style={styles.metricText}>{totalItems}</Text>
       </View>
 
-      {/* Action Column */}
+      {/* Material */}
+      <View style={[styles.cell, styles.centerCell, { flex: columnFlex.material }]}>
+        <Text style={styles.metricText}>{totalMaterials}</Text>
+      </View>
+
+      {/* Action */}
       <View style={[styles.cell, styles.actionCell, { flex: columnFlex.action }]}>
         <View style={styles.actionBar}>
           {showDownloadOnly && onDownload && (
-            <IconTap
-              onPress={onDownload}
-              disabled={isUploading}
-              ariaLabel="Download order details"
-            >
-              <Ionicons
-                name="download-outline"
-                size={20}
-                color={isUploading ? C.gray : C.icon}
-              />
+            <IconTap onPress={onDownload} disabled={isUploading} ariaLabel="Download order details">
+              <Ionicons name="download-outline" size={20} color={isUploading ? C.gray : C.icon} />
             </IconTap>
           )}
 
           {(showProgressActions || showReadyActions) && onDocument && (
-            <IconTap
-              onPress={onDocument}
-              disabled={isUploading}
-              ariaLabel="Open documents"
-            >
-              <Ionicons
-                name="document-outline"
-                size={20}
-                color={isUploading ? C.gray : C.icon}
-              />
+            <IconTap onPress={onDocument} disabled={isUploading} ariaLabel="Open documents">
+              <Ionicons name="document-outline" size={20} color={isUploading ? C.gray : C.icon} />
             </IconTap>
           )}
 
@@ -254,31 +215,15 @@ const Row: React.FC<{
             isUploading ? (
               <ActivityIndicator size="small" color={C.blue} />
             ) : (
-              <IconTap
-                onPress={onUpload}
-                disabled={isUploading}
-                ariaLabel={`Upload ${currentPhase} data`}
-              >
-                <Ionicons
-                  name="cloud-upload-outline"
-                size={20}
-                  color={C.blue}
-                />
+              <IconTap onPress={onUpload} disabled={isUploading} ariaLabel={`Upload ${currentPhase} data`}>
+                <Ionicons name="cloud-upload-outline" size={20} color={C.blue} />
               </IconTap>
             )
           )}
 
           {downloaded && onDelete && (
-            <IconTap
-              onPress={onDelete}
-              disabled={isUploading}
-              ariaLabel="Delete local order data"
-            >
-              <Ionicons
-                name="trash-outline"
-                size={20}
-                color={isUploading ? C.gray : C.icon}
-              />
+            <IconTap onPress={onDelete} disabled={isUploading} ariaLabel="Delete local order data">
+              <Ionicons name="trash-outline" size={20} color={isUploading ? C.gray : C.icon} />
             </IconTap>
           )}
         </View>
@@ -307,26 +252,20 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
 
   return (
     <View style={styles.container}>
-      {/* Table Header */}
+      {/* Header */}
       <View style={styles.tableHeader}>
         <Text style={[styles.thText, { flex: columnFlex.so }]}>SO</Text>
         <Text style={[styles.thText, { flex: columnFlex.status }]}>Status</Text>
-        <Text style={[styles.thText, { flex: columnFlex.priority }]}>Priority</Text>
-        <Text style={[styles.thText, styles.thRight, { flex: columnFlex.action }]}>
-          Action
-        </Text>
+        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.items }]}>Items</Text>
+        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.material }]}>Material</Text>
+        <Text style={[styles.thText, styles.thRight, { flex: columnFlex.action }]}>Action</Text>
       </View>
 
       <FlatList
         data={data}
         keyExtractor={(it) => it.saleOrderNumber}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh ?? undefined}
-            colors={[C.blue]}
-            tintColor={C.blue}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh ?? undefined} colors={[C.blue]} tintColor={C.blue} />
         }
         ItemSeparatorComponent={() => <View style={styles.sep} />}
         renderItem={({ item }) => {
@@ -334,7 +273,7 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
           const downloaded = !!downloadedMap[so];
           const issueCompleted = !!issueCompletedMap[so];
           const packCompleted = !!packCompletedMap[so];
-          const phase = phaseMap[so] || "issue";
+          const phase = phaseMap[so] ?? "issue";
           const isUploading = uploading === so;
 
           return (
@@ -358,9 +297,7 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
           <View style={styles.empty}>
             <Ionicons name="document-text-outline" size={48} color={C.gray} />
             <Text style={styles.emptyTitle}>No orders</Text>
-            <Text style={styles.emptySub}>
-              Pull to refresh or try again later.
-            </Text>
+            <Text style={styles.emptySub}>Pull to refresh or try again later.</Text>
           </View>
         }
         contentContainerStyle={data.length === 0 ? { flex: 1 } : undefined}
@@ -373,12 +310,7 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
 export default SalesOrdersStyledTable;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: C.pageBg,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-  },
+  container: { flex: 1, backgroundColor: C.pageBg, paddingHorizontal: 12, paddingTop: 8 },
 
   tableHeader: {
     flexDirection: "row",
@@ -391,17 +323,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: "#FFF",
   },
-  thText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: C.gray,
-  },
-  thCenter: {
-    textAlign: "center",
-  },
-  thRight: {
-    textAlign: "right",
-  },
+  thText: { fontSize: 12, fontWeight: "700", color: C.gray },
+  thCenter: { textAlign: "center" },
+  thRight: { textAlign: "right" },
 
   row: {
     backgroundColor: C.card,
@@ -414,43 +338,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     minHeight: 64,
   },
-  cell: {
-    paddingHorizontal: 4,
-    justifyContent: "center",
-  },
-  centerCell: {
-    alignItems: "center",
-  },
-  actionCell: {
-    alignItems: "flex-end",
-  },
-  soPressable: {
-    paddingVertical: 2,
-  },
-  soText: {
-    color: "#111827",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  statusText: {
-    color: "#111827",
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 16,
-  },
-  metricText: {
-    color: "#111827",
-    fontSize: 13,
-    fontWeight: "500",
-  },
+  cell: { paddingHorizontal: 4, justifyContent: "center" },
+  centerCell: { alignItems: "center" },
+  actionCell: { alignItems: "flex-end" },
+  soPressable: { paddingVertical: 2 },
+  soText: { color: "#111827", fontSize: 14, fontWeight: "700" },
+  statusText: { color: "#111827", fontSize: 13, fontWeight: "600", lineHeight: 16 },
+  metricText: { color: "#111827", fontSize: 13, fontWeight: "500" },
 
-  actionBar: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    gap: 1,
-    flexWrap: "nowrap",
-  },
+  actionBar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 1, flexWrap: "nowrap" },
 
   iconTap: {
     backgroundColor: "transparent",
@@ -462,26 +358,9 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
 
-  sep: {
-    height: 8,
-  },
+  sep: { height: 8 },
 
-  empty: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: C.headerText,
-    marginTop: 12,
-  },
-  emptySub: {
-    marginTop: 4,
-    color: C.subText,
-    fontSize: 14,
-    textAlign: "center",
-  },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 60 },
+  emptyTitle: { fontSize: 16, fontWeight: "700", color: C.headerText, marginTop: 12 },
+  emptySub: { marginTop: 4, color: C.subText, fontSize: 14, textAlign: "center" },
 });

@@ -1,16 +1,15 @@
 import * as SecureStore from "expo-secure-store";
-import { API_ENDPOINTS } from "./api";
 
 let AsyncStorage: any = null;
 try {
   AsyncStorage = require("@react-native-async-storage/async-storage").default;
 } catch {}
 
-// export const BASE_URL = "https://fanuc.goval.app:444/api";
-// const DISPATCH_HEADER_URL = `${BASE_URL}/dispatch/mobile/header`;
-// const DISPATCH_SO_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
-// const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/attachments`;
-// const DISPATCH_SO_DELETE_URL = (soId: number) => `${BASE_URL}/dispatch/so/${soId}`;
+export const BASE_URL = "https://fanuc.goval.app:444/api";
+const DISPATCH_HEADER_URL = `${BASE_URL}/dispatch/mobile/header`;
+const DISPATCH_SO_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
+const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/attachments`;
+const DISPATCH_SO_DELETE_URL = (soId: number) => `${BASE_URL}/dispatch/so/${soId}`;
 
 export type CreateDispatchHeaderRequest = {
   customerName: string;
@@ -151,7 +150,7 @@ export async function createDispatchHeader(
 
   try {
     const res = await withTimeout(
-      fetch(API_ENDPOINTS.MATERIAL_DISPATCH.HEADER, {
+      fetch(DISPATCH_HEADER_URL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -202,7 +201,7 @@ export async function linkSalesOrder(
   const normalizedPayload: LinkDispatchSORequest = { saleOrderNumber: normalizedSO };
 
   try {
-    const url = API_ENDPOINTS.MATERIAL_DISPATCH.SO_LINK(dispatchId);
+    const url = DISPATCH_SO_URL(dispatchId);
     const res = await withTimeout(
       fetch(url, {
         method: "POST",
@@ -246,7 +245,7 @@ export async function deleteSalesOrderLink(
   }
 
   try {
-    const url = API_ENDPOINTS.MATERIAL_DISPATCH.SO_DELETE(soLinkId);
+    const url = DISPATCH_SO_DELETE_URL(soLinkId);
     const res = await withTimeout(
       fetch(url, {
         method: "DELETE",
@@ -293,14 +292,14 @@ export async function uploadAttachments(
   }
 
   try {
-    const url = API_ENDPOINTS.MATERIAL_DISPATCH.ATTACHMENTS(dispatchId);
+    const url = DISPATCH_ATTACHMENTS_URL(dispatchId);
     const formData = new FormData();
     files.forEach((file) => {
       formData.append("attachments", {
         uri: file.uri,
         name: file.name,
         type: file.mimeType,
-      } as any);
+      } as any, file.name);
     });
 
     const res = await withTimeout(
