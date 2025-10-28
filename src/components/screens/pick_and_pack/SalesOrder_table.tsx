@@ -41,6 +41,7 @@ const C = {
   greenBorder: "#B7E4C7",
   gray: "#6B7280",
   blue: "#2563EB",
+  orange: "#F59E0B",
 };
 
 const getColumnFlex = (screenWidth: number) => {
@@ -103,6 +104,7 @@ const Row: React.FC<{
   const currentPhase = phase;
   const isUploading = uploading;
 
+  // Determine status text based on current state
   const statusText =
     (item as any)?.status ??
     (isUploading
@@ -112,25 +114,34 @@ const Row: React.FC<{
       : currentPhase === "issue" && !issueCompleted
       ? "Issuing in progress"
       : currentPhase === "issue" && issueCompleted
-      ? "Issue completed"
+      ? "Ready to upload (Issue)"
       : currentPhase === "packing" && !packCompleted
       ? "Packing in progress"
-      : "Ready to upload");
+      : currentPhase === "packing" && packCompleted
+      ? "Ready to upload (Packing)"
+      : "Unknown status");
 
   const totalItems = (item as any)?.totalItems != null ? String((item as any).totalItems) : "-";
   const totalMaterials = (item as any)?.totalMaterials != null ? String((item as any).totalMaterials) : "-";
 
+  // Show download only when not downloaded
   const showDownloadOnly = !downloaded;
-  const showProgressActions =
-    downloaded && ((currentPhase === "issue" && !issueCompleted) || (currentPhase === "packing" && !packCompleted));
-  const showReadyActions =
-    downloaded && ((currentPhase === "issue" && issueCompleted) || (currentPhase === "packing" && packCompleted));
+  
+  // Show progress actions when downloaded but current phase is not completed
+  const showProgressActions = downloaded && 
+    ((currentPhase === "issue" && !issueCompleted) || 
+     (currentPhase === "packing" && !packCompleted));
+  
+  // Show upload button only when current phase is completed
+  const showUploadButton = downloaded && 
+    ((currentPhase === "issue" && issueCompleted) || 
+     (currentPhase === "packing" && packCompleted));
 
-  const isSOClickable = downloaded && !showReadyActions;
+  const isSOClickable = downloaded && !showUploadButton;
 
   const rowStyle = [
     styles.row,
-    showReadyActions && { backgroundColor: C.greenBg, borderColor: C.greenBorder },
+    showUploadButton && { backgroundColor: C.greenBg, borderColor: C.greenBorder },
     isUploading && { opacity: 0.9 },
   ];
 
@@ -161,7 +172,7 @@ const Row: React.FC<{
           <Text
             style={[
               styles.soText,
-              showReadyActions && { color: C.greenText },
+              showUploadButton && { color: C.greenText },
               isUploading && { opacity: 0.4 },
             ]}
             numberOfLines={1}
@@ -178,8 +189,9 @@ const Row: React.FC<{
           numberOfLines={2}
           style={[
             styles.statusText,
-            showReadyActions ? { color: C.greenText, fontWeight: "700" } : undefined,
+            showUploadButton ? { color: C.greenText, fontWeight: "700" } : undefined,
             isUploading ? { color: C.blue } : undefined,
+            currentPhase === "packing" && !packCompleted ? { color: C.orange } : undefined,
           ]}
         >
           {statusText}
@@ -205,13 +217,13 @@ const Row: React.FC<{
             </IconTap>
           )}
 
-          {(showProgressActions || showReadyActions) && onDocument && (
+          {(showProgressActions || showUploadButton) && onDocument && (
             <IconTap onPress={onDocument} disabled={isUploading} ariaLabel="Open documents">
               <Ionicons name="document-outline" size={20} color={isUploading ? C.gray : C.icon} />
             </IconTap>
           )}
 
-          {showReadyActions && onUpload && (
+          {showUploadButton && onUpload && (
             isUploading ? (
               <ActivityIndicator size="small" color={C.blue} />
             ) : (

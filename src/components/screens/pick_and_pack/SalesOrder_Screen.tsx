@@ -123,15 +123,26 @@ const SalesOrdersScreen: React.FC = () => {
     try {
       const orders = await fetchOrdersSummary();
       setList(orders);
-      setPhaseMap((prev) =>
-        orders.reduce(
-          (acc, o) => ({
-            ...acc,
-            [o.saleOrderNumber]: acc[o.saleOrderNumber] ?? "issue",
-          }),
-          prev
-        )
+      
+      // Initialize phase map based on current state
+      const newPhaseMap: Record<string, Phase> = {};
+      await Promise.all(
+        orders.map(async (o) => {
+          const so = o.saleOrderNumber;
+          const hasDetails = await hasOrderDetails(so);
+          if (hasDetails) {
+            const stored = await getOrderDetails(so);
+            const issueComplete = computeIssueCompletion(stored?.orderDetails);
+            // If issue is completed, set phase to packing, otherwise issue
+            newPhaseMap[so] = issueComplete ? "packing" : "issue";
+          } else {
+            // Default to issue phase if no local data
+            newPhaseMap[so] = "issue";
+          }
+        })
       );
+      
+      setPhaseMap(newPhaseMap);
       await refreshMaps(orders);
     } catch (e: any) {
       showModal({
@@ -149,15 +160,6 @@ const SalesOrdersScreen: React.FC = () => {
     try {
       const orders = await fetchOrdersSummary();
       setList(orders);
-      setPhaseMap((prev) =>
-        orders.reduce(
-          (acc, o) => ({
-            ...acc,
-            [o.saleOrderNumber]: acc[o.saleOrderNumber] ?? "issue",
-          }),
-          prev
-        )
-      );
       await refreshMaps(orders);
     } catch (e: any) {
       showModal({
@@ -178,6 +180,17 @@ const SalesOrdersScreen: React.FC = () => {
     async (o: OrdersSummaryItem) => {
       try {
         await downloadOrderDetails(o.saleOrderNumber);
+        
+        // After download, check the phase and update phaseMap
+        const stored = await getOrderDetails(o.saleOrderNumber);
+        const issueComplete = computeIssueCompletion(stored?.orderDetails);
+        const newPhase = issueComplete ? "packing" : "issue";
+        
+        setPhaseMap(prev => ({
+          ...prev,
+          [o.saleOrderNumber]: newPhase
+        }));
+        
         await refreshMaps(list);
         showModal({
           title: "Download Complete",
@@ -227,38 +240,25 @@ const SalesOrdersScreen: React.FC = () => {
         const packComplete = computePackCompletion(stored.orderDetails);
         const currentPhase = phaseMap[so] ?? "issue";
 
-        // -------------------------------------------------
-        // 1. Issue upload → keep the order, move to packing
-        // 2. Packing upload → remove the order
-        // -------------------------------------------------
-        if (currentPhase === "issue") {
-          // After issue upload we **keep** the row, switch phase
-          setPhaseMap((prev) => ({ ...prev, [so]: "packing" }));
-          // Clear local storage so the user can download fresh data for packing
-          await deleteOrderDetails(so);
-        } else {
-          // Packing upload → order is fully done
-          setList((prev) => prev.filter((it) => it.saleOrderNumber !== so));
-          setPhaseMap((prev) => {
-            const n = { ...prev };
-            delete n[so];
-            return n;
-          });
-          await deleteOrderDetails(so);
-        }
+        // Remove the order from list after successful upload (both phases)
+        setList((prev) => prev.filter((it) => it.saleOrderNumber !== so));
+        setPhaseMap((prev) => {
+          const n = { ...prev };
+          delete n[so];
+          return n;
+        });
+        await deleteOrderDetails(so);
 
         // Refresh maps for the remaining orders
-        const newOrders = currentPhase === "issue" ? list : list.filter((it) => it.saleOrderNumber !== so);
+        const newOrders = list.filter((it) => it.saleOrderNumber !== so);
         await refreshMaps(newOrders);
-        await onRefresh();
 
-        const msg =
-          currentPhase === "issue"
-            ? "Issue data uploaded. Download again to continue with packing."
-            : "Packing data uploaded. Order completed and removed.";
+        const msg = currentPhase === "issue" 
+          ? "Issue data uploaded successfully. Order removed from list."
+          : "Packing data uploaded successfully. Order completed and removed.";
 
         showModal({
-          title: currentPhase === "issue" ? "Issue Uploaded" : "Upload Complete",
+          title: "Upload Complete",
           message: msg,
           type: "success",
         });
@@ -272,7 +272,7 @@ const SalesOrdersScreen: React.FC = () => {
         setUploading(null);
       }
     },
-    [list, phaseMap, refreshMaps, onRefresh, uploading]
+    [list, phaseMap, refreshMaps, uploading]
   );
 
   const handleDelete = useCallback(
@@ -284,6 +284,11 @@ const SalesOrdersScreen: React.FC = () => {
         onConfirmDelete: async () => {
           try {
             await deleteOrderDetails(o.saleOrderNumber);
+            // Reset phase to issue after delete
+            setPhaseMap(prev => ({
+              ...prev,
+              [o.saleOrderNumber]: "issue"
+            }));
             await refreshMaps(list);
             showModal({
               title: "Deleted",
