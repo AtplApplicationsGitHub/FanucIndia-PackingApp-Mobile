@@ -1,3 +1,4 @@
+// OrderDetails.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -36,7 +37,10 @@ export type RootStackParamList = {
   Upload: { saleOrderNumber: string };
 };
 
-type OrderDetailsScreenRouteProp = RouteProp<RootStackParamList, "OrderDetails">;
+type OrderDetailsScreenRouteProp = RouteProp<
+  RootStackParamList,
+  "OrderDetails"
+>;
 
 type Props = { route: OrderDetailsScreenRouteProp };
 
@@ -116,6 +120,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   const [initialIssuedComplete, setInitialIssuedComplete] = useState(false);
   const [initialPackedComplete, setInitialPackedComplete] = useState(false);
 
+
+  /* -------------------------- LOAD ORDER ----------------------------- */
+
   useEffect(() => {
     const loadDetails = async () => {
       try {
@@ -130,13 +137,14 @@ const OrderDetailsScreen: React.FC<Props> = () => {
             })
           );
           withIssued.sort((a, b) =>
-            String(a.materialCode ?? "").localeCompare(
-              String(b.materialCode ?? ""),
-              undefined,
-              { numeric: true, sensitivity: "base" }
-            )
+            String(a.materialCode ?? "")
+              .localeCompare(String(b.materialCode ?? ""), undefined, {
+                numeric: true,
+                sensitivity: "base",
+              })
           );
           setMaterials(withIssued);
+
           const isIssued = withIssued.every(
             (m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)
           );
@@ -166,6 +174,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     loadDetails();
   }, [saleOrderNumber]);
 
+
+  /* ---------------------- AUTO-UPLOAD LOGIC -------------------------- */
+
   useEffect(() => {
     if (loading) return;
 
@@ -177,13 +188,13 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     );
 
     if (isIssuedComplete && !initialIssuedComplete && !isPackedComplete) {
-      openDialog("All issues completed.", "Upload the issue stage.");
+      // openDialog("All issues completed.", "Upload the issue stage.");
       setTimeout(() => {
         closeDialog();
         navigation.goBack();
       }, 200);
     } else if (isPackedComplete && !initialPackedComplete) {
-      openDialog("All packing completed.", "Upload the packing stage.");
+      // openDialog("All packing completed.", "Upload the packing stage.");
       setTimeout(() => {
         closeDialog();
         navigation.goBack();
@@ -197,6 +208,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     navigation,
   ]);
 
+
+  /* -------------------------- KEYBOARD ------------------------------- */
+
   useEffect(() => {
     const sub = Keyboard.addListener("keyboardDidHide", () => {
       inputRef.current?.focus();
@@ -204,37 +218,61 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     return () => sub.remove();
   }, []);
 
-  const { totalItems, completedItems, totalRequired, totalIssued, completedPackedItems, totalPacked } =
-    useMemo(() => {
-      const ti = materials.length;
-      const ci = materials.filter(
-        (m) =>
-          (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) &&
-          (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
-      ).length;
-      const cp = materials.filter(
-        (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
-      ).length;
-      const tr = materials.reduce((s, m) => s + (Number(m.requiredQty) || 0), 0);
-      const tiq = materials.reduce((s, m) => s + (Number(m.issuedQty) || 0), 0);
-      const tpq = materials.reduce((s, m) => s + (Number(m.packedQty) || 0), 0);
-      return {
-        totalItems: ti,
-        completedItems: ci,
-        completedPackedItems: cp,
-        totalRequired: tr,
-        totalIssued: tiq,
-        totalPacked: tpq,
-      };
-    }, [materials]);
+
+  /* --------------------------- SUMMARY ------------------------------- */
+
+  const {
+    totalItems,
+    completedItems,
+    totalRequired,
+    totalIssued,
+    completedPackedItems,
+    totalPacked,
+  } = useMemo(() => {
+    const ti = materials.length;
+    const ci = materials.filter(
+      (m) =>
+        (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) &&
+        (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
+    ).length;
+    const cp = materials.filter(
+      (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
+    ).length;
+    const tr = materials.reduce(
+      (s, m) => s + (Number(m.requiredQty) || 0),
+      0
+    );
+    const tiq = materials.reduce(
+      (s, m) => s + (Number(m.issuedQty) || 0),
+      0
+    );
+    const tpq = materials.reduce(
+      (s, m) => s + (Number(m.packedQty) || 0),
+      0
+    );
+    return {
+      totalItems: ti,
+      completedItems: ci,
+      completedPackedItems: cp,
+      totalRequired: tr,
+      totalIssued: tiq,
+      totalPacked: tpq,
+    };
+  }, [materials]);
 
   const isOrderIssuedComplete = materials.every(
     (m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)
   );
 
   const persist = (rows: MaterialRow[]) => {
-    saveOrderDetails(saleOrderNumber, rows as unknown as StoredMaterialItem[]);
+    saveOrderDetails(
+      saleOrderNumber,
+      rows as unknown as StoredMaterialItem[]
+    );
   };
+
+
+  /* -------------------------- SCAN / INPUT --------------------------- */
 
   const incrementForCode = (materialCodeInput: string) => {
     const codeTrim = materialCodeInput.trim();
@@ -245,7 +283,8 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     }
 
     const idx = materials.findIndex(
-      (m) => String(m.materialCode).toLowerCase() === codeTrim.toLowerCase()
+      (m) =>
+        String(m.materialCode).toLowerCase() === codeTrim.toLowerCase()
     );
 
     if (idx === -1) {
@@ -300,6 +339,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
   const onSubmit = () => incrementForCode(code);
 
+
+  /* -------------------------- SCANNER -------------------------------- */
+
   const openScanner = async () => {
     if (!permission || !permission.granted) {
       const { granted } = await requestPermission();
@@ -335,6 +377,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     }, 250);
   };
 
+
+  /* ----------------------- QUANTITY EDITORS -------------------------- */
+
   const validateNumberInput = (raw: string) => {
     const digits = raw.replace(/[^\d]/g, "");
     if (digits === "" || isNaN(Number(digits))) {
@@ -354,7 +399,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
       if (!isValid) {
         if (raw.trim() !== "") {
-          openDialog("Invalid Input", "Please enter a valid issue number.", "danger");
+          openDialog(
+            "Invalid Input",
+            "Please enter a valid issue number.",
+            "danger"
+          );
         }
         val = raw.trim() === "" ? 0 : prev[index].issuedQty ?? 0;
       } else {
@@ -385,7 +434,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
       if (!isValid) {
         if (raw.trim() !== "") {
-          openDialog("Invalid Input", "Please enter a valid pack number.", "danger");
+          openDialog(
+            "Invalid Input",
+            "Please enter a valid pack number.",
+            "danger"
+          );
         }
         val = raw.trim() === "" ? 0 : prev[index].packedQty ?? 0;
       } else {
@@ -405,6 +458,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     });
   };
 
+
+  /* ------------------------------ UI --------------------------------- */
+
   if (loading) {
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
@@ -419,6 +475,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
       <View style={styles.content}>
+        {/* ---------- FIXED HEADER ---------- */}
         <View style={styles.fixedWrapper}>
           <View style={styles.chipsRow}>
             <View style={styles.chip}>
@@ -432,7 +489,8 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                 {isOrderIssuedComplete ? "Packed" : "Issued"}
               </Text>
               <Text style={styles.chipValue}>
-                {isOrderIssuedComplete ? totalPacked : totalIssued}/{totalRequired}
+                {isOrderIssuedComplete ? totalPacked : totalIssued}/
+                {totalRequired}
               </Text>
             </View>
           </View>
@@ -490,9 +548,10 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           </View>
         </View>
 
+        {/* ---------- LIST ---------- */}
         <FlatList
           data={materials}
-          keyExtractor={(item, index) => `${item.materialCode}-${index}`}
+          keyExtractor={(item, i) => `${item.materialCode}-${i}`}
           contentContainerStyle={styles.bodyListContent}
           style={styles.list}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
@@ -509,7 +568,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
             const req = Number(item.requiredQty ?? 0);
             const isIssued = Number(item.issuedQty ?? 0) >= req;
             const isPacked = Number(item.packedQty ?? 0) >= req;
-            const rowBg = isPacked ? C.greenBg : isIssued ? C.yellowBg : undefined;
+            const rowBg = isPacked
+              ? C.greenBg
+              : isIssued
+              ? C.yellowBg
+              : undefined;
             const issuedColor = isPacked
               ? C.greenText
               : isIssued
@@ -625,6 +688,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           ListFooterComponent={<View style={{ height: 20 }} />}
         />
 
+        {/* ---------- SCANNER MODAL ---------- */}
         <Modal
           visible={cameraOpen}
           onRequestClose={closeScanner}
@@ -673,6 +737,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           </View>
         </Modal>
 
+        {/* ---------- DETAIL MODAL ---------- */}
         <Modal
           visible={descModal.visible}
           transparent
@@ -683,14 +748,25 @@ const OrderDetailsScreen: React.FC<Props> = () => {
             <View style={styles.descCard}>
               <View style={styles.descHeader}>
                 <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    flex: 1,
+                  }}
                 >
-                  <Ionicons name="cube-outline" size={18} color={C.headerText} />
+                  <Ionicons
+                    name="cube-outline"
+                    size={18}
+                    color={C.headerText}
+                  />
                   <Text style={styles.descTitle}>
                     {descModal.data?.materialCode ?? "Material"}
                   </Text>
                 </View>
-                <Pressable onPress={() => setDescModal({ visible: false })}>
+                <Pressable
+                  onPress={() => setDescModal({ visible: false })}
+                >
                   <Ionicons name="close" size={22} color={C.headerText} />
                 </Pressable>
               </View>
@@ -726,7 +802,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>A/D/F</Text>
-                  <Text style={styles.infoValue}>{descModal.data?.adf ?? "-"}</Text>
+                  <Text style={styles.infoValue}>
+                    {descModal.data?.adf ?? "-"}
+                  </Text>
                 </View>
 
                 <View style={styles.infoGrid}>
@@ -760,6 +838,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           </View>
         </Modal>
 
+        {/* ---------- APP DIALOG ---------- */}
         <Modal
           visible={dialog.visible}
           transparent
@@ -770,7 +849,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
             <View style={styles.appDialogCard}>
               <View style={styles.appDialogHeader}>
                 <Ionicons
-                  name={dialog.emphasis === "danger" ? "alert-circle" : "information-circle"}
+                  name={
+                    dialog.emphasis === "danger"
+                      ? "alert-circle"
+                      : "information-circle"
+                  }
                   size={20}
                   color={dialog.emphasis === "danger" ? C.danger : C.headerText}
                 />
@@ -800,6 +883,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   );
 };
 
+/* ------------------------------------------------- Styles ------------------------------------------------- */
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.pageBg },
   content: { flex: 1 },
@@ -830,7 +914,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 2,
   },
-  inputRow: { flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 10 },
+  inputRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    marginBottom: 10,
+  },
   inputWrap: { flex: 1, position: "relative" },
   input: {
     backgroundColor: C.card,
@@ -895,7 +984,12 @@ const styles = StyleSheet.create({
   sep: { height: 1, backgroundColor: C.border },
   emptyWrap: { padding: 16, alignItems: "center" },
   subText: { color: C.subText, fontSize: 12 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
   muted: { color: C.subText },
   issueInput: {
     minWidth: 44,
@@ -963,7 +1057,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: C.border,
   },
-  descTitle: { flex: 1, fontSize: 16, fontWeight: "800", color: C.headerText },
+  descTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "800",
+    color: C.headerText,
+  },
   descBody: { padding: 16, gap: 12 },
   infoRow: { gap: 6 },
   infoLabel: {

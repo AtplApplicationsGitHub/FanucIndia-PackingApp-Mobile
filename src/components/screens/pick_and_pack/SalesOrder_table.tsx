@@ -46,11 +46,29 @@ const C = {
 
 const getColumnFlex = (screenWidth: number) => {
   if (screenWidth < 350) {
-    return { so: 1.2, status: 1.6, items: 0.8, material: 0.9, action: 1.2 };
+    return {
+      so: 1.5,          // more for SO
+      status: 1.6,
+      gap: 0.3,         // gap column
+      priority: 0.8,
+      action: 1.5,      // more for Action
+    };
   } else if (screenWidth < 400) {
-    return { so: 1.1, status: 1.4, items: 0.9, material: 1.0, action: 1.1 };
+    return {
+      so: 1.4,
+      status: 1.4,
+      gap: 0.3,
+      priority: 0.9,
+      action: 1.4,
+    };
   } else {
-    return { so: 1.0, status: 1.3, items: 1.0, material: 1.1, action: 1.0 };
+    return {
+      so: 1.3,
+      status: 1.3,
+      gap: 0.3,
+      priority: 1.0,
+      action: 1.3,
+    };
   }
 };
 
@@ -104,7 +122,6 @@ const Row: React.FC<{
   const currentPhase = phase;
   const isUploading = uploading;
 
-  // Determine status text based on current state
   const statusText =
     (item as any)?.status ??
     (isUploading
@@ -123,16 +140,12 @@ const Row: React.FC<{
 
   const totalItems = (item as any)?.totalItems != null ? String((item as any).totalItems) : "-";
   const totalMaterials = (item as any)?.totalMaterials != null ? String((item as any).totalMaterials) : "-";
+  const priority = item.priority != null ? String(item.priority) : "-";
 
-  // Show download only when not downloaded
   const showDownloadOnly = !downloaded;
-  
-  // Show progress actions when downloaded but current phase is not completed
   const showProgressActions = downloaded && 
     ((currentPhase === "issue" && !issueCompleted) || 
      (currentPhase === "packing" && !packCompleted));
-  
-  // Show upload button only when current phase is completed
   const showUploadButton = downloaded && 
     ((currentPhase === "issue" && issueCompleted) || 
      (currentPhase === "packing" && packCompleted));
@@ -198,14 +211,9 @@ const Row: React.FC<{
         </Text>
       </View>
 
-      {/* Items */}
-      <View style={[styles.cell, styles.centerCell, { flex: columnFlex.items }]}>
-        <Text style={styles.metricText}>{totalItems}</Text>
-      </View>
-
-      {/* Material */}
-      <View style={[styles.cell, styles.centerCell, { flex: columnFlex.material }]}>
-        <Text style={styles.metricText}>{totalMaterials}</Text>
+      {/* Priority */}
+      <View style={[styles.cell, styles.centerCell, { flex: columnFlex.priority }]}>
+        <Text style={styles.metricText}>{priority}</Text>
       </View>
 
       {/* Action */}
@@ -268,8 +276,7 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
       <View style={styles.tableHeader}>
         <Text style={[styles.thText, { flex: columnFlex.so }]}>SO</Text>
         <Text style={[styles.thText, { flex: columnFlex.status }]}>Status</Text>
-        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.items }]}>Items</Text>
-        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.material }]}>Material</Text>
+        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.priority }]}>Priority</Text>
         <Text style={[styles.thText, styles.thRight, { flex: columnFlex.action }]}>Action</Text>
       </View>
 
