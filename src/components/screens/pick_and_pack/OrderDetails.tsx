@@ -115,11 +115,14 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     emphasis: "normal" | "danger" = "normal"
   ) => setDialog({ visible: true, title, message, emphasis });
 
-  const closeDialog = () => setDialog((d) => ({ ...d, visible: false }));
+  // Close dialog and **refocus the input**
+  const closeDialog = () => {
+    setDialog((d) => ({ ...d, visible: false }));
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
 
   const [initialIssuedComplete, setInitialIssuedComplete] = useState(false);
   const [initialPackedComplete, setInitialPackedComplete] = useState(false);
-
 
   /* -------------------------- LOAD ORDER ----------------------------- */
 
@@ -174,7 +177,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     loadDetails();
   }, [saleOrderNumber]);
 
-
   /* ---------------------- AUTO-UPLOAD LOGIC -------------------------- */
 
   useEffect(() => {
@@ -188,13 +190,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     );
 
     if (isIssuedComplete && !initialIssuedComplete && !isPackedComplete) {
-      // openDialog("All issues completed.", "Upload the issue stage.");
       setTimeout(() => {
         closeDialog();
         navigation.goBack();
       }, 200);
     } else if (isPackedComplete && !initialPackedComplete) {
-      // openDialog("All packing completed.", "Upload the packing stage.");
       setTimeout(() => {
         closeDialog();
         navigation.goBack();
@@ -208,7 +208,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     navigation,
   ]);
 
-
   /* -------------------------- KEYBOARD ------------------------------- */
 
   useEffect(() => {
@@ -217,7 +216,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     });
     return () => sub.remove();
   }, []);
-
 
   /* --------------------------- SUMMARY ------------------------------- */
 
@@ -270,7 +268,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
       rows as unknown as StoredMaterialItem[]
     );
   };
-
 
   /* -------------------------- SCAN / INPUT --------------------------- */
 
@@ -339,7 +336,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
   const onSubmit = () => incrementForCode(code);
 
-
   /* -------------------------- SCANNER -------------------------------- */
 
   const openScanner = async () => {
@@ -376,7 +372,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
       setTimeout(() => inputRef.current?.focus(), 50);
     }, 250);
   };
-
 
   /* ----------------------- QUANTITY EDITORS -------------------------- */
 
@@ -457,7 +452,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
       return clone;
     });
   };
-
 
   /* ------------------------------ UI --------------------------------- */
 

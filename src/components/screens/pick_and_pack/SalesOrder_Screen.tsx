@@ -305,11 +305,11 @@ const SalesOrdersScreen: React.FC = () => {
 
         const currentPhase = phaseMap[so] ?? "issue";
         showModal({
-          title: "Upload Complete",
+          title: "data uploaded successfully.",
           message:
             currentPhase === "issue"
-              ? "Issue data uploaded successfully."
-              : "Packing data uploaded successfully.",
+              ? ""
+              : ".",
           type: "success",
         });
       } catch (e: any) {
@@ -339,11 +339,6 @@ const SalesOrdersScreen: React.FC = () => {
               [o.saleOrderNumber]: "issue",
             }));
             await refreshMaps(list);
-            showModal({
-              title: "Deleted",
-              message: `Local data for ${o.saleOrderNumber} removed.`,
-              type: "success",
-            });
           } catch (e: any) {
             showModal({
               title: "Delete Failed",

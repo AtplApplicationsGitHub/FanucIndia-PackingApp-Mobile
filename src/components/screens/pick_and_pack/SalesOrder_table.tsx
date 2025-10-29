@@ -316,7 +316,6 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
           <View style={styles.empty}>
             <Ionicons name="document-text-outline" size={48} color={C.gray} />
             <Text style={styles.emptyTitle}>No orders</Text>
-            <Text style={styles.emptySub}>Pull to refresh or try again later.</Text>
           </View>
         }
         contentContainerStyle={data.length === 0 ? { flex: 1 } : undefined}
