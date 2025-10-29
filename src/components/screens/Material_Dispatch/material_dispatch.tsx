@@ -1,5 +1,4 @@
-// material_dispatch.tsx
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Alert,
   Animated,
@@ -36,6 +35,7 @@ import {
   type ApiResult,
 } from "../../Api/material_dispatch_server";
 import { loadDispatchData, saveDispatchData, clearDispatchData } from "../../Storage/material_dispatch_storage";
+import { useFocusEffect } from "@react-navigation/native"; // <-- ADD THIS
 
 type DispatchForm = {
   customer: string;
@@ -131,6 +131,7 @@ const MaterialDispatchScreen: React.FC = () => {
     setSelectedFile(null);
     setFileName("No file chosen");
     setItems([]);
+    setValue(""); // Clear SO input
   };
 
   const handleAddNew = () => {
@@ -142,6 +143,8 @@ const MaterialDispatchScreen: React.FC = () => {
     handleClear();
     if (!expanded) toggleExpand();
     setShowNewFormModal(false);
+    // Focus on customer after reset
+    setTimeout(() => customerRef.current?.focus(), 100);
   };
 
   const toggleExpand = () => {
@@ -185,9 +188,10 @@ const MaterialDispatchScreen: React.FC = () => {
 
       if (result.ok) {
         const id = dispatchId || (result.data as any).id;
-        setDispatchId(id);
-        showToast(" saved successfully!", "success");
+        setDispatchId(id)
         if (expanded) toggleExpand();
+        // Focus SO input after save
+        setTimeout(() => soRef.current?.focus(), 400);
       } else {
         setErrorMessage(result.error || "Failed to save header.");
         setShowError(true);
@@ -249,13 +253,22 @@ const MaterialDispatchScreen: React.FC = () => {
     return raw.replace(/\s+/g, "").toUpperCase();
   }
 
+  const clearAndFocusSO = () => {
+    setValue("");
+    setTimeout(() => soRef.current?.focus(), 100);
+  };
+
   async function addSO(raw: string) {
     const so = normalizeSO(raw);
-    if (!so || !dispatchId) return;
+    if (!so || !dispatchId) {
+      clearAndFocusSO();
+      return;
+    }
 
     if (items.some((x) => x.soId === so)) {
       setErrorMessage(`SO ${so} already added.`);
       setShowError(true);
+      clearAndFocusSO();
       return;
     }
 
@@ -269,14 +282,23 @@ const MaterialDispatchScreen: React.FC = () => {
           ...prev,
           { soId: so, linkId: link.id, createdAt: new Date(link.createdAt).getTime() },
         ]);
-        setValue("");
+        clearAndFocusSO(); // Clear & refocus after success
       } else {
-        setErrorMessage(result.error || "Failed to link SO.");
+        const msg = result.error || "Failed to link SO.";
+        if (msg.toLowerCase().includes("not found")) {
+          setErrorMessage(`SO ${so} not found.`);
+        } else if (msg.toLowerCase().includes("already dispatched")) {
+          setErrorMessage(`SO ${so} already dispatched.`);
+        } else {
+          setErrorMessage(msg);
+        }
         setShowError(true);
+        clearAndFocusSO();
       }
     } catch {
-      setErrorMessage("Failed to link SO.");
+      setErrorMessage("Failed to link SO. Check connection.");
       setShowError(true);
+      clearAndFocusSO();
     }
   }
 
@@ -285,6 +307,7 @@ const MaterialDispatchScreen: React.FC = () => {
       const result = await deleteSalesOrderLink(linkId);
       if (result.ok) {
         setItems((prev) => prev.filter((x) => x.linkId !== linkId));
+        setTimeout(() => soRef.current?.focus(), 100);
       } else {
         setErrorMessage(result.error || "Failed to remove SO.");
         setShowError(true);
@@ -335,7 +358,10 @@ const MaterialDispatchScreen: React.FC = () => {
     if (scanLocked) return;
     setScanLocked(true);
     addSO(result.data ?? "");
-    setTimeout(closeScanner, 300);
+    setTimeout(() => {
+      closeScanner();
+      soRef.current?.focus();
+    }, 400);
   };
 
   const canSubmit = value.trim().length > 0;
@@ -362,11 +388,16 @@ const MaterialDispatchScreen: React.FC = () => {
     load();
   }, []);
 
-  // Auto-focus
-  useEffect(() => {
-    if (dispatchId) soRef.current?.focus();
-    else customerRef.current?.focus();
-  }, [dispatchId]);
+  // Focus on SO input when dispatchId exists
+  useFocusEffect(
+    useCallback(() => {
+      if (dispatchId) {
+        setTimeout(() => soRef.current?.focus(), 300);
+      } else {
+        setTimeout(() => customerRef.current?.focus(), 300);
+      }
+    }, [dispatchId])
+  );
 
   // Save to storage
   useEffect(() => {
@@ -637,7 +668,7 @@ const MaterialDispatchScreen: React.FC = () => {
 
 export default MaterialDispatchScreen;
 
-// Styles (updated with new buttons)
+// Styles (unchanged)
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   container: { flex: 1, paddingHorizontal: 14, paddingTop: 10, backgroundColor: C.bg },
