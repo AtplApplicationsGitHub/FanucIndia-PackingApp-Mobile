@@ -1,3 +1,4 @@
+// material_dispatch.tsx
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Alert,
@@ -14,9 +15,10 @@ import {
   Pressable,
   Modal,
   StatusBar,
+  ActivityIndicator,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
-import { Ionicons ,MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   CameraView,
   useCameraPermissions,
@@ -24,10 +26,12 @@ import {
 } from "expo-camera";
 import {
   createDispatchHeader,
+  updateDispatchHeader,
   linkSalesOrder,
   deleteSalesOrderLink,
   uploadAttachments,
   type CreateDispatchHeaderRequest,
+  type UpdateDispatchHeaderRequest,
   type LinkDispatchSORequest,
   type ApiResult,
 } from "../../Api/material_dispatch_server";
@@ -52,10 +56,11 @@ const C = {
   border: "#E5E7EB",
   text: "#111827",
   hint: "#9CA3AF",
-    accent: "#111827",
+  accent: "#111827",
   blue: "#2151F5",
   red: "#F87171",
   grayBtn: "#F3F4F6",
+  green: "#10B981",
 };
 
 const C_sales = {
@@ -86,10 +91,13 @@ const MaterialDispatchScreen: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [showNewFormModal, setShowNewFormModal] = useState(false);
 
+  // Loading states
+  const [savingHeader, setSavingHeader] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+
   const animatedHeight = useState(new Animated.Value(1))[0];
   const salesOpacity = useState(new Animated.Value(0))[0];
-
-  const formHeight = 350;
+  const formHeight = 380;
 
   const customerRef = useRef<TextInput>(null);
   const soRef = useRef<TextInput>(null);
@@ -101,6 +109,8 @@ const MaterialDispatchScreen: React.FC = () => {
     const { customer, address, transporter, vehicleNo } = form;
     return !!customer?.trim() && !!address?.trim() && !!transporter?.trim() && !!vehicleNo?.trim();
   }, [form]);
+
+  const hasFile = !!selectedFile;
 
   const handleChooseFile = async () => {
     const res = await DocumentPicker.getDocumentAsync({
@@ -130,9 +140,7 @@ const MaterialDispatchScreen: React.FC = () => {
   const confirmNewForm = async () => {
     await clearDispatchData();
     handleClear();
-    if (!expanded) {
-      toggleExpand();
-    }
+    if (!expanded) toggleExpand();
     setShowNewFormModal(false);
   };
 
@@ -155,53 +163,72 @@ const MaterialDispatchScreen: React.FC = () => {
     setExpanded(!expanded);
   };
 
-  const handleSave = async () => {
-    const { customer, transporter, address, vehicleNo } = form;
+  // SAVE / UPDATE HEADER
+  const handleSaveHeader = async () => {
+    if (!isFormValid || savingHeader) return;
 
-    const payload: CreateDispatchHeaderRequest = {
-      customerName: customer.trim(),
-      transporterName: transporter.trim(),
-      address: address.trim(),
-      vehicleNumber: vehicleNo.trim(),
+    setSavingHeader(true);
+    const payload: CreateDispatchHeaderRequest | UpdateDispatchHeaderRequest = {
+      customerName: form.customer.trim(),
+      transporterName: form.transporter.trim(),
+      address: form.address.trim(),
+      vehicleNumber: form.vehicleNo.trim(),
     };
 
     try {
-      const result: ApiResult = await createDispatchHeader(payload);
-      if (result.ok) {
-        const headerId = result.data.id;
-        if (!headerId) {
-          setErrorMessage("Invalid response from server.");
-          setShowError(true);
-          return;
-        }
-        setDispatchId(`${headerId}`);
-
-        let uploadSuccess = true;
-        if (selectedFile) {
-          const uploadResult: ApiResult = await uploadAttachments(`${headerId}`, [selectedFile]);
-          if (!uploadResult.ok) {
-            uploadSuccess = false;
-            console.warn("File upload failed:", uploadResult.error);
-          }
-        }
-
-        const message = `Dispatch created successfully!${!uploadSuccess ? '\n\nNote: File upload failed.' : ''}`;
-        setShowSuccess(true);
-        if (expanded) toggleExpand();
-        setTimeout(() => {
-          setShowSuccess(false);
-        }, 500);
-
-        if (uploadSuccess) {
-          setSelectedFile(null);
-          setFileName("No file chosen");
-        }
+      let result: ApiResult;
+      if (!dispatchId) {
+        result = await createDispatchHeader(payload as CreateDispatchHeaderRequest);
       } else {
-        setErrorMessage(result.error || "Failed to create dispatch header.");
+        result = await updateDispatchHeader(dispatchId, payload as UpdateDispatchHeaderRequest);
+      }
+
+      if (result.ok) {
+        const id = dispatchId || (result.data as any).id;
+        setDispatchId(id);
+        showToast(" saved successfully!", "success");
+        if (expanded) toggleExpand();
+      } else {
+        setErrorMessage(result.error || "Failed to save header.");
         setShowError(true);
       }
-    } catch (error) {
-      setErrorMessage("An unexpected error occurred. Please try again.");
+    } catch {
+      setErrorMessage("Network error. Please try again.");
+      setShowError(true);
+    } finally {
+      setSavingHeader(false);
+    }
+  };
+
+  // UPLOAD FILE
+  const handleUploadFile = async () => {
+    if (!dispatchId || !hasFile || uploadingFile) return;
+
+    setUploadingFile(true);
+    try {
+      const result = await uploadAttachments(dispatchId, [selectedFile!]);
+      if (result.ok) {
+        showToast("File uploaded successfully!", "success");
+        setSelectedFile(null);
+        setFileName("No file chosen");
+      } else {
+        setErrorMessage(result.error || "Upload failed.");
+        setShowError(true);
+      }
+    } catch {
+      setErrorMessage("Upload failed. Check your connection.");
+      setShowError(true);
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const showToast = (msg: string, type: "success" | "error" = "success") => {
+    setErrorMessage(msg);
+    if (type === "success") {
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 1500);
+    } else {
       setShowError(true);
     }
   };
@@ -224,71 +251,48 @@ const MaterialDispatchScreen: React.FC = () => {
 
   async function addSO(raw: string) {
     const so = normalizeSO(raw);
-    if (!so) return;
+    if (!so || !dispatchId) return;
 
-    if (!dispatchId) {
-      setErrorMessage("Please create a dispatch header first.");
-      setShowError(true);
-      return;
-    }
-
-    // Check for duplicate SO
     if (items.some((x) => x.soId === so)) {
-      setErrorMessage(`Sales Order ${so} is already linked to this dispatch.`);
+      setErrorMessage(`SO ${so} already added.`);
       setShowError(true);
-      setValue("");
       return;
     }
 
     const payload: LinkDispatchSORequest = { saleOrderNumber: so };
 
     try {
-      const result: ApiResult<DispatchSOLink> = await linkSalesOrder(dispatchId, payload);
+      const result = await linkSalesOrder(dispatchId, payload);
       if (result.ok) {
         const link = result.data;
         setItems((prev) => [
           ...prev,
-          {
-            soId: so,
-            linkId: link.id,
-            createdAt: new Date(link.createdAt).getTime(),
-          },
+          { soId: so, linkId: link.id, createdAt: new Date(link.createdAt).getTime() },
         ]);
+        setValue("");
       } else {
-        setErrorMessage(result.error || "Failed to link sales order.");
+        setErrorMessage(result.error || "Failed to link SO.");
         setShowError(true);
       }
-    } catch (error) {
-      setErrorMessage("An unexpected error occurred. Please try again.");
+    } catch {
+      setErrorMessage("Failed to link SO.");
       setShowError(true);
     }
-
-    setValue("");
   }
 
   async function removeSO(linkId: number) {
-    if (!dispatchId) {
-      setErrorMessage("Please create a dispatch header first.");
-      setShowError(true);
-      return;
-    }
-
     try {
-      const result: ApiResult = await deleteSalesOrderLink(linkId);
+      const result = await deleteSalesOrderLink(linkId);
       if (result.ok) {
         setItems((prev) => prev.filter((x) => x.linkId !== linkId));
       } else {
-        setErrorMessage(result.error || "Failed to remove sales order.");
+        setErrorMessage(result.error || "Failed to remove SO.");
         setShowError(true);
       }
-    } catch (error) {
-      setErrorMessage("An unexpected error occurred. Please try again.");
+    } catch {
+      setErrorMessage("Failed to remove SO.");
       setShowError(true);
     }
-  }
-
-  function clearAll() {
-    setItems([]);
   }
 
   function formatTime(ts: number) {
@@ -299,22 +303,21 @@ const MaterialDispatchScreen: React.FC = () => {
     return `${hh}:${mm} ${ampm}`;
   }
 
-  // Camera / Scanner state
+  // Scanner
   const [scanVisible, setScanVisible] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanLocked, setScanLocked] = useState(false);
 
   const openScanner = async () => {
     if (!dispatchId) {
-      setErrorMessage("Please create a dispatch header first.");
+      setErrorMessage("Create header first.");
       setShowError(true);
       return;
     }
-
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        setErrorMessage("Camera access is required to scan QR codes and barcodes.");
+        setErrorMessage("Camera permission required.");
         setShowError(true);
         return;
       }
@@ -331,18 +334,15 @@ const MaterialDispatchScreen: React.FC = () => {
   const onScanned = (result: BarcodeScanningResult) => {
     if (scanLocked) return;
     setScanLocked(true);
-    const data = result?.data ?? "";
-    addSO(data);
-    setTimeout(() => {
-      closeScanner();
-    }, 250);
+    addSO(result.data ?? "");
+    setTimeout(closeScanner, 300);
   };
 
   const canSubmit = value.trim().length > 0;
 
-  // Load from local storage on mount
+  // Load data
   useEffect(() => {
-    const loadData = async () => {
+    const load = async () => {
       const data = await loadDispatchData();
       if (data) {
         setForm(data.form);
@@ -350,12 +350,7 @@ const MaterialDispatchScreen: React.FC = () => {
         setItems(data.items || []);
         setFileName(data.fileName || "No file chosen");
         if (data.selectedFile) {
-          setSelectedFile({
-            name: data.selectedFile.name,
-            uri: data.selectedFile.uri,
-            mimeType: data.selectedFile.mimeType,
-            size: data.selectedFile.size,
-          } as DocumentPicker.DocumentPickerAsset);
+          setSelectedFile(data.selectedFile);
         }
         if (data.dispatchId) {
           setExpanded(false);
@@ -364,41 +359,30 @@ const MaterialDispatchScreen: React.FC = () => {
         }
       }
     };
-    loadData();
+    load();
   }, []);
 
-  // Focus logic
+  // Auto-focus
   useEffect(() => {
-    if (dispatchId) {
-      soRef.current?.focus();
-    } else {
-      customerRef.current?.focus();
-    }
+    if (dispatchId) soRef.current?.focus();
+    else customerRef.current?.focus();
   }, [dispatchId]);
 
-  // Save to local storage when state changes
+  // Save to storage
   useEffect(() => {
-    const dataToSave = {
+    saveDispatchData({
       form,
       dispatchId,
       items,
       fileName,
-      selectedFile: selectedFile
-        ? {
-            name: selectedFile.name,
-            uri: selectedFile.uri,
-            mimeType: selectedFile.mimeType,
-            size: selectedFile.size,
-          }
-        : null,
-    };
-    saveDispatchData(dataToSave);
+      selectedFile,
+    });
   }, [form, dispatchId, items, fileName, selectedFile]);
 
   return (
     <View style={styles.safe}>
       <View style={styles.container}>
-        {/* Header Row */}
+        {/* Header */}
         <View style={styles.headerRow}>
           {dispatchId && (
             <TouchableOpacity onPress={toggleExpand} style={styles.arrowBtn}>
@@ -409,25 +393,20 @@ const MaterialDispatchScreen: React.FC = () => {
               />
             </TouchableOpacity>
           )}
-
-          <View style={styles.headerActions}>          
+          <View style={styles.headerActions}>
             <TouchableOpacity onPress={handleAddNew} style={styles.addNewBtn}>
               <Text style={styles.addNewText}>Add New</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Animated Form Section */}
+        {/* Form */}
         <Animated.View
           style={{
             overflow: "hidden",
             height: formHeightInterpolate,
             opacity: animatedHeight,
-            transform: [
-              {
-                scaleY: scaleInterpolate,
-              },
-            ],
+            transform: [{ scaleY: scaleInterpolate }],
           }}
         >
           <View style={styles.card}>
@@ -439,7 +418,6 @@ const MaterialDispatchScreen: React.FC = () => {
               value={form.customer}
               onChangeText={(t) => onChange("customer", t)}
             />
-
             <TextInput
               style={[styles.input, styles.textArea]}
               placeholder="Address"
@@ -448,7 +426,6 @@ const MaterialDispatchScreen: React.FC = () => {
               value={form.address}
               onChangeText={(t) => onChange("address", t)}
             />
-
             <View style={styles.row2}>
               <TextInput
                 style={[styles.input, styles.half]}
@@ -476,20 +453,47 @@ const MaterialDispatchScreen: React.FC = () => {
               </Text>
             </View>
 
-            <TouchableOpacity 
-              onPress={handleSave} 
-              disabled={!isFormValid}
-              style={[
-                styles.saveBtn,
-                !isFormValid && { opacity: 0.5 }
-              ]}
-            >
-              <Text style={styles.saveText}>Save</Text>
-            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                onPress={handleSaveHeader}
+                disabled={!isFormValid || savingHeader}
+                style={[
+                  styles.actionBtn,
+                  styles.saveHeaderBtn,
+                  (!isFormValid || savingHeader) && styles.disabledBtn,
+                ]}
+              >
+                {savingHeader ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.actionBtnText}>
+                    {dispatchId ? "Update " : "Save"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              {dispatchId && hasFile && (
+                <TouchableOpacity
+                  onPress={handleUploadFile}
+                  disabled={uploadingFile}
+                  style={[
+                    styles.actionBtn,
+                    styles.uploadBtn,
+                    uploadingFile && styles.disabledBtn,
+                  ]}
+                >
+                  {uploadingFile ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.actionBtnText}>Upload File</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </Animated.View>
 
-        {/* Sales Orders Section */}
+        {/* SO Section */}
         <Animated.View style={{ opacity: salesOpacity, flex: 1 }}>
           <View style={styles_sales.inputRow}>
             <View style={styles_sales.inputWrap}>
@@ -497,32 +501,20 @@ const MaterialDispatchScreen: React.FC = () => {
                 ref={soRef}
                 value={value}
                 onChangeText={setValue}
-                placeholder= "Scan or enter SO"
+                placeholder="Scan or enter SO"
                 placeholderTextColor={C_sales.sub}
-                style={[styles_sales.input, { paddingRight: 44 }]} 
+                style={[styles_sales.input, { paddingRight: 44 }]}
                 returnKeyType="done"
-                blurOnSubmit
                 onSubmitEditing={() => addSO(value)}
                 autoCapitalize="characters"
                 autoCorrect={false}
-                keyboardType={Platform.select({ ios: "default", android: "visible-password" })}
               />
-
-              <Pressable
-                onPress={openScanner}
-                style={({ pressed }) => [
-                  styles_sales.scanBtn,
-                  pressed && { opacity: 0.85 },
-                ]}
-                hitSlop={10}
-              >
+              <Pressable onPress={openScanner} style={styles_sales.scanBtn}>
                 <MaterialCommunityIcons name="qrcode-scan" size={20} color={C.accent} />
               </Pressable>
             </View>
-
             <TouchableOpacity
               onPress={() => addSO(value)}
-              activeOpacity={0.9}
               disabled={!canSubmit || !dispatchId}
               style={[
                 styles_sales.submitBtnOuter,
@@ -541,31 +533,24 @@ const MaterialDispatchScreen: React.FC = () => {
 
           <View style={styles_sales.tableCard}>
             <View style={[styles_sales.row, styles_sales.headerRow]}>
-              <Text style={[styles_sales.th, { width: 40, textAlign: "left" }]}>S/No</Text>
+              <Text style={[styles_sales.th, { width: 40 }]}>S/No</Text>
               <Text style={[styles_sales.th, { flex: 1 }]}>SO Number</Text>
-              <Text style={[styles_sales.th, { width: 80 }]}>Timing</Text>
+              <Text style={[styles_sales.th, { width: 80 }]}>Time</Text>
               <Text style={[styles_sales.th, { width: 72, textAlign: "right" }]}>Action</Text>
             </View>
-
             <FlatList
               data={items}
               keyExtractor={(it) => it.linkId.toString()}
               contentContainerStyle={items.length === 0 && { paddingVertical: 24 }}
               ItemSeparatorComponent={() => <View style={styles_sales.divider} />}
-              ListEmptyComponent={<Text style={styles_sales.empty}> </Text>}
               renderItem={({ item, index }) => (
                 <View style={styles_sales.row}>
                   <Text style={[styles_sales.td, { width: 40 }]}>{index + 1}</Text>
-                  <Text style={[styles_sales.td, { flex: 1 }]} numberOfLines={1}>
-                    {item.soId}
-                  </Text>
-                  <Text style={[styles_sales.td, { width: 80 }]}>
-                    {formatTime(item.createdAt)}
-                  </Text>
+                  <Text style={[styles_sales.td, { flex: 1 }]}>{item.soId}</Text>
+                  <Text style={[styles_sales.td, { width: 80 }]}>{formatTime(item.createdAt)}</Text>
                   <View style={[styles_sales.td, { width: 72, alignItems: "flex-end" }]}>
                     <Pressable
                       onPress={() => removeSO(item.linkId)}
-                      hitSlop={8}
                       style={({ pressed }) => [
                         styles_sales.iconBtn,
                         pressed && { backgroundColor: C_sales.hover },
@@ -581,28 +566,21 @@ const MaterialDispatchScreen: React.FC = () => {
         </Animated.View>
       </View>
 
-      {/* New Form Confirmation Modal */}
-      <Modal
-        visible={showNewFormModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowNewFormModal(false)}
-      >
+      {/* Modals */}
+      <Modal visible={showNewFormModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.confirmationModal}>
             <Text style={styles.confirmationTitle}>Start New Form</Text>
-            <Text style={styles.confirmationMessage}>
-              Are you sure you want to start a new form? This action will clear all current data 
-            </Text>
+            <Text style={styles.confirmationMessage}>This will clear all current data.</Text>
             <View style={styles.confirmationButtons}>
-              <TouchableOpacity 
-                onPress={() => setShowNewFormModal(false)} 
+              <TouchableOpacity
+                onPress={() => setShowNewFormModal(false)}
                 style={[styles.confirmationButton, styles.cancelButton]}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                onPress={confirmNewForm} 
+              <TouchableOpacity
+                onPress={confirmNewForm}
                 style={[styles.confirmationButton, styles.confirmButton]}
               >
                 <Text style={styles.confirmButtonText}>Okay</Text>
@@ -612,54 +590,26 @@ const MaterialDispatchScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* Success Modal */}
-      <Modal
-        visible={showSuccess}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSuccess(false)}
-      >
+      <Modal visible={showSuccess} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.successModal}>
-            <Text style={styles.modalTitle}>Dispatch created successfully!</Text>
-            <TouchableOpacity
-              onPress={() => setShowSuccess(false)}
-              style={styles.modalButton}
-            >
-              <Text style={styles.modalButtonText}>OK</Text>
-            </TouchableOpacity>
+            <Text style={styles.modalTitle}>{errorMessage}</Text>
           </View>
         </View>
       </Modal>
 
-      {/* Error Modal */}
-      <Modal
-        visible={showError}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowError(false)}
-      >
+      <Modal visible={showError} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.errorModal}>
             <Text style={styles.modalTitle}>{errorMessage}</Text>
-            <TouchableOpacity
-              onPress={() => setShowError(false)}
-              style={styles.modalButton}
-            >
+            <TouchableOpacity onPress={() => setShowError(false)} style={styles.modalButton}>
               <Text style={styles.modalButtonText}>OK</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Full-screen Scanner */}
-      <Modal
-        visible={scanVisible}
-        onRequestClose={closeScanner}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        transparent={false}
-      >
+      <Modal visible={scanVisible} animationType="slide" presentationStyle="fullScreen">
         <StatusBar hidden />
         <View style={styles_scan.fullscreenCameraWrap}>
           <CameraView
@@ -677,7 +627,7 @@ const MaterialDispatchScreen: React.FC = () => {
             </Pressable>
           </View>
           <View style={styles_scan.fullscreenBottomBar}>
-            <Text style={styles_scan.fullscreenHint}>Align the code within the frame</Text>
+            <Text style={styles_scan.fullscreenHint}>Align code in frame</Text>
           </View>
         </View>
       </Modal>
@@ -687,442 +637,72 @@ const MaterialDispatchScreen: React.FC = () => {
 
 export default MaterialDispatchScreen;
 
+// Styles (updated with new buttons)
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  container: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingTop: Platform.select({ ios: 8, android: 10 }),
-    backgroundColor: C.bg,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-    justifyContent: "space-between",
-  },
-  arrowBtn: {
-    padding: 6,
-  },
-  headerActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  clearBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: C.red,
-    borderRadius: 8,
-    backgroundColor: "#FFFFFF",
-  },
-  clearText: {
-    color: C.red,
-    fontWeight: "600",
-  },
-  addNewBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: C.grayBtn,
-  },
-  addNewText: {
-    color: C.text,
-    fontWeight: "600",
-  },
-  card: {
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 10,
-    padding: 10,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: C.text,
-    marginBottom: 10,
-    backgroundColor: "#FFFFFF",
-  },
-  textArea: {
-    minHeight: 90,
-    textAlignVertical: "top",
-  },
-  row2: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 10,
-  },
-  half: {
-    flex: 1,
-    marginBottom: 0,
-  },
-  fileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 10,
-    marginBottom: 10,
-  },
-  fileBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: C.grayBtn,
-  },
-  fileBtnText: {
-    color: C.text,
-    fontWeight: "600",
-  },
-  fileName: {
-    flex: 1,
-    color: C.text,
-  },
-  saveBtn: {
-    backgroundColor: C.blue,
-    borderRadius: 10,
-    alignItems: "center",
-    paddingVertical: 14,
-  },
-  saveText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  banner: {
-    backgroundColor: "#C4B5FD",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginHorizontal: 14,
-    marginVertical: 8,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  bannerText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "500",
-    textAlign: "center",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  successModal: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 24,
-    alignItems: "center",
-    width: "80%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  errorModal: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 24,
-    alignItems: "center",
-    width: "80%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: C.text,
-    textAlign: "center",
-    marginTop: 12,
-    marginBottom: 20,
-  },
-  modalButton: {
-    backgroundColor: C.blue,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  modalButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-  },
-  confirmationModal: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 24,
-    width: "100%",
-    maxWidth: 340,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 5,
-    alignItems: "center",
-  },
-  confirmationIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#EFF4FF",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  confirmationTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#111827",
-    textAlign: "center",
-    marginBottom: 12,
-  },
-  confirmationMessage: {
-    fontSize: 15,
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  confirmationButtons: {
-    flexDirection: "row",
-    gap: 12,
-    width: "100%",
-  },
-  confirmationButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelButton: {
-    backgroundColor: "#F3F4F6",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  confirmButton: {
-    backgroundColor: "#2151F5",
-  },
-  cancelButtonText: {
-    color: "#374151",
-    fontWeight: "600",
-    fontSize: 15,
-  },
-  confirmButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 15,
-  },
+  container: { flex: 1, paddingHorizontal: 14, paddingTop: 10, backgroundColor: C.bg },
+  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, justifyContent: "space-between" },
+  arrowBtn: { padding: 6 },
+  headerActions: { flexDirection: "row", gap: 10 },
+  addNewBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: C.grayBtn },
+  addNewText: { color: C.text, fontWeight: "600" },
+  card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10 },
+  input: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: C.text, marginBottom: 10, backgroundColor: "#FFFFFF" },
+  textArea: { minHeight: 90, textAlignVertical: "top" },
+  row2: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  half: { flex: 1, marginBottom: 0 },
+  fileRow: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, gap: 10, marginBottom: 12 },
+  fileBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: C.grayBtn },
+  fileBtnText: { color: C.text, fontWeight: "600" },
+  fileName: { flex: 1, color: C.text },
+  buttonRow: { flexDirection: "row", gap: 10 },
+  actionBtn: { flex: 1, borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
+  saveHeaderBtn: { backgroundColor: C.blue },
+  uploadBtn: { backgroundColor: C.green },
+  disabledBtn: { opacity: 0.6 },
+  actionBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
+  successModal: { backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, alignItems: "center", width: "80%" },
+  errorModal: { backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, alignItems: "center", width: "80%" },
+  modalTitle: { fontSize: 16, fontWeight: "600", color: C.text, textAlign: "center", marginBottom: 20 },
+  modalButton: { backgroundColor: C.blue, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  modalButtonText: { color: "#FFFFFF", fontWeight: "600" },
+  confirmationModal: { backgroundColor: "#FFFFFF", borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, alignItems: "center" },
+  confirmationTitle: { fontSize: 20, fontWeight: "700", color: "#111827", marginBottom: 12 },
+  confirmationMessage: { fontSize: 15, color: "#6B7280", textAlign: "center", lineHeight: 20, marginBottom: 24 },
+  confirmationButtons: { flexDirection: "row", gap: 12, width: "100%" },
+  confirmationButton: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center" },
+  cancelButton: { backgroundColor: "#F3F4F6", borderWidth: 1, borderColor: "#E5E7EB" },
+  confirmButton: { backgroundColor: "#2151F5" },
+  cancelButtonText: { color: "#374151", fontWeight: "600", fontSize: 15 },
+  confirmButtonText: { color: "#FFFFFF", fontWeight: "600", fontSize: 15 },
 });
 
 const styles_sales = StyleSheet.create({
-  title: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: C_sales.text,
-    marginBottom: 10,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  inputWrap: {
-    position: "relative",
-    flex: 1,
-  },
-  input: {
-    backgroundColor: C_sales.card,
-    borderColor: C_sales.border,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: Platform.select({ ios: 12, android: 10 }),
-    fontSize: 15,
-    color: C_sales.text,
-  },
-  scanBtn: {
-    position: "absolute",
-    right: 6,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    width: 36,
-  },
-  submitBtnOuter: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: C_sales.pill,
-    borderWidth: 1,
-    borderColor: C_sales.border,
-  },
+  inputRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  inputWrap: { position: "relative", flex: 1 },
+  input: { backgroundColor: C_sales.card, borderColor: C_sales.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C_sales.text },
+  scanBtn: { position: "absolute", right: 6, top: 0, bottom: 0, justifyContent: "center", width: 36 },
+  submitBtnOuter: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: C_sales.pill, borderWidth: 1, borderColor: C_sales.border },
   submitTextOuter: { color: C_sales.blue, fontWeight: "700", fontSize: 14 },
-  totalPill: {
-    alignSelf: "stretch",
-    marginTop: 10,
-    backgroundColor: C_sales.pill,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: C_sales.border,
-  },
+  totalPill: { marginTop: 10, backgroundColor: C_sales.pill, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: C_sales.border },
   totalText: { color: C_sales.sub, fontSize: 13 },
   totalNum: { fontWeight: "700", color: C_sales.text },
-  clearBtn: {
-    marginTop: 10,
-    backgroundColor: C_sales.card,
-    borderColor: C_sales.border,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  clearText: { color: C_sales.text, fontWeight: "600" },
-  tableCard: {
-    marginTop: 12,
-    backgroundColor: C_sales.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C_sales.border,
-    overflow: "hidden",
-    flex: 1,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  headerRow: {
-    backgroundColor: "#F8FAFC",
-    borderBottomWidth: 1,
-    borderBottomColor: C_sales.border,
-  },
-  th: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: C_sales.text,
-  },
-  td: {
-    fontSize: 14,
-    color: C_sales.text,
-  },
+  tableCard: { marginTop: 12, backgroundColor: C_sales.card, borderRadius: 12, borderWidth: 1, borderColor: C_sales.border, overflow: "hidden", flex: 1 },
+  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 12 },
+  headerRow: { backgroundColor: "#F8FAFC", borderBottomWidth: 1, borderBottomColor: C_sales.border },
+  th: { fontSize: 13, fontWeight: "700", color: C_sales.text },
+  td: { fontSize: 14, color: C_sales.text },
   divider: { height: 1, backgroundColor: C_sales.border },
-  iconBtn: {
-    height: 30,
-    width: 30,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  empty: {
-    textAlign: "center",
-    color: C_sales.sub,
-    fontSize: 13,
-  },
+  iconBtn: { height: 30, width: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
 });
 
 const styles_scan = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
-  camera: { flex: 1 },
-  topBar: {
-    position: "absolute",
-    top: Platform.select({ ios: 50, android: 20 }),
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "rgba(255,255,255,0.9)",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  title: { color: "#111827", fontWeight: "700", fontSize: 14 },
-  roundBtn: {
-    height: 36,
-    width: 36,
-    borderRadius: 18,
-    backgroundColor: "#FFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  overlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  frame: {
-    width: "70%",
-    aspectRatio: 1,
-    borderWidth: 3,
-    borderColor: "#FFFFFF",
-    borderRadius: 16,
-    opacity: 0.9,
-  },
-  hint: {
-    marginTop: 16,
-    color: "#FFFFFF",
-    fontSize: 14,
-  },
   fullscreenCameraWrap: { flex: 1, backgroundColor: "#000" },
   fullscreenCamera: { flex: 1 },
-  fullscreenTopBar: {
-    position: "absolute",
-    top: Platform.select({ ios: 44, android: 16 }),
-    left: 16,
-    right: 16,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-  },
+  fullscreenTopBar: { position: "absolute", top: 44, left: 16, right: 16, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.55)", flexDirection: "row", alignItems: "center", paddingHorizontal: 12 },
   fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 14, flex: 1 },
-  fullscreenCloseBtn: {
-    height: 28,
-    width: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.25)",
-  },
-  fullscreenBottomBar: {
-    position: "absolute",
-    bottom: 24,
-    left: 16,
-    right: 16,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingVertical: 10,
-    alignItems: "center",
-  },
+  fullscreenCloseBtn: { height: 28, width: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center" },
+  fullscreenBottomBar: { position: "absolute", bottom: 24, left: 16, right: 16, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.55)", paddingVertical: 10, alignItems: "center" },
   fullscreenHint: { color: "#fff", fontSize: 12 },
 });

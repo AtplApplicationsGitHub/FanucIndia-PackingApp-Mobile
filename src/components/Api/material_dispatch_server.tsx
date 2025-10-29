@@ -1,3 +1,4 @@
+// material_dispatch_server.tsx
 import * as SecureStore from "expo-secure-store";
 
 let AsyncStorage: any = null;
@@ -10,12 +11,22 @@ const DISPATCH_HEADER_URL = `${BASE_URL}/dispatch/mobile/header`;
 const DISPATCH_SO_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
 const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/attachments`;
 const DISPATCH_SO_DELETE_URL = (soId: number) => `${BASE_URL}/dispatch/so/${soId}`;
+const DISPATCH_UPDATE_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}`;
 
 export type CreateDispatchHeaderRequest = {
   customerName: string;
   transporterName: string;
   address: string;
   vehicleNumber: string;
+};
+
+export type UpdateDispatchHeaderRequest = {
+  customerId?: string;
+  customerName?: string;
+  address?: string;
+  transporterId?: string;
+  transporterName?: string;
+  vehicleNumber?: string;
 };
 
 export type LinkDispatchSORequest = {
@@ -129,22 +140,17 @@ function maybeExtractToken(val: string | null): string | null {
   return val;
 }
 
+// CREATE HEADER
 export async function createDispatchHeader(
   payload: CreateDispatchHeaderRequest,
   opts?: { token?: string }
-): Promise<ApiResult> {
+): Promise<ApiResult<{ id: string }>> {
   const token = opts?.token ?? (await getToken());
   if (!token) {
-    return {
-      ok: false,
-      status: 0,
-      error:
-        "Missing access token. Please login again or setAccessToken(...) after login.",
-    };
+    return { ok: false, status: 0, error: "Missing access token." };
   }
 
-  const { customerName, transporterName, address, vehicleNumber } = payload;
-  if (!customerName?.trim() || !transporterName?.trim() || !address?.trim() || !vehicleNumber?.trim()) {
+  if (!payload.customerName?.trim() || !payload.transporterName?.trim() || !payload.address?.trim() || !payload.vehicleNumber?.trim()) {
     return { ok: false, status: 0, error: "All fields are required." };
   }
 
@@ -166,51 +172,41 @@ export async function createDispatchHeader(
       return { ok: false, status: res.status, error: err };
     }
 
-    const data = await res.json().catch(() => ({}));
-    return { ok: true, status: res.status, data };
+    const data = await res.json();
+    return { ok: true, status: res.status, data: { id: data.id } };
   } catch (e: any) {
-    const msg =
-      e?.message === "Request timed out"
-        ? "Network timeout — please check connectivity and try again."
-        : e?.message ?? "Network error";
-    return { ok: false, status: 0, error: msg };
+    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
   }
 }
 
-export async function linkSalesOrder(
+// UPDATE HEADER
+export async function updateDispatchHeader(
   dispatchId: string,
-  payload: LinkDispatchSORequest,
+  payload: UpdateDispatchHeaderRequest,
   opts?: { token?: string }
-): Promise<ApiResult<DispatchSOLink>> {
+): Promise<ApiResult> {
   const token = opts?.token ?? (await getToken());
   if (!token) {
-    return {
-      ok: false,
-      status: 0,
-      error:
-        "Missing access token. Please login again or setAccessToken(...) after login.",
-    };
+    return { ok: false, status: 0, error: "Missing access token." };
   }
 
-  const { saleOrderNumber } = payload;
-  const normalizedSO = saleOrderNumber.replace(/\s+/g, "").toUpperCase();
-  if (!normalizedSO) {
-    return { ok: false, status: 0, error: "Sale order number is required." };
+  const hasCustomer = payload.customerName;
+  const hasTransporter = payload.transporterName;
+  if (!hasCustomer || !hasTransporter) {
+    return { ok: false, status: 0, error: "Customer and transporter names are required." };
   }
-
-  const normalizedPayload: LinkDispatchSORequest = { saleOrderNumber: normalizedSO };
 
   try {
-    const url = DISPATCH_SO_URL(dispatchId);
+    const url = DISPATCH_UPDATE_URL(dispatchId);
     const res = await withTimeout(
       fetch(url, {
-        method: "POST",
+        method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify(normalizedPayload),
+        body: JSON.stringify(payload),
       })
     );
 
@@ -222,27 +218,55 @@ export async function linkSalesOrder(
     const data = await res.json().catch(() => ({}));
     return { ok: true, status: res.status, data };
   } catch (e: any) {
-    const msg =
-      e?.message === "Request timed out"
-        ? "Network timeout — please check connectivity and try again."
-        : e?.message ?? "Network error";
-    return { ok: false, status: 0, error: msg };
+    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
   }
 }
 
+// LINK SO
+export async function linkSalesOrder(
+  dispatchId: string,
+  payload: LinkDispatchSORequest,
+  opts?: { token?: string }
+): Promise<ApiResult<DispatchSOLink>> {
+  const token = opts?.token ?? (await getToken());
+  if (!token) return { ok: false, status: 0, error: "Missing access token." };
+
+  const normalizedSO = payload.saleOrderNumber.replace(/\s+/g, "").toUpperCase();
+  if (!normalizedSO) return { ok: false, status: 0, error: "SO number required." };
+
+  try {
+    const url = DISPATCH_SO_URL(dispatchId);
+    const res = await withTimeout(
+      fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ saleOrderNumber: normalizedSO }),
+      })
+    );
+
+    if (!res.ok) {
+      const err = await parseErrorBody(res);
+      return { ok: false, status: res.status, error: err };
+    }
+
+    const data = await res.json();
+    return { ok: true, status: res.status, data };
+  } catch (e: any) {
+    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+  }
+}
+
+// DELETE SO LINK
 export async function deleteSalesOrderLink(
   soLinkId: number,
   opts?: { token?: string }
 ): Promise<ApiResult> {
   const token = opts?.token ?? (await getToken());
-  if (!token) {
-    return {
-      ok: false,
-      status: 0,
-      error:
-        "Missing access token. Please login again or setAccessToken(...) after login.",
-    };
-  }
+  if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
   try {
     const url = DISPATCH_SO_DELETE_URL(soLinkId);
@@ -261,53 +285,39 @@ export async function deleteSalesOrderLink(
       return { ok: false, status: res.status, error: err };
     }
 
-    const data = await res.json().catch(() => ({ message: "SO Number removed" }));
-    return { ok: true, status: res.status, data };
+    return { ok: true, status: res.status, data: { message: "Removed" } };
   } catch (e: any) {
-    const msg =
-      e?.message === "Request timed out"
-        ? "Network timeout — please check connectivity and try again."
-        : e?.message ?? "Network error";
-    return { ok: false, status: 0, error: msg };
+    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
   }
 }
 
+// UPLOAD ATTACHMENTS
 export async function uploadAttachments(
   dispatchId: string,
   files: any[],
   opts?: { token?: string }
 ): Promise<ApiResult> {
   const token = opts?.token ?? (await getToken());
-  if (!token) {
-    return {
-      ok: false,
-      status: 0,
-      error:
-        "Missing access token. Please login again or setAccessToken(...) after login.",
-    };
-  }
+  if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
-  if (!files || files.length === 0) {
-    return { ok: false, status: 0, error: "No files provided." };
-  }
+  if (!files?.length) return { ok: false, status: 0, error: "No files selected." };
+
+  const formData = new FormData();
+  files.forEach((file, i) => {
+    formData.append("attachments", {
+      uri: file.uri,
+      name: file.name || `file_${i}`,
+      type: file.mimeType || "application/octet-stream",
+    } as any);
+  });
 
   try {
     const url = DISPATCH_ATTACHMENTS_URL(dispatchId);
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append("attachments", {
-        uri: file.uri,
-        name: file.name,
-        type: file.mimeType,
-      } as any, file.name);
-    });
-
     const res = await withTimeout(
       fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          // Do not set Content-Type, let the browser set it with boundary
           Accept: "application/json",
         },
         body: formData,
@@ -322,10 +332,6 @@ export async function uploadAttachments(
     const data = await res.json().catch(() => ({}));
     return { ok: true, status: res.status, data };
   } catch (e: any) {
-    const msg =
-      e?.message === "Request timed out"
-        ? "Network timeout — please check connectivity and try again."
-        : e?.message ?? "Network error";
-    return { ok: false, status: 0, error: msg };
+    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
   }
 }

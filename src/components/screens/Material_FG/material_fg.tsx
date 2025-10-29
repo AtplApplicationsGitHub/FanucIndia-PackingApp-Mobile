@@ -194,6 +194,7 @@ const MaterialFGTransferScreen: React.FC = () => {
         "SO Number Not Found",
         error.message,
         () => {
+          setMessageDlg({ show: false, title: "" });
           soRef.current?.focus();
         }
       );
@@ -283,6 +284,7 @@ const MaterialFGTransferScreen: React.FC = () => {
           "SO Number Not Found",
           error.message,
           () => {
+            setMessageDlg({ show: false, title: "" });
             soRef.current?.focus();
           }
         );
@@ -430,12 +432,21 @@ const MaterialFGTransferScreen: React.FC = () => {
       {/* Message Dialog */}
       <Dialog
         visible={messageDlg.show}
-        icon={<Ionicons name={messageDlg.title === "Success" ? "checkmark-circle-outline" : "information-circle-outline"} size={22} color={messageDlg.title === "Success" ? COLORS.primary : COLORS.accent} />}
+        icon={
+          <Ionicons
+            name={messageDlg.title === "Success" ? "checkmark-circle-outline" : "information-circle-outline"}
+            size={22}
+            color={messageDlg.title === "Success" ? COLORS.primary : COLORS.accent}
+          />
+        }
         title={messageDlg.title}
         message={messageDlg.subtitle}
         okText="OK"
         oneButton={true}
-        onOk={() => setMessageDlg({ show: false, title: "" })}
+        onOk={() => {
+          messageDlg.onOk?.();
+          setMessageDlg({ show: false, title: "" });
+        }}
         onCancel={() => setMessageDlg({ show: false, title: "" })}
       />
 
