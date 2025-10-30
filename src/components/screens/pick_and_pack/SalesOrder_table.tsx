@@ -1,3 +1,4 @@
+// SalesOrder_table.tsx
 import React from "react";
 import {
   View,
@@ -47,11 +48,11 @@ const C = {
 const getColumnFlex = (screenWidth: number) => {
   if (screenWidth < 350) {
     return {
-      so: 1.5,          // more for SO
+      so: 1.5,
       status: 1.6,
-      gap: 0.3,         // gap column
+      gap: 0.3,
       priority: 0.8,
-      action: 1.5,      // more for Action
+      action: 1.5,
     };
   } else if (screenWidth < 400) {
     return {
@@ -380,5 +381,4 @@ const styles = StyleSheet.create({
 
   empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 60 },
   emptyTitle: { fontSize: 16, fontWeight: "700", color: C.headerText, marginTop: 12 },
-  emptySub: { marginTop: 4, color: C.subText, fontSize: 14, textAlign: "center" },
 });

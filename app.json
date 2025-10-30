@@ -33,8 +33,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "f788b98b-2960-4044-beaa-f0c9f97e1f57"
+        "projectId": "186a6f0f-535b-44b6-95cf-a8fbc205c422"
       }
-    }
+    },
+    "owner": "kishore_dev7"
   }
 }

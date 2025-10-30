@@ -286,8 +286,8 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
     if (idx === -1) {
       openDialog(
-        "Not found",
-        `Material code "${codeTrim}" is not in this order.`,
+        "Invalid material code",
+        ``,
         "danger"
       );
       setCode("");
@@ -304,7 +304,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         if (curPacked >= req) {
           openDialog(
             "Already complete",
-            "This material is already fully packed.",
+            "The material is already packed",
             "danger"
           );
           setCode("");
@@ -317,7 +317,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         if (curIssued >= req) {
           openDialog(
             "Already complete",
-            "This material is already fully issued.",
+            "The material is already packed issued.",
             "danger"
           );
           setCode("");

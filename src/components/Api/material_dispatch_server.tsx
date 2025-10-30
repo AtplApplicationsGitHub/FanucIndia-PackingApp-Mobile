@@ -9,7 +9,7 @@ try {
 export const BASE_URL = "https://fanuc.goval.app:444/api";
 const DISPATCH_HEADER_URL = `${BASE_URL}/dispatch/mobile/header`;
 const DISPATCH_SO_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
-const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/attachments`;
+const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/${dispatchId}/attachments`; // Updated
 const DISPATCH_SO_DELETE_URL = (soId: number) => `${BASE_URL}/dispatch/so/${soId}`;
 const DISPATCH_UPDATE_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}`;
 
@@ -38,6 +38,14 @@ export type DispatchSOLink = {
   dispatchId: number;
   saleOrderNumber: string;
   createdAt: string;
+};
+
+// New: Attachment type from API
+export type DispatchAttachment = {
+  fileName: string;
+  path: string;
+  mimeType: string;
+  size: number;
 };
 
 export type ApiOk<T = any> = {
@@ -146,9 +154,7 @@ export async function createDispatchHeader(
   opts?: { token?: string }
 ): Promise<ApiResult<{ id: string }>> {
   const token = opts?.token ?? (await getToken());
-  if (!token) {
-    return { ok: false, status: 0, error: "Missing access token." };
-  }
+  if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
   if (!payload.customerName?.trim() || !payload.transporterName?.trim() || !payload.address?.trim() || !payload.vehicleNumber?.trim()) {
     return { ok: false, status: 0, error: "All fields are required." };
@@ -186,9 +192,7 @@ export async function updateDispatchHeader(
   opts?: { token?: string }
 ): Promise<ApiResult> {
   const token = opts?.token ?? (await getToken());
-  if (!token) {
-    return { ok: false, status: 0, error: "Missing access token." };
-  }
+  if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
   const hasCustomer = payload.customerName;
   const hasTransporter = payload.transporterName;
@@ -291,10 +295,10 @@ export async function deleteSalesOrderLink(
   }
 }
 
-// UPLOAD ATTACHMENTS
+// UPLOAD MULTIPLE ATTACHMENTS
 export async function uploadAttachments(
   dispatchId: string,
-  files: any[],
+  files: DocumentPicker.DocumentPickerAsset[],
   opts?: { token?: string }
 ): Promise<ApiResult> {
   const token = opts?.token ?? (await getToken());
@@ -330,6 +334,38 @@ export async function uploadAttachments(
     }
 
     const data = await res.json().catch(() => ({}));
+    return { ok: true, status: res.status, data };
+  } catch (e: any) {
+    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+  }
+}
+
+// GET ATTACHMENTS (NEW)
+export async function getAttachments(
+  dispatchId: string,
+  opts?: { token?: string }
+): Promise<ApiResult<DispatchAttachment[]>> {
+  const token = opts?.token ?? (await getToken());
+  if (!token) return { ok: false, status: 0, error: "Missing access token." };
+
+  try {
+    const url = DISPATCH_ATTACHMENTS_URL(dispatchId);
+    const res = await withTimeout(
+      fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      })
+    );
+
+    if (!res.ok) {
+      const err = await parseErrorBody(res);
+      return { ok: false, status: res.status, error: err };
+    }
+
+    const data: DispatchAttachment[] = await res.json();
     return { ok: true, status: res.status, data };
   } catch (e: any) {
     return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };

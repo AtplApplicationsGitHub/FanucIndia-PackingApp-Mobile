@@ -13,9 +13,12 @@ import {
   StyleSheet,
   Modal,
   TouchableOpacity,
+  AppState,
+  AppStateStatus,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import SalesOrdersStyledTable from "./SalesOrder_table";
 import {
   fetchOrdersSummary,
@@ -41,6 +44,9 @@ export type RootStackParamList = {
 };
 
 type Phase = "issue" | "packing";
+
+/** Key used to persist the currently uploading SO */
+const UPLOADING_SO_KEY = "UPLOADING_SO";
 
 const SalesOrdersScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -97,18 +103,29 @@ const SalesOrdersScreen: React.FC = () => {
     items: StoredMaterialItem[] | undefined
   ) => {
     if (!items || items.length === 0) return false;
-    return items.every(
-      (it) => (it.issuedQty ?? 0) >= (it.requiredQty ?? 0)
-    );
+    return items.every((it) => (it.issuedQty ?? 0) >= (it.requiredQty ?? 0));
   };
 
   const computePackCompletion = (
     items: StoredMaterialItem[] | undefined
   ) => {
     if (!items || items.length === 0) return false;
-    return items.every(
-      (it) => (it.packedQty ?? 0) >= (it.requiredQty ?? 0)
-    );
+    return items.every((it) => (it.packedQty ?? 0) >= (it.requiredQty ?? 0));
+  };
+
+  /* ------------------- PERSIST UPLOADING STATE ------------------- */
+  const setUploadingPersisted = async (so: string | null) => {
+    setUploading(so);
+    if (so === null) {
+      await AsyncStorage.removeItem(UPLOADING_SO_KEY);
+    } else {
+      await AsyncStorage.setItem(UPLOADING_SO_KEY, so);
+    }
+  };
+
+  const restoreUploading = async () => {
+    const saved = await AsyncStorage.getItem(UPLOADING_SO_KEY);
+    if (saved) setUploading(saved);
   };
 
   /* ------------------- MAP REFRESH (stable) ------------------- */
@@ -144,7 +161,7 @@ const SalesOrdersScreen: React.FC = () => {
       setIssueCompletedMap(iMap);
       setPackCompletedMap(pMap);
     },
-    [] // <-- never changes
+    []
   );
 
   /* ------------------- INITIAL LOAD ------------------- */
@@ -174,6 +191,7 @@ const SalesOrdersScreen: React.FC = () => {
       setPhaseMap(newPhaseMap);
 
       await refreshMaps(orders);
+      await restoreUploading(); // restore any in-progress upload
     } catch (e: any) {
       showModal({
         title: "Error",
@@ -190,13 +208,26 @@ const SalesOrdersScreen: React.FC = () => {
     load();
   }, [load]);
 
+  /* ------------------- APP STATE (foreground / background) ------------------- */
+  useEffect(() => {
+    const sub = AppState.addEventListener(
+      "change",
+      (nextState: AppStateStatus) => {
+        if (nextState === "active") {
+          // user came back – make sure UI reflects current upload state
+          restoreUploading();
+        }
+      }
+    );
+    return () => sub?.remove();
+  }, []);
+
   /* ------------------- FOCUS REFRESH (only when user comes back) ------------------- */
   useFocusEffect(
     useCallback(() => {
-      // When the screen gains focus again we **re-run** the map refresh
-      // (local data may have changed in OrderDetails)
       if (list.length > 0) {
         refreshMaps(list);
+        restoreUploading();
       }
     }, [list, refreshMaps])
   );
@@ -208,6 +239,7 @@ const SalesOrdersScreen: React.FC = () => {
       const orders = await fetchOrdersSummary();
       setList(orders);
       await refreshMaps(orders);
+      await restoreUploading();
     } catch (e: any) {
       showModal({
         title: "Error",
@@ -274,8 +306,9 @@ const SalesOrdersScreen: React.FC = () => {
   const handleUpload = useCallback(
     async (o: OrdersSummaryItem) => {
       const so = o.saleOrderNumber;
-      if (uploading) return;
-      setUploading(so);
+      if (uploading) return; // already uploading something
+
+      await setUploadingPersisted(so);
       try {
         const stored = await getOrderDetails(so);
         if (!stored?.orderDetails?.length) {
@@ -303,13 +336,9 @@ const SalesOrdersScreen: React.FC = () => {
         );
         await refreshMaps(remaining);
 
-        const currentPhase = phaseMap[so] ?? "issue";
         showModal({
-          title: "data uploaded successfully.",
-          message:
-            currentPhase === "issue"
-              ? ""
-              : ".",
+          title: "Data uploaded successfully.",
+          message: "",
           type: "success",
         });
       } catch (e: any) {
@@ -319,7 +348,7 @@ const SalesOrdersScreen: React.FC = () => {
           type: "info",
         });
       } finally {
-        setUploading(null);
+        await setUploadingPersisted(null);
       }
     },
     [list, phaseMap, refreshMaps, uploading]
