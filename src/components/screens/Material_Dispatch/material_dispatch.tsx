@@ -173,10 +173,41 @@ const MaterialDispatchScreen: React.FC = () => {
         const id = (result.data as any).id;
         setDispatchId(id);
         if (expanded) toggleExpand();
-        setTimeout(() => soRef.current?.focus(), 400);
         showToast("Dispatch saved successfully!", "success");
+        // Move focus to SO input after successful save with proper delay
+        setTimeout(() => {
+          soRef.current?.focus();
+        }, 500);
       } else {
         setErrorMessage(result.error || "Failed to save.");
+        setShowError(true);
+      }
+    } catch {
+      setErrorMessage("Network error. Please try again.");
+      setShowError(true);
+    } finally {
+      setSavingHeader(false);
+    }
+  };
+
+  // UPDATE HEADER
+  const handleUpdateHeader = async () => {
+    if (!isFormValid || savingHeader || !dispatchId) return;
+
+    setSavingHeader(true);
+    const payload: UpdateDispatchHeaderRequest = {
+      customerName: form.customer.trim(),
+      transporterName: form.transporter.trim(),
+      address: form.address.trim(),
+      vehicleNumber: form.vehicleNo.trim(),
+    };
+
+    try {
+      const result = await updateDispatchHeader(dispatchId, payload);
+      if (result.ok) {
+        showToast("Dispatch updated successfully!", "success");
+      } else {
+        setErrorMessage(result.error || "Failed to update.");
         setShowError(true);
       }
     } catch {
@@ -227,6 +258,10 @@ const MaterialDispatchScreen: React.FC = () => {
         setSelectedFiles([]);
         setShowFileModal(false);
         await loadAttachments();
+        // Move focus back to SO input after successful upload with proper delay
+        setTimeout(() => {
+          soRef.current?.focus();
+        }, 500);
       } else {
         setErrorMessage(result.error || "Upload failed.");
         setShowError(true);
@@ -284,7 +319,9 @@ const MaterialDispatchScreen: React.FC = () => {
 
   const clearAndFocusSO = () => {
     setValue("");
-    setTimeout(() => soRef.current?.focus(), 100);
+    setTimeout(() => {
+      soRef.current?.focus();
+    }, 100);
   };
 
   async function addSO(raw: string) {
@@ -312,7 +349,7 @@ const MaterialDispatchScreen: React.FC = () => {
           { soId: so, linkId: link.id, createdAt: new Date(link.createdAt).getTime() },
         ]);
         clearAndFocusSO();
-        showToast(`SO ${so} added successfully!`, "success");
+        // Removed success toast as requested
       } else {
         setErrorMessage(result.error || "Failed to link SO.");
         setShowError(true);
@@ -330,7 +367,7 @@ const MaterialDispatchScreen: React.FC = () => {
       const result = await deleteSalesOrderLink(linkId);
       if (result.ok) {
         setItems((prev) => prev.filter((x) => x.linkId !== linkId));
-        showToast("SO removed successfully!", "success");
+        // Removed success toast as requested
       } else {
         setErrorMessage(result.error || "Failed to remove SO.");
         setShowError(true);
@@ -381,8 +418,8 @@ const MaterialDispatchScreen: React.FC = () => {
     if (scanLocked) return;
     setScanLocked(true);
     addSO(result.data ?? "");
+    // Focus on SO input after scan with proper timing
     setTimeout(() => {
-      closeScanner();
       soRef.current?.focus();
     }, 400);
   };
@@ -412,9 +449,13 @@ const MaterialDispatchScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       if (dispatchId) {
-        setTimeout(() => soRef.current?.focus(), 300);
+        setTimeout(() => {
+          soRef.current?.focus();
+        }, 300);
       } else {
-        setTimeout(() => customerRef.current?.focus(), 300);
+        setTimeout(() => {
+          customerRef.current?.focus();
+        }, 300);
       }
     }, [dispatchId])
   );
@@ -513,7 +554,7 @@ const MaterialDispatchScreen: React.FC = () => {
             </View>
 
             <TouchableOpacity
-              onPress={handleSaveHeader}
+              onPress={dispatchId ? handleUpdateHeader : handleSaveHeader}
               disabled={!isFormValid || savingHeader}
               style={[
                 styles.saveBtn,
