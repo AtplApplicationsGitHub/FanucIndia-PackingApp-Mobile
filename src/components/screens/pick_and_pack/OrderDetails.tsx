@@ -1,5 +1,11 @@
 // OrderDetails.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import {
   View,
   Text,
@@ -23,8 +29,11 @@ import {
 } from "expo-camera";
 import {
   getOrderDetails,
+  updateIssuedQty,
+  updatePackedQty,
+  isOrderIssuedComplete,
+  isOrderPackedComplete,
   type StoredMaterialItem,
-  saveOrderDetails,
 } from "../../Storage/sale_order_storage";
 
 export type RootStackParamList = {
@@ -75,6 +84,8 @@ type DescModalData = {
   packingStage?: string;
   issuedQty?: number;
   packedQty?: number;
+  issuedAt?: string;
+  packedAt?: string;
 };
 
 const OrderDetailsScreen: React.FC<Props> = () => {
@@ -115,7 +126,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     emphasis: "normal" | "danger" = "normal"
   ) => setDialog({ visible: true, title, message, emphasis });
 
-  // Close dialog and **refocus the input**
   const closeDialog = () => {
     setDialog((d) => ({ ...d, visible: false }));
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -126,79 +136,61 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
   /* -------------------------- LOAD ORDER ----------------------------- */
 
-  useEffect(() => {
-    const loadDetails = async () => {
-      try {
-        setLoading(true);
-        const data = await getOrderDetails(saleOrderNumber);
-        if (data && Array.isArray(data.orderDetails)) {
-          const withIssued: MaterialRow[] = (data.orderDetails as any[]).map(
-            (m: any) => ({
-              ...m,
-              issuedQty: typeof m.issuedQty === "number" ? m.issuedQty : 0,
-              packedQty: typeof m.packedQty === "number" ? m.packedQty : 0,
+  const loadOrder = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await getOrderDetails(saleOrderNumber);
+      if (data && Array.isArray(data.orderDetails)) {
+        const sorted = [...data.orderDetails].sort((a, b) =>
+          String(a.materialCode ?? "")
+            .localeCompare(String(b.materialCode ?? ""), undefined, {
+              numeric: true,
+              sensitivity: "base",
             })
-          );
-          withIssued.sort((a, b) =>
-            String(a.materialCode ?? "")
-              .localeCompare(String(b.materialCode ?? ""), undefined, {
-                numeric: true,
-                sensitivity: "base",
-              })
-          );
-          setMaterials(withIssued);
-
-          const isIssued = withIssued.every(
-            (m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)
-          );
-          const isPacked = withIssued.every(
-            (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
-          );
-          setInitialIssuedComplete(isIssued);
-          setInitialPackedComplete(isPacked);
-        } else {
-          openDialog(
-            "Error",
-            "No order details found or invalid data format.",
-            "danger"
-          );
-        }
-      } catch (e: any) {
-        openDialog(
-          "Error",
-          e?.message ?? "Failed to load order details.",
-          "danger"
         );
-      } finally {
-        setLoading(false);
-        setTimeout(() => inputRef.current?.focus(), 50);
+        setMaterials(sorted);
+
+        const isIssued = isOrderIssuedComplete(data);
+        const isPacked = isOrderPackedComplete(data);
+        setInitialIssuedComplete(isIssued);
+        setInitialPackedComplete(isPacked);
+      } else {
+        openDialog("Error", "No order details found.", "danger");
       }
-    };
-    loadDetails();
+    } catch (e: any) {
+      openDialog("Error", e?.message ?? "Failed to load order.", "danger");
+    } finally {
+      setLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
   }, [saleOrderNumber]);
 
-  /* ---------------------- AUTO-UPLOAD LOGIC -------------------------- */
+  useEffect(() => {
+    loadOrder();
+  }, [loadOrder]);
+
+  /* ---------------------- AUTO-NAVIGATION ON COMPLETION -------------------------- */
 
   useEffect(() => {
     if (loading) return;
 
-    const isIssuedComplete = materials.every(
+    const isIssued = materials.every(
       (m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)
     );
-    const isPackedComplete = materials.every(
+    const isPacked = materials.every(
       (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
     );
 
-    if (isIssuedComplete && !initialIssuedComplete && !isPackedComplete) {
+    if (isIssued && !initialIssuedComplete && !isPacked) {
       setTimeout(() => {
         closeDialog();
         navigation.goBack();
-      }, 200);
-    } else if (isPackedComplete && !initialPackedComplete) {
+      }, 300);
+    } else if (isPacked && !initialPackedComplete) {
       setTimeout(() => {
         closeDialog();
         navigation.goBack();
-      }, 200);
+      }, 300);
     }
   }, [
     materials,
@@ -236,18 +228,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     const cp = materials.filter(
       (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
     ).length;
-    const tr = materials.reduce(
-      (s, m) => s + (Number(m.requiredQty) || 0),
-      0
-    );
-    const tiq = materials.reduce(
-      (s, m) => s + (Number(m.issuedQty) || 0),
-      0
-    );
-    const tpq = materials.reduce(
-      (s, m) => s + (Number(m.packedQty) || 0),
-      0
-    );
+    const tr = materials.reduce((s, m) => s + (Number(m.requiredQty) || 0), 0);
+    const tiq = materials.reduce((s, m) => s + (Number(m.issuedQty) || 0), 0);
+    const tpq = materials.reduce((s, m) => s + (Number(m.packedQty) || 0), 0);
     return {
       totalItems: ti,
       completedItems: ci,
@@ -258,23 +241,16 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     };
   }, [materials]);
 
-  const isOrderIssuedComplete = materials.every(
+  const isOrderIssuedCompleteLocal = materials.every(
     (m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)
   );
 
-  const persist = (rows: MaterialRow[]) => {
-    saveOrderDetails(
-      saleOrderNumber,
-      rows as unknown as StoredMaterialItem[]
-    );
-  };
-
   /* -------------------------- SCAN / INPUT --------------------------- */
 
-  const incrementForCode = (materialCodeInput: string) => {
+  const incrementForCode = async (materialCodeInput: string) => {
     const codeTrim = materialCodeInput.trim();
     if (!codeTrim) {
-      openDialog("Please scan or type a material code.", "", "danger");
+      openDialog("Invalid Input", "Please scan or type a material code.", "danger");
       setCode("");
       return;
     }
@@ -285,56 +261,46 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     );
 
     if (idx === -1) {
-      openDialog(
-        "Invalid material code",
-        ``,
-        "danger"
-      );
+      openDialog("Not Found", "Material code not in this order.", "danger");
       setCode("");
       return;
     }
 
-    setMaterials((prev) => {
-      const clone = [...prev];
-      const row = clone[idx];
-      const req = Number(row.requiredQty) || 0;
+    const row = materials[idx];
+    const req = Number(row.requiredQty) || 0;
 
-      if (isOrderIssuedComplete) {
+    try {
+      if (isOrderIssuedCompleteLocal) {
         const curPacked = Number(row.packedQty) || 0;
         if (curPacked >= req) {
-          openDialog(
-            "Already complete",
-            "The material is already packed",
-            "danger"
-          );
+          openDialog("Already Complete", "This item is already packed.", "danger");
           setCode("");
-          return prev;
+          return;
         }
-        const nextPacked = curPacked + 1;
-        clone[idx] = { ...row, packedQty: nextPacked };
+        await updatePackedQty(saleOrderNumber, row.materialCode, "inc", 1);
       } else {
         const curIssued = Number(row.issuedQty) || 0;
         if (curIssued >= req) {
-          openDialog(
-            "Already complete",
-            "The material is already packed issued.",
-            "danger"
-          );
+          openDialog("Already Complete", "This item is already issued.", "danger");
           setCode("");
-          return prev;
+          return;
         }
-        const nextIssued = curIssued + 1;
-        clone[idx] = { ...row, issuedQty: nextIssued };
+        await updateIssuedQty(saleOrderNumber, row.materialCode, "inc", 1);
       }
 
-      persist(clone);
-      return clone;
-    });
-
-    setCode("");
+      // Refresh UI
+      const updated = await getOrderDetails(saleOrderNumber);
+      if (updated) setMaterials(updated.orderDetails);
+      setCode("");
+    } catch (err: any) {
+      openDialog("Error", err.message || "Failed to update quantity.", "danger");
+      setCode("");
+    }
   };
 
-  const onSubmit = () => incrementForCode(code);
+  const onSubmit = () => {
+    incrementForCode(code);
+  };
 
   /* -------------------------- SCANNER -------------------------------- */
 
@@ -342,11 +308,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     if (!permission || !permission.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        openDialog(
-          "Permission needed",
-          "Camera access is required to scan codes.",
-          "danger"
-        );
+        openDialog("Permission needed", "Camera access is required.", "danger");
         return;
       }
     }
@@ -356,21 +318,22 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
   const closeScanner = () => {
     setCameraOpen(false);
-    setTimeout(() => inputRef.current?.focus(), 50);
+    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
-  const onBarcodeScanned = (result: BarcodeScanningResult) => {
+  const onBarcodeScanned = async (result: BarcodeScanningResult) => {
     if (scanLock) return;
-    const data = result?.data ?? "";
+    const data = result?.data?.trim();
     if (!data) return;
+
     setScanLock(true);
     setCode(data);
-    incrementForCode(data);
+    await incrementForCode(data);
     setTimeout(() => {
       setCameraOpen(false);
       setScanLock(false);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }, 250);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }, 300);
   };
 
   /* ----------------------- QUANTITY EDITORS -------------------------- */
@@ -383,74 +346,44 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     return { isValid: true, value: Number(digits) };
   };
 
-  const setIssuedQtyAt = (index: number, raw: string) => {
+  const setIssuedQtyAt = async (index: number, raw: string) => {
     const { isValid, value } = validateNumberInput(raw);
+    if (!isValid && raw.trim() !== "") {
+      openDialog("Invalid Input", "Please enter a valid number.", "danger");
+      return;
+    }
 
-    setMaterials((prev) => {
-      const clone = [...prev];
-      const row = clone[index];
-      const req = Number(row.requiredQty) || 0;
-      let val = value;
+    const row = materials[index];
+    const req = Number(row.requiredQty) || 0;
+    const clamped = Math.max(0, Math.min(value, req));
 
-      if (!isValid) {
-        if (raw.trim() !== "") {
-          openDialog(
-            "Invalid Input",
-            "Please enter a valid issue number.",
-            "danger"
-          );
-        }
-        val = raw.trim() === "" ? 0 : prev[index].issuedQty ?? 0;
-      } else {
-        if (val > req) {
-          openDialog(
-            "Invalid Quantity",
-            `Issue quantity cannot exceed required quantity (${req}).`
-          );
-          val = req;
-        }
-        if (val < 0) val = 0;
-      }
-
-      clone[index] = { ...row, issuedQty: val };
-      persist(clone);
-      return clone;
-    });
+    try {
+      await updateIssuedQty(saleOrderNumber, row.materialCode, "set", clamped);
+      const updated = await getOrderDetails(saleOrderNumber);
+      if (updated) setMaterials(updated.orderDetails);
+    } catch (err: any) {
+      openDialog("Error", err.message || "Failed to update.", "danger");
+    }
   };
 
-  const setPackedQtyAt = (index: number, raw: string) => {
+  const setPackedQtyAt = async (index: number, raw: string) => {
     const { isValid, value } = validateNumberInput(raw);
+    if (!isValid && raw.trim() !== "") {
+      openDialog("Invalid Input", "Please enter a valid number.", "danger");
+      return;
+    }
 
-    setMaterials((prev) => {
-      const clone = [...prev];
-      const row = clone[index];
-      const req = Number(row.requiredQty) || 0;
-      let val = value;
+    const row = materials[index];
+    const req = Number(row.requiredQty) || 0;
+    const clamped = Math.max(0, Math.min(value, req));
 
-      if (!isValid) {
-        if (raw.trim() !== "") {
-          openDialog(
-            "Invalid Input",
-            "Please enter a valid pack number.",
-            "danger"
-          );
-        }
-        val = raw.trim() === "" ? 0 : prev[index].packedQty ?? 0;
-      } else {
-        if (val > req) {
-          openDialog(
-            "Invalid Quantity",
-            `Packed quantity cannot exceed required quantity (${req}).`
-          );
-          val = req;
-        }
-        if (val < 0) val = 0;
-      }
-
-      clone[index] = { ...row, packedQty: val };
-      persist(clone);
-      return clone;
-    });
+    try {
+      await updatePackedQty(saleOrderNumber, row.materialCode, "set", clamped);
+      const updated = await getOrderDetails(saleOrderNumber);
+      if (updated) setMaterials(updated.orderDetails);
+    } catch (err: any) {
+      openDialog("Error", err.message || "Failed to update.", "danger");
+    }
   };
 
   /* ------------------------------ UI --------------------------------- */
@@ -480,10 +413,10 @@ const OrderDetailsScreen: React.FC<Props> = () => {
             </View>
             <View style={styles.chip}>
               <Text style={styles.chipTitle}>
-                {isOrderIssuedComplete ? "Packed" : "Issued"}
+                {isOrderIssuedCompleteLocal ? "Packed" : "Issued"}
               </Text>
               <Text style={styles.chipValue}>
-                {isOrderIssuedComplete ? totalPacked : totalIssued}/
+                {isOrderIssuedCompleteLocal ? totalPacked : totalIssued}/
                 {totalRequired}
               </Text>
             </View>
@@ -533,7 +466,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
               <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                 <Text style={styles.headText}>Issue</Text>
               </View>
-              {isOrderIssuedComplete && (
+              {isOrderIssuedCompleteLocal && (
                 <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                   <Text style={styles.headText}>Packing</Text>
                 </View>
@@ -596,6 +529,8 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                         requiredQty: req,
                         issuedQty: Number(item.issuedQty ?? 0),
                         packedQty: Number(item.packedQty ?? 0),
+                        issuedAt: item.issuedAt,
+                        packedAt: item.packedAt,
                       },
                     })
                   }
@@ -655,7 +590,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                     />
                   </View>
 
-                  {isOrderIssuedComplete && (
+                  {isOrderIssuedCompleteLocal && (
                     <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                       <TextInput
                         value={String(item.packedQty ?? 0)}
@@ -826,6 +761,22 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                       {String(descModal.data?.packedQty ?? 0)}
                     </Text>
                   </View>
+                  {/* {descModal.data?.issuedAt && (
+                    <View style={styles.infoCardSmall}>
+                      <Text style={styles.infoSmallLabel}>Issued At</Text>
+                      <Text style={styles.infoSmallValue}>
+                        {new Date(descModal.data.issuedAt).toLocaleString()}
+                      </Text>
+                    </View>
+                  )} */}
+                  {/* {descModal.data?.packedAt && (
+                    <View style={styles.infoCardSmall}>
+                      <Text style={styles.infoSmallLabel}>Packed At</Text>
+                      <Text style={styles.infoSmallValue}>
+                        {new Date(descModal.data.packedAt).toLocaleString()}
+                      </Text>
+                    </View>
+                  )} */}
                 </View>
               </View>
             </View>
@@ -837,8 +788,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           visible={dialog.visible}
           transparent
           animationType="fade"
-          onRequestClose={closeDialog}
-        >
+          onRequestClose={closeDialog}>
           <View style={styles.appDialogOverlay}>
             <View style={styles.appDialogCard}>
               <View style={styles.appDialogHeader}>
@@ -852,7 +802,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                   color={dialog.emphasis === "danger" ? C.danger : C.headerText}
                 />
                 <Text
-                  style={[
+                  style= {[
                     styles.appDialogTitle,
                     dialog.emphasis === "danger" && { color: C.danger },
                   ]}

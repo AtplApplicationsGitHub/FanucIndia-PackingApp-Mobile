@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const KEY = (so: string) => `order:${so}`;
 
-// Stored item shape (now includes issuedQty, packedQty, and additional fields)
+// Updated item with timestamps
 export type StoredMaterialItem = {
   materialCode: string;
   description: string;
@@ -15,20 +15,22 @@ export type StoredMaterialItem = {
   requiredQty: number;
   issuedQty: number;
   packedQty: number;
+  // Timestamps in ISO 8601 format (UTC)
+  issuedAt?: string;   // e.g., "2025-10-30T08:35:10.000Z"
+  packedAt?: string;   // e.g., "2025-10-30T09:00:00.000Z"
 };
 
 export type StoredOrder = {
   saleOrderNumber: string;
   orderDetails: StoredMaterialItem[];
-  // derived: an order is "complete" when every item issuedQty >= requiredQty
 };
 
 export async function saveOrderDetails(
   saleOrderNumber: string,
   items: StoredMaterialItem[]
 ): Promise<void> {
-  // normalize: ensure each item has issuedQty and packedQty clamped
   const normalized: StoredMaterialItem[] = items.map((it) => ({
+    ...it,
     materialCode: it.materialCode || "",
     description: it.description || "",
     batchNo: it.batchNo || "",
@@ -37,8 +39,10 @@ export async function saveOrderDetails(
     binNo: it.binNo || "",
     adf: it.adf || "",
     requiredQty: Number(it.requiredQty) || 0,
-    issuedQty: Math.max(0, Math.min(it.issuedQty, it.requiredQty)),
-    packedQty: Math.max(0, Math.min(it.packedQty || 0, it.requiredQty)),
+    issuedQty: Math.max(0, Math.min(it.issuedQty ?? 0, it.requiredQty)),
+    packedQty: Math.max(0, Math.min(it.packedQty ?? 0, it.requiredQty)),
+    issuedAt: it.issuedAt || undefined,
+    packedAt: it.packedAt || undefined,
   }));
   const payload: StoredOrder = { saleOrderNumber, orderDetails: normalized };
   await AsyncStorage.setItem(KEY(saleOrderNumber), JSON.stringify(payload));
@@ -51,11 +55,12 @@ export async function getOrderDetails(
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as StoredOrder;
-    // Ensure issuedQty and packedQty are present and clamped (for legacy data)
     parsed.orderDetails = parsed.orderDetails.map((it) => ({
       ...it,
       issuedQty: Math.max(0, Math.min(it.issuedQty ?? 0, it.requiredQty)),
       packedQty: Math.max(0, Math.min(it.packedQty ?? 0, it.requiredQty)),
+      issuedAt: it.issuedAt || undefined,
+      packedAt: it.packedAt || undefined,
     }));
     return parsed;
   } catch {
@@ -72,7 +77,7 @@ export async function deleteOrderDetails(saleOrderNumber: string): Promise<void>
   await AsyncStorage.removeItem(KEY(saleOrderNumber));
 }
 
-// Increment/decrement/set issued and autosave
+// Update issued with timestamp
 export async function updateIssuedQty(
   saleOrderNumber: string,
   materialCode: string,
@@ -82,25 +87,38 @@ export async function updateIssuedQty(
   const current = await getOrderDetails(saleOrderNumber);
   if (!current) return null;
 
+  const now = new Date().toISOString(); // UTC ISO string
+
   const items = current.orderDetails.map((it) => {
     if (it.materialCode !== materialCode) return it;
 
     const clamp = (n: number) => Math.max(0, Math.min(n, it.requiredQty));
+    let newQty = it.issuedQty ?? 0;
+
     if (action === "set") {
-      return { ...it, issuedQty: clamp(Number(valueOrStep) || 0) };
+      newQty = clamp(Number(valueOrStep) || 0);
+    } else if (action === "dec") {
+      newQty = clamp(newQty - Number(valueOrStep || 1));
+    } else {
+      newQty = clamp(newQty + Number(valueOrStep || 1));
     }
-    if (action === "dec") {
-      return { ...it, issuedQty: clamp((it.issuedQty ?? 0) - Number(valueOrStep || 1)) };
-    }
-    // inc
-    return { ...it, issuedQty: clamp((it.issuedQty ?? 0) + Number(valueOrStep || 1)) };
+
+    // Set timestamp only when issuedQty reaches requiredQty for the first time
+    const wasComplete = (it.issuedQty ?? 0) >= it.requiredQty;
+    const isComplete = newQty >= it.requiredQty;
+
+    return {
+      ...it,
+      issuedQty: newQty,
+      issuedAt: !wasComplete && isComplete ? now : it.issuedAt,
+    };
   });
 
   await saveOrderDetails(saleOrderNumber, items);
   return { saleOrderNumber, orderDetails: items };
 }
 
-// Increment/decrement/set packed and autosave
+// Update packed with timestamp
 export async function updatePackedQty(
   saleOrderNumber: string,
   materialCode: string,
@@ -110,29 +128,50 @@ export async function updatePackedQty(
   const current = await getOrderDetails(saleOrderNumber);
   if (!current) return null;
 
+  const now = new Date().toISOString();
+
   const items = current.orderDetails.map((it) => {
     if (it.materialCode !== materialCode) return it;
 
     const clamp = (n: number) => Math.max(0, Math.min(n, it.requiredQty));
+    let newQty = it.packedQty ?? 0;
+
     if (action === "set") {
-      return { ...it, packedQty: clamp(Number(valueOrStep) || 0) };
+      newQty = clamp(Number(valueOrStep) || 0);
+    } else if (action === "dec") {
+      newQty = clamp(newQty - Number(valueOrStep || 1));
+    } else {
+      newQty = clamp(newQty + Number(valueOrStep || 1));
     }
-    if (action === "dec") {
-      return { ...it, packedQty: clamp((it.packedQty ?? 0) - Number(valueOrStep || 1)) };
-    }
-    // inc
-    return { ...it, packedQty: clamp((it.packedQty ?? 0) + Number(valueOrStep || 1)) };
+
+    const wasComplete = (it.packedQty ?? 0) >= it.requiredQty;
+    const isComplete = newQty >= it.requiredQty;
+
+    return {
+      ...it,
+      packedQty: newQty,
+      packedAt: !wasComplete && isComplete ? now : it.packedAt,
+    };
   });
 
   await saveOrderDetails(saleOrderNumber, items);
   return { saleOrderNumber, orderDetails: items };
 }
 
-export function isOrderCompleted(order: StoredOrder): boolean {
+export function isOrderIssuedComplete(order: StoredOrder): boolean {
   return order.orderDetails.every((it) => (it.issuedQty ?? 0) >= it.requiredQty);
 }
 
-export async function isOrderCompletedBySO(saleOrderNumber: string): Promise<boolean> {
+export function isOrderPackedComplete(order: StoredOrder): boolean {
+  return order.orderDetails.every((it) => (it.packedQty ?? 0) >= it.requiredQty);
+}
+
+export async function isOrderIssuedCompleteBySO(saleOrderNumber: string): Promise<boolean> {
   const ord = await getOrderDetails(saleOrderNumber);
-  return !!ord && isOrderCompleted(ord);
+  return !!ord && isOrderIssuedComplete(ord);
+}
+
+export async function isOrderPackedCompleteBySO(saleOrderNumber: string): Promise<boolean> {
+  const ord = await getOrderDetails(saleOrderNumber);
+  return !!ord && isOrderPackedComplete(ord);
 }

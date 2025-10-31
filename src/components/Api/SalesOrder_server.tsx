@@ -1,3 +1,4 @@
+// src/api/SalesOrder_server.tsx
 import * as SecureStore from "expo-secure-store";
 import { File, Paths } from "expo-file-system";
 import {
@@ -5,14 +6,6 @@ import {
   type StoredMaterialItem,
 } from "../Storage/sale_order_storage";
 import { API_ENDPOINTS } from "./api";
-
-// const BASE_URL = "https://fanuc.goval.app:444/api";
-// const ORDERS_SUMMARY_URL = `${BASE_URL}/user-dashboard/orders-summary`;
-// const ORDER_DETAILS_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/download-details`;
-// const ORDER_UPLOAD_URL = `${BASE_URL}/user-dashboard/orders/son/{SO_NUMBER}/data`;
-// const ATTACHMENTS_UPLOAD_URL = `${BASE_URL}/v1/erp-material-files/upload-with-descriptions`;
-// const EXISTING_ATTACHMENTS_URL = `${BASE_URL}/v1/erp-material-files/by-sale-order/{SO_NUMBER}`;
-// const UPDATE_ATTACHMENT_DESCRIPTION_URL = `${BASE_URL}/v1/erp-material-files/{FILE_ID}`;
 
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
@@ -37,7 +30,7 @@ async function parseErrorBody(res: Response) {
   }
 }
 
-// ---------------- Types from server ----------------
+// ---------------- Types ----------------
 export type OrdersSummaryItemRaw = {
   saleOrderNumber: string;
   priority: 1 | 2 | 3 | null;
@@ -71,7 +64,7 @@ const toNum = (v: any, d = 0) => {
 const toStr = (v: any, d = "-") =>
   v === null || v === undefined ? d : String(v);
 
-/** Convert our local item to the exact server field names + numeric types */
+/** Convert local item to server format with timestamps */
 function normalizeForUpload(item: StoredMaterialItem) {
   const it: any = item;
   return {
@@ -83,8 +76,17 @@ function normalizeForUpload(item: StoredMaterialItem) {
     Bin_No: toStr(it.binNo, ""),
     A_D_F: toStr(it.adf, ""),
     Required_Qty: toNum(it.requiredQty, 0),
-    Packing_stage: toNum(it.packedQty, 0),
     Issue_stage: toNum(it.issuedQty, 0),
+    Packing_stage: toNum(it.packedQty, 0),
+    // Add timestamps only if stage is complete
+    UpdatedDate:
+      (it.issuedQty ?? 0) >= it.requiredQty && it.issuedAt
+        ? it.issuedAt
+        : null,
+    UpdatedDate:
+      (it.packedQty ?? 0) >= it.requiredQty && it.packedAt
+        ? it.packedAt
+        : null,
   };
 }
 
@@ -112,7 +114,7 @@ export async function fetchOrdersSummary(
     saleOrderNumber: r.saleOrderNumber?.toString() || "-",
     priority: (r.priority as 1 | 2 | 3 | null) ?? null,
     status: r.status ?? "-",
-    totalMaterials: Number.isFinite(r.totalMaterials) ? r.totalMaterials : 0,
+    totalMaterials: Number.isFinite(r.totalMaterials) ? r. totalMaterials : 0,
     totalItems: Number.isFinite(r.totalItems) ? r.totalItems : 0,
   }));
 }
@@ -148,7 +150,9 @@ export async function downloadOrderDetails(
       adf: toStr(row?.A_D_F, ""),
       requiredQty: toNum(row?.Required_Qty, 0),
       packedQty: toNum(row?.Packing_stage, 0),
-      issuedQty: toNum((row as any)?.Issue_stage, 0),
+      issuedQty: toNum(row?.Issue_stage, 0),
+      issuedAt: row?.UpdatedDate ? String(row.UpdatedDate) : undefined,
+      packedAt: row?.UpdatedDate ? String(row.UpdatedDate) : undefined,
     })
   ) as any;
 
@@ -173,9 +177,8 @@ export async function uploadIssueData(
 
   const payload = items.map(normalizeForUpload);
   const jsonPayload = JSON.stringify(payload);
-  console.log("Uploading (JSON file) materials:", jsonPayload);
+  console.log("Uploading materials with timestamps:", jsonPayload);
 
-  // Write JSON to temporary file for upload in React Native using new File API
   const file = new File(Paths.cache, "data.json");
   await file.create();
   await file.write(jsonPayload);
@@ -196,7 +199,6 @@ export async function uploadIssueData(
     30000
   );
 
-  // Clean up temp file
   await file.delete();
 
   if (!res.ok) {
@@ -204,7 +206,6 @@ export async function uploadIssueData(
     throw new Error(`Upload failed: ${lastErr || "Server rejected upload"}`);
   }
 
-  // Success
   try {
     const result = await res.json();
     console.log("Upload successful:", result);
@@ -213,6 +214,7 @@ export async function uploadIssueData(
   }
 }
 
+// ... (uploadAttachments, fetchExistingAttachments, updateAttachmentDescription remain unchanged)
 // ---------------- API: Upload Attachments ----------------
 export async function uploadAttachments(
   saleOrderNumber: string,
@@ -374,3 +376,4 @@ export async function updateAttachmentDescription(
     );
   }
 }
+ 
