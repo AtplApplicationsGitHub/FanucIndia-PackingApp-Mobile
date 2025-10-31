@@ -36,6 +36,7 @@ interface FileItem {
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const BUTTON_WIDTH = 140;               // <-- same size for both buttons
 
 export default function AttachmentScreen() {
   const route = useRoute();
@@ -97,7 +98,7 @@ export default function AttachmentScreen() {
           uri: att.uri,
           mimeType: att.type,
           timestamp: 0,
-          isDirty: isDirty,
+          isDirty,
         };
       }),
     [existingAttachments, dirtyDescriptions]
@@ -199,20 +200,12 @@ export default function AttachmentScreen() {
         )
       );
 
-      const attachments: AttachmentItem[] = pendingFiles.map((file) => {
-        console.log("Preparing upload for file:", {
-          name: file.name,
-          uri: file.uri,
-          type: file.mimeType || "application/octet-stream",
-          description: file.description || "",
-        });
-        return {
-          uri: file.uri,
-          name: file.name,
-          type: file.mimeType || "application/octet-stream",
-          description: file.description || "",
-        };
-      });
+      const attachments: AttachmentItem[] = pendingFiles.map((file) => ({
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType || "application/octet-stream",
+        description: file.description || "",
+      }));
 
       await uploadAttachments(saleOrderNumber, attachments);
       await loadExistingAttachments();
@@ -315,39 +308,20 @@ export default function AttachmentScreen() {
     const uniqueId = item.id;
     const dirtyState = dirtyDescriptions[uniqueId];
 
-    console.log("--- Save Icon Clicked ---");
-    console.log("Item:", item.name, "ID:", uniqueId, "DB ID:", item.dbId);
-    console.log("Status:", item.status);
-    console.log("Is Dirty (from item prop):", item.isDirty);
-    console.log("Dirty State exists:", !!dirtyState);
-    if (dirtyState) {
-      console.log("Dirty State Content:", dirtyState);
-    }
-
     if (
       item.status !== "Uploaded" ||
       !item.dbId ||
       !dirtyState ||
       !item.isDirty
     ) {
-      console.log(`>>> Exiting early. Status OK?: ${item.status === "Uploaded"}, DB ID OK?: ${!!item.dbId}, Is Dirty OK?: ${item.isDirty}`);
       return;
     }
 
-    console.log('>>> Proceeding to API call...');
-
-    console.log(
-      `Updating description for file ID ${
-        item.dbId
-      } to: "${newDescription.trim()}"`
-    );
     try {
       await updateAttachmentDescription(item.dbId, newDescription.trim());
-      console.log(`Successfully updated description for file ID ${item.dbId}`);
 
       setDirtyDescriptions((prev) => {
         const { [uniqueId]: _, ...rest } = prev;
-        console.log('Cleared dirty state for:', uniqueId);
         return rest;
       });
 
@@ -420,40 +394,46 @@ export default function AttachmentScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* ------------------- HEADER WITH FIXED-SIZE BUTTONS ------------------- */}
       <View style={styles.header}>
+        {/* NEW FILES BUTTON */}
         <TouchableOpacity
-          style={styles.addButton}
+          style={[
+            styles.fixedButton,
+            styles.addButton,
+            uploading && { opacity: 0.7 },
+          ]}
           onPress={pickFile}
           disabled={uploading}
         >
           <Ionicons name="add-circle-outline" size={20} color="#2196F3" />
-          <Text style={styles.addButtonText}>New Files</Text>
+          <Text style={styles.fixedButtonText}>New Files</Text>
         </TouchableOpacity>
 
-        <View style={styles.uploadInfo}>
-          <TouchableOpacity
-            style={[
-              styles.uploadButton,
-              (uploading || pendingCount === 0) && { opacity: 0.7 },
-            ]}
-            onPress={uploadFiles}
-            disabled={uploading || pendingCount === 0}
-          >
-            {uploading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
-                <Text style={styles.uploadButtonText}>
-                  {`Upload (${pendingCount})`}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
+        {/* UPLOAD BUTTON */}
+        <TouchableOpacity
+          style={[
+            styles.fixedButton,
+            styles.uploadButton,
+            (uploading || pendingCount === 0) && { opacity: 0.7 },
+          ]}
+          onPress={uploadFiles}
+          disabled={uploading || pendingCount === 0}
+        >
+          {uploading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+              <Text style={styles.fixedButtonText}>
+                {`Upload (${pendingCount})`}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* File List Section */}
+      {/* ------------------- FILE LIST SECTION ------------------- */}
       {displayFiles.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="folder-outline" size={48} color="#B0BEC5" />
@@ -481,6 +461,7 @@ export default function AttachmentScreen() {
         </>
       )}
 
+      {/* ------------------- MODAL ------------------- */}
       <Modal
         visible={modalVisible}
         transparent={true}
@@ -504,86 +485,52 @@ export default function AttachmentScreen() {
   );
 }
 
+/* ------------------- STYLES ------------------- */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
     padding: 16,
   },
+
+  /* ---------- HEADER ---------- */
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 16,
+    marginTop: 8,
   },
-  headerCellActions: {
-    flex: 1.5,
-    fontWeight: "bold",
-    textAlign: "center",
-    fontSize: 12,
-    color: "#757575",
-  },
-  actionsCell: {
-    flex: 1.5,
+
+  /* Base for both buttons (same width & height) */
+  fixedButton: {
+    width: BUTTON_WIDTH,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-  },
-  addButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: "#B0BEC5",
-    padding: 12,
+    paddingVertical: 12,
     borderRadius: 8,
-    flex: 1,
-    marginRight: 12,
-    justifyContent: "center",
   },
-  addButtonText: {
-    color: "#2196F3",
+  fixedButtonText: {
     marginLeft: 6,
     fontWeight: "500",
     fontSize: 14,
   },
-  uploadInfo: {
-    alignItems: "center",
-    justifyContent: "center",
+
+  /* NEW FILES BUTTON */
+  addButton: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#B0BEC5",
+    backgroundColor: "#fff",
   },
-  uploadLabel: {
-    fontWeight: "bold",
-    fontSize: 14,
-    color: "#424242",
-    textAlign: "center",
-    marginBottom: 4,
-  },
+
+  /* UPLOAD BUTTON */
   uploadButton: {
-    flexDirection: "row",
     backgroundColor: "#2196F3",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 120,
   },
-  uploadButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    marginLeft: 6,
-    fontSize: 14,
-  },
-  uploadDescContainer: {
-    marginBottom: 16,
-    alignItems: "center",
-  },
-  uploadDesc: {
-    fontSize: 12,
-    color: "#757575",
-    textAlign: "center",
-    lineHeight: 16,
-  },
+
+  /* ---------- TABLE ---------- */
   tableHeader: {
     flexDirection: "row",
     backgroundColor: "#F5F5F5",
@@ -622,6 +569,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#757575",
   },
+
   row: {
     flexDirection: "row",
     borderBottomWidth: 1,
@@ -653,6 +601,12 @@ const styles = StyleSheet.create({
     height: 40,
     textAlignVertical: "center",
   },
+  actionsCell: {
+    flex: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
   statusCell: {
     flex: 2,
     flexDirection: "row",
@@ -663,12 +617,14 @@ const styles = StyleSheet.create({
   removeButton: {
     paddingLeft: 8,
   },
+
   fileList: {
     flex: 1,
   },
   listContent: {
     flexGrow: 1,
   },
+
   emptyState: {
     flex: 1,
     alignItems: "center",
@@ -692,6 +648,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 4,
   },
+
+  /* ---------- MODAL ---------- */
   modalContainer: {
     flex: 1,
     justifyContent: "center",

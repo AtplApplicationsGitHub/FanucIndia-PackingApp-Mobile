@@ -1,5 +1,11 @@
 // material_dispatch.tsx
-import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useMemo,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import {
   Alert,
   Animated,
@@ -37,7 +43,11 @@ import {
   type ApiResult,
   type DispatchAttachment,
 } from "../../Api/material_dispatch_server";
-import { loadDispatchData, saveDispatchData, clearDispatchData } from "../../Storage/material_dispatch_storage";
+import {
+  loadDispatchData,
+  saveDispatchData,
+  clearDispatchData,
+} from "../../Storage/material_dispatch_storage";
 import { useFocusEffect } from "@react-navigation/native";
 
 type DispatchForm = {
@@ -86,8 +96,12 @@ const MaterialDispatchScreen: React.FC = () => {
     vehicleNo: "",
   });
   const [dispatchId, setDispatchId] = useState<string | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<DocumentPicker.DocumentPickerAsset[]>([]);
-  const [uploadedAttachments, setUploadedAttachments] = useState<DispatchAttachment[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<
+    DocumentPicker.DocumentPickerAsset[]
+  >([]);
+  const [uploadedAttachments, setUploadedAttachments] = useState<
+    DispatchAttachment[]
+  >([]);
   const [expanded, setExpanded] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState(false);
@@ -109,7 +123,12 @@ const MaterialDispatchScreen: React.FC = () => {
 
   const isFormValid = useMemo(() => {
     const { customer, address, transporter, vehicleNo } = form;
-    return !!customer?.trim() && !!address?.trim() && !!transporter?.trim() && !!vehicleNo?.trim();
+    return (
+      !!customer?.trim() &&
+      !!address?.trim() &&
+      !!transporter?.trim() &&
+      !!vehicleNo?.trim()
+    );
   }, [form]);
 
   const totalAttachments = selectedFiles.length + uploadedAttachments.length;
@@ -152,8 +171,7 @@ const MaterialDispatchScreen: React.FC = () => {
       useNativeDriver: false,
     }).start();
     setExpanded(!expanded);
-    
-    // 🔥 FIXED: Focus SO input when SO section becomes visible
+
     if (!expanded) {
       setTimeout(() => {
         soRef.current?.focus();
@@ -161,14 +179,13 @@ const MaterialDispatchScreen: React.FC = () => {
     }
   };
 
-  // 🔥 FIXED: Focus SO input utility function
   const focusSOInput = useCallback(() => {
     setTimeout(() => {
       soRef.current?.focus();
     }, 100);
   }, []);
 
-  // SAVE HEADER (only Save, no Update)
+  /* ------------------- HEADER ------------------- */
   const handleSaveHeader = async () => {
     if (!isFormValid || savingHeader) return;
 
@@ -199,7 +216,6 @@ const MaterialDispatchScreen: React.FC = () => {
     }
   };
 
-  // 🔥 FIXED: UPDATE HEADER - Focus SO input after success
   const handleUpdateHeader = async () => {
     if (!isFormValid || savingHeader || !dispatchId) return;
 
@@ -227,7 +243,7 @@ const MaterialDispatchScreen: React.FC = () => {
     }
   };
 
-  // OPEN FILE PICKER MODAL
+  /* ------------------- FILE PICKER ------------------- */
   const openFilePicker = () => {
     if (!dispatchId) {
       setErrorMessage("Save header first.");
@@ -237,21 +253,15 @@ const MaterialDispatchScreen: React.FC = () => {
     setShowFileModal(true);
   };
 
-  // HANDLE FILE SELECTION
   const handleFileSelect = async () => {
     const res = await DocumentPicker.getDocumentAsync({
       multiple: true,
       copyToCacheDirectory: true,
     });
-    if (res.canceled || !res.assets?.length) {
-      return;
-    }
-
-    const files = res.assets;
-    setSelectedFiles(prev => [...prev, ...files]);
+    if (res.canceled || !res.assets?.length) return;
+    setSelectedFiles((prev) => [...prev, ...res.assets]);
   };
 
-  // HANDLE FILE UPLOAD
   const handleFileUpload = async () => {
     if (selectedFiles.length === 0) {
       setErrorMessage("Please select files first.");
@@ -267,7 +277,6 @@ const MaterialDispatchScreen: React.FC = () => {
         setSelectedFiles([]);
         setShowFileModal(false);
         await loadAttachments();
-        // 🔥 FIXED: Focus SO input after successful upload
         focusSOInput();
       } else {
         setErrorMessage(result.error || "Upload failed.");
@@ -285,16 +294,13 @@ const MaterialDispatchScreen: React.FC = () => {
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // LOAD ATTACHMENTS
   const loadAttachments = async () => {
     if (!dispatchId) return;
     try {
       const result = await getAttachments(dispatchId);
-      if (result.ok) {
-        setUploadedAttachments(result.data);
-      }
+      if (result.ok) setUploadedAttachments(result.data);
     } catch {
-      // Silent fail
+      // silent
     }
   };
 
@@ -315,7 +321,7 @@ const MaterialDispatchScreen: React.FC = () => {
 
   const scaleInterpolate = animatedHeight;
 
-  /** ------------------ Sales Orders + Scanner ------------------ */
+  /* ------------------- SALES ORDERS ------------------- */
   const [value, setValue] = useState("");
   const [items, setItems] = useState<SOEntry[]>([]);
   const total = useMemo(() => items.length, [items]);
@@ -371,7 +377,6 @@ const MaterialDispatchScreen: React.FC = () => {
       const result = await deleteSalesOrderLink(linkId);
       if (result.ok) {
         setItems((prev) => prev.filter((x) => x.linkId !== linkId));
-        // Focus back to SO input after delete
         focusSOInput();
       } else {
         setErrorMessage(result.error || "Failed to remove SO.");
@@ -391,7 +396,7 @@ const MaterialDispatchScreen: React.FC = () => {
     return `${hh}:${mm} ${ampm}`;
   }
 
-  // Scanner
+  /* ------------------- SCANNER ------------------- */
   const [scanVisible, setScanVisible] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanLocked, setScanLocked] = useState(false);
@@ -417,19 +422,22 @@ const MaterialDispatchScreen: React.FC = () => {
   const closeScanner = () => {
     setScanVisible(false);
     setScanLocked(false);
-    // 🔥 FIXED: Focus SO input after scanner closes
     focusSOInput();
   };
 
-  const onScanned = (result: BarcodeScanningResult) => {
+  const onScanned = async (result: BarcodeScanningResult) => {
     if (scanLocked) return;
     setScanLocked(true);
-    addSO(result.data ?? "");
+    await addSO(result.data ?? "");
+    // Auto-close after successful scan
+    setTimeout(() => {
+      closeScanner();
+    }, 600);
   };
 
   const canSubmit = value.trim().length > 0;
 
-  // Load data
+  /* ------------------- PERSISTENCE & FOCUS ------------------- */
   useEffect(() => {
     const load = async () => {
       const data = await loadDispatchData();
@@ -449,15 +457,12 @@ const MaterialDispatchScreen: React.FC = () => {
     load();
   }, []);
 
-  // 🔥 FIXED: PERFECT FOCUS LOGIC - Always focus SO input when SO section should be active
   useFocusEffect(
     useCallback(() => {
       const timeoutId = setTimeout(() => {
         if (dispatchId && !expanded) {
-          // SO section is visible - focus SO input
           soRef.current?.focus();
         } else {
-          // Form section is visible - focus customer input
           customerRef.current?.focus();
         }
       }, 200);
@@ -465,12 +470,8 @@ const MaterialDispatchScreen: React.FC = () => {
     }, [dispatchId, expanded])
   );
 
-  // 🔥 FIXED: Watch for SO section visibility changes
   useEffect(() => {
-    if (!expanded && dispatchId) {
-      // SO section just became visible
-      focusSOInput();
-    }
+    if (!expanded && dispatchId) focusSOInput();
   }, [expanded, dispatchId]);
 
   useEffect(() => {
@@ -483,11 +484,10 @@ const MaterialDispatchScreen: React.FC = () => {
   }, [form, dispatchId, items, selectedFiles]);
 
   useEffect(() => {
-    if (dispatchId) {
-      loadAttachments();
-    }
+    if (dispatchId) loadAttachments();
   }, [dispatchId]);
 
+  /* ------------------- RENDER ------------------- */
   return (
     <View style={styles.safe}>
       <View style={styles.container}>
@@ -506,7 +506,6 @@ const MaterialDispatchScreen: React.FC = () => {
             <TouchableOpacity onPress={handleAddNew} style={styles.addNewBtn}>
               <Text style={styles.addNewText}>Add New</Text>
             </TouchableOpacity>
-            {/* Show attachment icon only when dispatch is saved */}
             {dispatchId && (
               <TouchableOpacity onPress={openFilePicker} style={styles.attachBtn}>
                 <Ionicons name="attach" size={22} color={C.blue} />
@@ -655,11 +654,11 @@ const MaterialDispatchScreen: React.FC = () => {
                 </View>
               )}
             />
-          </View>          
+          </View>
         </Animated.View>
       </View>
 
-      {/* Modals - SAME AS BEFORE */}
+      {/* ---------- MODALS ---------- */}
       <Modal visible={showNewFormModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.confirmationModal}>
@@ -702,35 +701,29 @@ const MaterialDispatchScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* File Picker Modal - SAME AS BEFORE */}
+      {/* ---------- FILE MODAL ---------- */}
       <Modal visible={showFileModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.fileModal}>
             <View style={styles.fileModalHeader}>
               <Text style={styles.fileModalTitle}>Upload Attachments</Text>
-              <TouchableOpacity 
-                onPress={() => setShowFileModal(false)} 
-                style={styles.fileModalCloseBtn}
-              >
+              <TouchableOpacity onPress={() => setShowFileModal(false)} style={styles.fileModalCloseBtn}>
                 <Ionicons name="close" size={22} color={C.text} />
               </TouchableOpacity>
             </View>
 
-            {/* Selected Files Section */}
+            {/* Selected Files */}
             <View style={styles.selectedFilesSection}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Selected Files</Text>
                 <Text style={styles.fileCount}>({selectedFiles.length} files)</Text>
               </View>
-              
+
               {selectedFiles.length > 0 ? (
                 <View style={styles.selectedFilesContainer}>
-                  <ScrollView 
-                    style={styles.selectedFilesList}
-                    showsVerticalScrollIndicator={false}
-                  >
-                    {selectedFiles.map((file, index) => (
-                      <View key={index} style={styles.selectedFileItem}>
+                  <ScrollView style={styles.selectedFilesList} showsVerticalScrollIndicator={false}>
+                    {selectedFiles.map((file, i) => (
+                      <View key={i} style={styles.selectedFileItem}>
                         <View style={styles.fileInfo}>
                           <Ionicons name="document-outline" size={18} color={C.blue} />
                           <View style={styles.fileDetails}>
@@ -738,14 +731,11 @@ const MaterialDispatchScreen: React.FC = () => {
                               {file.name}
                             </Text>
                             <Text style={styles.fileSize}>
-                              {file.size ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Size unknown'}
+                              {file.size ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : "Size unknown"}
                             </Text>
                           </View>
                         </View>
-                        <Pressable 
-                          onPress={() => removeSelectedFile(index)}
-                          style={styles.removeFileBtn}
-                        >
+                        <Pressable onPress={() => removeSelectedFile(i)} style={styles.removeFileBtn}>
                           <Ionicons name="close-circle" size={20} color={C.red} />
                         </Pressable>
                       </View>
@@ -761,7 +751,7 @@ const MaterialDispatchScreen: React.FC = () => {
               )}
             </View>
 
-            {/* Uploaded Files Section */}
+            {/* Uploaded Files */}
             {uploadedAttachments.length > 0 && (
               <View style={styles.uploadedFilesSection}>
                 <View style={styles.sectionHeader}>
@@ -769,11 +759,8 @@ const MaterialDispatchScreen: React.FC = () => {
                   <Text style={styles.fileCount}>({uploadedAttachments.length} files)</Text>
                 </View>
                 <View style={styles.uploadedFilesContainer}>
-                  <ScrollView 
-                    style={styles.uploadedFilesList}
-                    showsVerticalScrollIndicator={false}
-                  >
-                    {uploadedAttachments.map((file, index) => (
+                  <ScrollView style={styles.uploadedFilesList} showsVerticalScrollIndicator={false}>
+                    {uploadedAttachments.map((file) => (
                       <View key={file.id} style={styles.uploadedFileItem}>
                         <View style={styles.fileInfo}>
                           <Ionicons name="checkmark-circle" size={18} color={C.green} />
@@ -793,16 +780,13 @@ const MaterialDispatchScreen: React.FC = () => {
               </View>
             )}
 
-            {/* Action Buttons */}
+            {/* Buttons */}
             <View style={styles.fileModalActions}>
-              <TouchableOpacity
-                onPress={handleFileSelect}
-                style={[styles.fileModalBtn, styles.fileSelectBtn]}
-              >
+              <TouchableOpacity onPress={handleFileSelect} style={[styles.fileModalBtn, styles.fileSelectBtn]}>
                 <Ionicons name="add" size={18} color="#FFFFFF" />
                 <Text style={styles.fileSelectText}>Choose Files</Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 onPress={handleFileUpload}
                 disabled={selectedFiles.length === 0 || uploading}
@@ -817,9 +801,7 @@ const MaterialDispatchScreen: React.FC = () => {
                 ) : (
                   <>
                     <Ionicons name="cloud-upload" size={18} color="#FFFFFF" />
-                    <Text style={styles.uploadBtnText}>
-                      Upload ({selectedFiles.length})
-                    </Text>
+                    <Text style={styles.uploadBtnText}>Upload ({selectedFiles.length})</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -828,6 +810,7 @@ const MaterialDispatchScreen: React.FC = () => {
         </View>
       </Modal>
 
+      {/* ---------- SCANNER MODAL ---------- */}
       <Modal visible={scanVisible} animationType="slide" presentationStyle="fullScreen">
         <StatusBar hidden />
         <View style={styles_scan.fullscreenCameraWrap}>
@@ -856,7 +839,7 @@ const MaterialDispatchScreen: React.FC = () => {
 
 export default MaterialDispatchScreen;
 
-// Styles - SAME AS BEFORE (NO CHANGES NEEDED)
+/* ------------------------------------------------- STYLES ------------------------------------------------- */
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   container: { flex: 1, paddingHorizontal: 14, paddingTop: 10, backgroundColor: C.bg },
@@ -865,216 +848,71 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: "row", gap: 10, alignItems: "center" },
   addNewBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: C.grayBtn },
   addNewText: { color: C.text, fontWeight: "600" },
-  attachBtn: { padding: 8, position: 'relative' },
+  attachBtn: { padding: 8, position: "relative" },
   attachmentBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     right: 0,
     backgroundColor: C.red,
     borderRadius: 8,
     minWidth: 16,
     height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 4,
   },
-  attachmentBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
+  attachmentBadgeText: { color: "#fff", fontSize: 10, fontWeight: "bold" },
   card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10 },
-  input: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: C.text, marginBottom: 10, backgroundColor: "#FFFFFF" },
+  input: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: C.text, marginBottom: 10, backgroundColor: "#fff" },
   textArea: { minHeight: 90, textAlignVertical: "top" },
   row2: { flexDirection: "row", gap: 10, marginBottom: 10 },
   half: { flex: 1, marginBottom: 0 },
   saveBtn: { backgroundColor: C.blue, borderRadius: 10, paddingVertical: 14, alignItems: "center" },
   disabledBtn: { opacity: 0.6 },
-  saveBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
-  
-  // Modal Styles
+  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+
+  /* Modals */
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
-  
-  // File Modal Styles
-  fileModal: { 
-    backgroundColor: "#FFFFFF", 
-    borderRadius: 16, 
-    padding: 0,
-    width: "90%", 
-    maxWidth: 400, 
-    maxHeight: "80%",
-    overflow: "hidden"
-  },
-  fileModalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  fileModalTitle: { 
-    fontSize: 18, 
-    fontWeight: "700", 
-    color: C.text 
-  },
-  fileModalCloseBtn: {
-    padding: 4,
-  },
-  
-  // Section Styles
-  selectedFilesSection: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  uploadedFilesSection: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: C.text,
-  },
-  fileCount: {
-    fontSize: 14,
-    color: C.hint,
-  },
-  
-  // File List Containers
-  selectedFilesContainer: {
-    maxHeight: 150,
-  },
-  uploadedFilesContainer: {
-    maxHeight: 120,
-  },
-  selectedFilesList: {
-    flexGrow: 0,
-  },
-  uploadedFilesList: {
-    flexGrow: 0,
-  },
-  
-  // File Item Styles
-  selectedFileItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#F8FAFC",
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  uploadedFileItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#F0F9FF",
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  fileInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  fileDetails: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  selectedFileName: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: C.text,
-    marginBottom: 2,
-  },
-  uploadedFileName: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: C.text,
-    marginBottom: 2,
-  },
-  fileSize: {
-    fontSize: 12,
-    color: C.hint,
-  },
-  fileUploadDate: {
-    fontSize: 12,
-    color: C.hint,
-  },
-  removeFileBtn: {
-    padding: 4,
-  },
-  
-  // Empty State
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: 30,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: C.hint,
-    marginTop: 8,
-    fontWeight: "500",
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: C.hint,
-    marginTop: 4,
-  },
-  
-  // Action Buttons
-  fileModalActions: {
-    flexDirection: "row",
-    padding: 20,
-    gap: 12,
-  },
-  fileModalBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    borderRadius: 10,
-    gap: 8,
-  },
-  fileSelectBtn: {
-    backgroundColor: C.grayBtn,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  uploadBtn: {
-    backgroundColor: C.green,
-  },
-  fileSelectText: {
-    color: C.text,
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  uploadBtnText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  
-  // Other Modal Styles
-  successModal: { backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, alignItems: "center", width: "80%" },
-  errorModal: { backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, alignItems: "center", width: "80%" },
+
+  /* File Modal */
+  fileModal: { backgroundColor: "#fff", borderRadius: 16, padding: 0, width: "90%", maxWidth: 400, maxHeight: "80%", overflow: "hidden" },
+  fileModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: C.border },
+  fileModalTitle: { fontSize: 18, fontWeight: "700", color: C.text },
+  fileModalCloseBtn: { padding: 4 },
+  selectedFilesSection: { padding: 20, borderBottomWidth: 1, borderBottomColor: C.border },
+  uploadedFilesSection: { padding: 20, borderBottomWidth: 1, borderBottomColor: C.border },
+  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: "600", color: C.text },
+  fileCount: { fontSize: 14, color: C.hint },
+  selectedFilesContainer: { maxHeight: 150 },
+  uploadedFilesContainer: { maxHeight: 120 },
+  selectedFilesList: { flexGrow: 0 },
+  uploadedFilesList: { flexGrow: 0 },
+  selectedFileItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, paddingHorizontal: 12, backgroundColor: "#F8FAFC", borderRadius: 8, marginBottom: 8 },
+  uploadedFileItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, paddingHorizontal: 12, backgroundColor: "#F0F9FF", borderRadius: 8, marginBottom: 8 },
+  fileInfo: { flexDirection: "row", alignItems: "center", flex: 1 },
+  fileDetails: { marginLeft: 12, flex: 1 },
+  selectedFileName: { fontSize: 14, fontWeight: "500", color: C.text, marginBottom: 2 },
+  uploadedFileName: { fontSize: 14, fontWeight: "500", color: C.text, marginBottom: 2 },
+  fileSize: { fontSize: 12, color: C.hint },
+  fileUploadDate: { fontSize: 12, color: C.hint },
+  removeFileBtn: { padding: 4 },
+  emptyState: { alignItems: "center", paddingVertical: 30 },
+  emptyStateText: { fontSize: 16, color: C.hint, marginTop: 8, fontWeight: "500" },
+  emptyStateSubtext: { fontSize: 14, color: C.hint, marginTop: 4 },
+  fileModalActions: { flexDirection: "row", padding: 20, gap: 12 },
+  fileModalBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, borderRadius: 10, gap: 8 },
+  fileSelectBtn: { backgroundColor: C.grayBtn, borderWidth: 1, borderColor: C.border },
+  uploadBtn: { backgroundColor: C.green },
+  fileSelectText: { color: C.text, fontWeight: "600", fontSize: 14 },
+  uploadBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+
+  successModal: { backgroundColor: "#fff", borderRadius: 16, padding: 24, alignItems: "center", width: "80%" },
+  errorModal: { backgroundColor: "#fff", borderRadius: 16, padding: 24, alignItems: "center", width: "80%" },
   modalTitle: { fontSize: 16, fontWeight: "600", color: C.text, textAlign: "center", marginBottom: 20 },
   modalButton: { backgroundColor: C.blue, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
-  modalButtonText: { color: "#FFFFFF", fontWeight: "600" },
-  confirmationModal: { backgroundColor: "#FFFFFF", borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, alignItems: "center" },
+  modalButtonText: { color: "#fff", fontWeight: "600" },
+  confirmationModal: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, alignItems: "center" },
   confirmationTitle: { fontSize: 20, fontWeight: "700", color: "#111827", marginBottom: 12 },
   confirmationMessage: { fontSize: 15, color: "#6B7280", textAlign: "center", lineHeight: 20, marginBottom: 24 },
   confirmationButtons: { flexDirection: "row", gap: 12, width: "100%" },
@@ -1082,7 +920,7 @@ const styles = StyleSheet.create({
   cancelButton: { backgroundColor: "#F3F4F6", borderWidth: 1, borderColor: "#E5E7EB" },
   confirmButton: { backgroundColor: "#2151F5" },
   cancelButtonText: { color: "#374151", fontWeight: "600", fontSize: 15 },
-  confirmButtonText: { color: "#FFFFFF", fontWeight: "600", fontSize: 15 },
+  confirmButtonText: { color: "#fff", fontWeight: "600", fontSize: 15 },
 });
 
 const styles_sales = StyleSheet.create({
@@ -1112,4 +950,9 @@ const styles_scan = StyleSheet.create({
   fullscreenCloseBtn: { height: 28, width: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center" },
   fullscreenBottomBar: { position: "absolute", bottom: 24, left: 16, right: 16, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.55)", paddingVertical: 10, alignItems: "center" },
   fullscreenHint: { color: "#fff", fontSize: 12 },
+
+  /* Scan-again button (new) */
+  scanAgainBtn: { position: "absolute", bottom: 80, left: 16, right: 16, alignItems: "center" },
+  scanAgainInner: { flexDirection: "row", backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center", gap: 8 },
+  scanAgainText: { color: "#fff", fontWeight: "600", fontSize: 14 },
 });
