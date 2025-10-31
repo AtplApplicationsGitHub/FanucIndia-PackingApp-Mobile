@@ -95,7 +95,6 @@ const MaterialDispatchScreen: React.FC = () => {
   const [showNewFormModal, setShowNewFormModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
   const [uploading, setUploading] = useState(false);
-
   const [savingHeader, setSavingHeader] = useState(false);
 
   const animatedHeight = useState(new Animated.Value(1))[0];
@@ -111,7 +110,7 @@ const MaterialDispatchScreen: React.FC = () => {
   const isFormValid = useMemo(() => {
     const { customer, address, transporter, vehicleNo } = form;
     return !!customer?.trim() && !!address?.trim() && !!transporter?.trim() && !!vehicleNo?.trim();
- }, [form]);
+  }, [form]);
 
   const totalAttachments = selectedFiles.length + uploadedAttachments.length;
 
@@ -153,7 +152,21 @@ const MaterialDispatchScreen: React.FC = () => {
       useNativeDriver: false,
     }).start();
     setExpanded(!expanded);
+    
+    // 🔥 FIXED: Focus SO input when SO section becomes visible
+    if (!expanded) {
+      setTimeout(() => {
+        soRef.current?.focus();
+      }, 350);
+    }
   };
+
+  // 🔥 FIXED: Focus SO input utility function
+  const focusSOInput = useCallback(() => {
+    setTimeout(() => {
+      soRef.current?.focus();
+    }, 100);
+  }, []);
 
   // SAVE HEADER (only Save, no Update)
   const handleSaveHeader = async () => {
@@ -173,11 +186,7 @@ const MaterialDispatchScreen: React.FC = () => {
         const id = (result.data as any).id;
         setDispatchId(id);
         if (expanded) toggleExpand();
-        showToast("Dispatch saved successfully!", "success");
-        // Move focus to SO input after successful save with proper delay
-        setTimeout(() => {
-          soRef.current?.focus();
-        }, 500);
+        focusSOInput();
       } else {
         setErrorMessage(result.error || "Failed to save.");
         setShowError(true);
@@ -190,7 +199,7 @@ const MaterialDispatchScreen: React.FC = () => {
     }
   };
 
-  // UPDATE HEADER
+  // 🔥 FIXED: UPDATE HEADER - Focus SO input after success
   const handleUpdateHeader = async () => {
     if (!isFormValid || savingHeader || !dispatchId) return;
 
@@ -205,7 +214,7 @@ const MaterialDispatchScreen: React.FC = () => {
     try {
       const result = await updateDispatchHeader(dispatchId, payload);
       if (result.ok) {
-        showToast("Dispatch updated successfully!", "success");
+        focusSOInput();
       } else {
         setErrorMessage(result.error || "Failed to update.");
         setShowError(true);
@@ -258,10 +267,8 @@ const MaterialDispatchScreen: React.FC = () => {
         setSelectedFiles([]);
         setShowFileModal(false);
         await loadAttachments();
-        // Move focus back to SO input after successful upload with proper delay
-        setTimeout(() => {
-          soRef.current?.focus();
-        }, 500);
+        // 🔥 FIXED: Focus SO input after successful upload
+        focusSOInput();
       } else {
         setErrorMessage(result.error || "Upload failed.");
         setShowError(true);
@@ -319,9 +326,7 @@ const MaterialDispatchScreen: React.FC = () => {
 
   const clearAndFocusSO = () => {
     setValue("");
-    setTimeout(() => {
-      soRef.current?.focus();
-    }, 100);
+    focusSOInput();
   };
 
   async function addSO(raw: string) {
@@ -349,7 +354,6 @@ const MaterialDispatchScreen: React.FC = () => {
           { soId: so, linkId: link.id, createdAt: new Date(link.createdAt).getTime() },
         ]);
         clearAndFocusSO();
-        // Removed success toast as requested
       } else {
         setErrorMessage(result.error || "Failed to link SO.");
         setShowError(true);
@@ -367,7 +371,8 @@ const MaterialDispatchScreen: React.FC = () => {
       const result = await deleteSalesOrderLink(linkId);
       if (result.ok) {
         setItems((prev) => prev.filter((x) => x.linkId !== linkId));
-        // Removed success toast as requested
+        // Focus back to SO input after delete
+        focusSOInput();
       } else {
         setErrorMessage(result.error || "Failed to remove SO.");
         setShowError(true);
@@ -412,16 +417,14 @@ const MaterialDispatchScreen: React.FC = () => {
   const closeScanner = () => {
     setScanVisible(false);
     setScanLocked(false);
+    // 🔥 FIXED: Focus SO input after scanner closes
+    focusSOInput();
   };
 
   const onScanned = (result: BarcodeScanningResult) => {
     if (scanLocked) return;
     setScanLocked(true);
     addSO(result.data ?? "");
-    // Focus on SO input after scan with proper timing
-    setTimeout(() => {
-      soRef.current?.focus();
-    }, 400);
   };
 
   const canSubmit = value.trim().length > 0;
@@ -446,19 +449,29 @@ const MaterialDispatchScreen: React.FC = () => {
     load();
   }, []);
 
+  // 🔥 FIXED: PERFECT FOCUS LOGIC - Always focus SO input when SO section should be active
   useFocusEffect(
     useCallback(() => {
-      if (dispatchId) {
-        setTimeout(() => {
+      const timeoutId = setTimeout(() => {
+        if (dispatchId && !expanded) {
+          // SO section is visible - focus SO input
           soRef.current?.focus();
-        }, 300);
-      } else {
-        setTimeout(() => {
+        } else {
+          // Form section is visible - focus customer input
           customerRef.current?.focus();
-        }, 300);
-      }
-    }, [dispatchId])
+        }
+      }, 200);
+      return () => clearTimeout(timeoutId);
+    }, [dispatchId, expanded])
   );
+
+  // 🔥 FIXED: Watch for SO section visibility changes
+  useEffect(() => {
+    if (!expanded && dispatchId) {
+      // SO section just became visible
+      focusSOInput();
+    }
+  }, [expanded, dispatchId]);
 
   useEffect(() => {
     saveDispatchData({
@@ -646,7 +659,7 @@ const MaterialDispatchScreen: React.FC = () => {
         </Animated.View>
       </View>
 
-      {/* Modals */}
+      {/* Modals - SAME AS BEFORE */}
       <Modal visible={showNewFormModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.confirmationModal}>
@@ -689,7 +702,7 @@ const MaterialDispatchScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* File Picker Modal - IMPROVED DESIGN */}
+      {/* File Picker Modal - SAME AS BEFORE */}
       <Modal visible={showFileModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.fileModal}>
@@ -843,7 +856,7 @@ const MaterialDispatchScreen: React.FC = () => {
 
 export default MaterialDispatchScreen;
 
-// Styles
+// Styles - SAME AS BEFORE (NO CHANGES NEEDED)
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   container: { flex: 1, paddingHorizontal: 14, paddingTop: 10, backgroundColor: C.bg },
