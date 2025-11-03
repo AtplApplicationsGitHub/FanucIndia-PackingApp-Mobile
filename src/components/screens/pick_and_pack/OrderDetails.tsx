@@ -261,7 +261,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     );
 
     if (idx === -1) {
-      openDialog("Not Found", "Material code not in this order.", "danger");
+      openDialog("Invalid Material Code", "", "danger");
       setCode("");
       return;
     }
@@ -761,22 +761,22 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                       {String(descModal.data?.packedQty ?? 0)}
                     </Text>
                   </View>
-                  {/* {descModal.data?.issuedAt && (
+                  {descModal.data?.issuedAt && (
                     <View style={styles.infoCardSmall}>
                       <Text style={styles.infoSmallLabel}>Issued At</Text>
                       <Text style={styles.infoSmallValue}>
                         {new Date(descModal.data.issuedAt).toLocaleString()}
                       </Text>
                     </View>
-                  )} */}
-                  {/* {descModal.data?.packedAt && (
+                  )}
+                  {descModal.data?.packedAt && (
                     <View style={styles.infoCardSmall}>
                       <Text style={styles.infoSmallLabel}>Packed At</Text>
                       <Text style={styles.infoSmallValue}>
                         {new Date(descModal.data.packedAt).toLocaleString()}
                       </Text>
                     </View>
-                  )} */}
+                  )}
                 </View>
               </View>
             </View>

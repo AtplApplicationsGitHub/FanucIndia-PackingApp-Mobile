@@ -67,6 +67,17 @@ const toStr = (v: any, d = "-") =>
 /** Convert local item to server format with timestamps */
 function normalizeForUpload(item: StoredMaterialItem) {
   const it: any = item;
+  const req = it.requiredQty ?? 0;
+
+  const issuedDone = (it.issuedQty ?? 0) >= req && !!it.issuedAt;
+  const packedDone = (it.packedQty ?? 0) >= req && !!it.packedAt;
+
+  // Prefer packed (later stage) if both are complete
+  const updatedDate =
+    packedDone ? it.packedAt :
+    issuedDone ? it.issuedAt :
+    null;
+
   return {
     Material_Code: toStr(it.materialCode, ""),
     Material_Description: toStr(it.description, ""),
@@ -78,17 +89,10 @@ function normalizeForUpload(item: StoredMaterialItem) {
     Required_Qty: toNum(it.requiredQty, 0),
     Issue_stage: toNum(it.issuedQty, 0),
     Packing_stage: toNum(it.packedQty, 0),
-    // Add timestamps only if stage is complete
-    UpdatedDate:
-      (it.issuedQty ?? 0) >= it.requiredQty && it.issuedAt
-        ? it.issuedAt
-        : null,
-    UpdatedDate:
-      (it.packedQty ?? 0) >= it.requiredQty && it.packedAt
-        ? it.packedAt
-        : null,
+    UpdatedDate: updatedDate,
   };
 }
+
 
 // ---------------- API: GET list ----------------
 export async function fetchOrdersSummary(

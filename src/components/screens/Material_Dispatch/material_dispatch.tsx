@@ -217,32 +217,32 @@ const MaterialDispatchScreen: React.FC = () => {
   };
 
   const handleUpdateHeader = async () => {
-    if (!isFormValid || savingHeader || !dispatchId) return;
+  if (!isFormValid || savingHeader || !dispatchId) return;
 
-    setSavingHeader(true);
-    const payload: UpdateDispatchHeaderRequest = {
-      customerName: form.customer.trim(),
-      transporterName: form.transporter.trim(),
-      address: form.address.trim(),
-      vehicleNumber: form.vehicleNo.trim(),
-    };
-
-    try {
-      const result = await updateDispatchHeader(dispatchId, payload);
-      if (result.ok) {
-        focusSOInput();
-      } else {
-        setErrorMessage(result.error || "Failed to update.");
-        setShowError(true);
-      }
-    } catch {
-      setErrorMessage("Network error. Please try again.");
-      setShowError(true);
-    } finally {
-      setSavingHeader(false);
-    }
+  setSavingHeader(true);
+  const payload: UpdateDispatchHeaderRequest = {
+    customerName: form.customer.trim(),
+    transporterName: form.transporter.trim(),
+    address: form.address.trim(),
+    vehicleNumber: form.vehicleNo.trim(),
   };
 
+  try {
+    const result = await updateDispatchHeader(dispatchId, payload);
+    if (result.ok) {
+      showToast("Updated successfully!", "success"); // This line
+      focusSOInput();
+    } else {
+      setErrorMessage(result.error || "Failed to update.");
+      setShowError(true);
+    }
+  } catch {
+    setErrorMessage("Network error. Please try again.");
+    setShowError(true);
+  } finally {
+    setSavingHeader(false);
+  }
+};
   /* ------------------- FILE PICKER ------------------- */
   const openFilePicker = () => {
     if (!dispatchId) {
