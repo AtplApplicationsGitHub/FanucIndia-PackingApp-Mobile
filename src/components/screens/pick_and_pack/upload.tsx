@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect, useMemo, useEffect } from "react";
+import React, { useState, useLayoutEffect, useMemo, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,6 @@ import {
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
-import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
 
 import {
@@ -36,7 +35,8 @@ interface FileItem {
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const BUTTON_WIDTH = 140;               // <-- same size for both buttons
+const BUTTON_WIDTH = 140;
+const DEBOUNCE_DELAY = 800; // ms
 
 export default function AttachmentScreen() {
   const route = useRoute();
@@ -50,16 +50,15 @@ export default function AttachmentScreen() {
   }, [navigation, saleOrderNumber]);
 
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [existingAttachments, setExistingAttachments] = useState<
-    AttachmentItem[]
-  >([]);
+  const [existingAttachments, setExistingAttachments] = useState<AttachmentItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
   const [modalMessage, setModalMessage] = useState("");
-  const [dirtyDescriptions, setDirtyDescriptions] = useState<
-    Record<string, { original: string; current: string }>
-  >({});
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+
+  // Debounce timers for each file description
+  const debounceTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
 
   useEffect(() => {
     const loadExisting = async () => {
@@ -81,27 +80,18 @@ export default function AttachmentScreen() {
     () =>
       existingAttachments.map((att) => {
         const uniqueId = att.id || att.uri;
-        const dirtyState = dirtyDescriptions[uniqueId];
-        const currentDescription = dirtyState
-          ? dirtyState.current
-          : att.description || "";
-        const isDirty = dirtyState
-          ? dirtyState.current !== dirtyState.original
-          : false;
-
         return {
           id: uniqueId,
           dbId: att.id,
           name: att.name,
-          description: currentDescription,
+          description: att.description || "",
           status: "Uploaded" as const,
           uri: att.uri,
           mimeType: att.type,
           timestamp: 0,
-          isDirty,
         };
       }),
-    [existingAttachments, dirtyDescriptions]
+    [existingAttachments]
   );
 
   const displayFiles = useMemo(
@@ -251,25 +241,59 @@ export default function AttachmentScreen() {
         )
       );
     } else {
-      setDirtyDescriptions((prev) => {
-        const originalItem = existingAttachments.find(
-          (att) => (att.id || att.uri) === id
-        );
-        const originalDescription = originalItem?.description || "";
+      // For existing files, update local state immediately
+      setExistingAttachments((prev) =>
+        prev.map((att) => {
+          const uniqueId = att.id || att.uri;
+          if (uniqueId === id) {
+            return { ...att, description: newDescription };
+          }
+          return att;
+        })
+      );
+    }
+  };
 
-        if (newDescription === originalDescription) {
-          const { [id]: _, ...rest } = prev;
-          return rest;
-        } else {
-          return {
-            ...prev,
-            [id]: {
-              original: prev[id]?.original ?? originalDescription,
-              current: newDescription,
-            },
-          };
-        }
+  const saveDescription = async (dbId: string, description: string, itemId: string) => {
+    if (savingIds.has(itemId)) return;
+
+    setSavingIds((prev) => new Set(prev).add(itemId));
+
+    try {
+      await updateAttachmentDescription(dbId, description.trim());
+      // Optionally show success (silent success)
+    } catch (error: any) {
+      console.error("Failed to update description:", error);
+      // Revert on failure
+      await loadExistingAttachments();
+      setModalTitle("Update Failed");
+      setModalMessage(
+        error?.message || "Could not save description. Reverted to original."
+      );
+      setModalVisible(true);
+    } finally {
+      setSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
       });
+    }
+  };
+
+  const handleDescriptionChange = (item: FileItem, text: string) => {
+    updateFileDescription(item.id, text);
+
+    // Only auto-save for uploaded existing files
+    if (item.status === "Uploaded" && item.dbId) {
+      // Clear previous timer
+      if (debounceTimerRef.current[item.id]) {
+        clearTimeout(debounceTimerRef.current[item.id]);
+      }
+
+      // Set new debounced save
+      debounceTimerRef.current[item.id] = setTimeout(() => {
+        saveDescription(item.dbId!, text, item.id);
+      }, DEBOUNCE_DELAY);
     }
   };
 
@@ -301,96 +325,50 @@ export default function AttachmentScreen() {
 
   const pendingCount = files.filter((f) => f.status === "Pending").length;
 
-  const handleUpdateDescription = async (
-    item: FileItem,
-    newDescription: string
-  ) => {
-    const uniqueId = item.id;
-    const dirtyState = dirtyDescriptions[uniqueId];
+  const renderItem = ({ item, index }: { item: FileItem; index: number }) => {
+    const isSaving = savingIds.has(item.id);
 
-    if (
-      item.status !== "Uploaded" ||
-      !item.dbId ||
-      !dirtyState ||
-      !item.isDirty
-    ) {
-      return;
-    }
-
-    try {
-      await updateAttachmentDescription(item.dbId, newDescription.trim());
-
-      setDirtyDescriptions((prev) => {
-        const { [uniqueId]: _, ...rest } = prev;
-        return rest;
-      });
-
-      await loadExistingAttachments();
-    } catch (error: any) {
-      console.error("Failed to update description:", error);
-      setModalTitle("Update Failed");
-      setModalMessage(
-        error?.message || "Could not update the description. Please try again."
-      );
-      setModalVisible(true);
-    }
-  };
-
-  const renderItem = ({ item, index }: { item: FileItem; index: number }) => (
-    <View style={styles.row}>
-      <Text style={styles.cellSNo}>{index + 1}</Text>
-      <Text style={styles.cellName} numberOfLines={1} ellipsizeMode="tail">
-        {item.name}
-      </Text>
-      <TextInput
-        style={[styles.cellDescription, styles.input]}
-        placeholder="Enter description"
-        value={item.description}
-        onChangeText={(text) => {
-          if (!uploading) {
-            updateFileDescription(item.id, text);
-          }
-        }}
-        editable={
-          !uploading &&
-          (item.status === "Pending" || item.status === "Uploaded")
-        }
-        onEndEditing={(e) => handleUpdateDescription(item, e.nativeEvent.text)}
-        onSubmitEditing={() => handleUpdateDescription(item, item.description)}
-        returnKeyType="done"
-        blurOnSubmit={true}
-      />
-      <View style={styles.actionsCell}>
-        {item.status === "Uploaded" && (
-          <TouchableOpacity
-            onPress={() => handleUpdateDescription(item, item.description)}
-            disabled={!item.isDirty || uploading}
-          >
-            <Ionicons
-              name="save-outline"
-              size={22}
-              color={!item.isDirty || uploading ? "#B0BEC5" : "#2196F3"}
-              style={{ opacity: !item.isDirty || uploading ? 0.5 : 1 }}
-            />
-          </TouchableOpacity>
-        )}
-      </View>
-      <View style={styles.statusCell}>
-        <Text style={{ color: getStatusColor(item.status), fontSize: 12 }}>
-          {getStatusText(item.status)}
+    return (
+      <View style={styles.row}>
+        <Text style={styles.cellSNo}>{index + 1}</Text>
+        <Text style={styles.cellName} numberOfLines={1} ellipsizeMode="tail">
+          {item.name}
         </Text>
-        {item.status === "Pending" && (
-          <TouchableOpacity
-            style={styles.removeButton}
-            onPress={() => removeFile(item.id)}
-            disabled={uploading}
-          >
-            <Ionicons name="close-circle" size={16} color="#F44336" />
-          </TouchableOpacity>
-        )}
+        <View style={styles.descriptionContainer}>
+          <TextInput
+            style={[styles.cellDescription, styles.input]}
+            placeholder="Enter description"
+            value={item.description}
+            onChangeText={(text) => handleDescriptionChange(item, text)}
+            editable={!uploading && (item.status === "Pending" || item.status === "Uploaded")}
+            returnKeyType="done"
+            blurOnSubmit={true}
+          />
+          {isSaving && (
+            <ActivityIndicator
+              size={14}
+              color="#2196F3"
+              style={styles.savingIndicator}
+            />
+          )}
+        </View>
+        <View style={styles.statusCell}>
+          <Text style={{ color: getStatusColor(item.status), fontSize: 12 }}>
+            {getStatusText(item.status)}
+          </Text>
+          {item.status === "Pending" && (
+            <TouchableOpacity
+              style={styles.removeButton}
+              onPress={() => removeFile(item.id)}
+              disabled={uploading}
+            >
+              <Ionicons name="close-circle" size={16} color="#F44336" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -502,7 +480,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
-  /* Base for both buttons (same width & height) */
   fixedButton: {
     width: BUTTON_WIDTH,
     flexDirection: "row",
@@ -517,7 +494,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  /* NEW FILES BUTTON */
   addButton: {
     borderWidth: 1,
     borderStyle: "dashed",
@@ -525,7 +501,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
-  /* UPLOAD BUTTON */
   uploadButton: {
     backgroundColor: "#2196F3",
   },
@@ -591,21 +566,22 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
     color: "#424242",
   },
-  cellDescription: {
+  descriptionContainer: {
     flex: 4,
+    flexDirection: "row",
+    alignItems: "center",
     paddingLeft: 8,
+  },
+  cellDescription: {
+    flex: 1,
   },
   input: {
     fontSize: 12,
     paddingHorizontal: 8,
     height: 40,
-    textAlignVertical: "center",
   },
-  actionsCell: {
-    flex: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
+  savingIndicator: {
+    marginLeft: 6,
   },
   statusCell: {
     flex: 2,
