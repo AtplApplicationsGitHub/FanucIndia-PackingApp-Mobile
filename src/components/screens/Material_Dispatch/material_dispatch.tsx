@@ -42,7 +42,7 @@ import {
   type LinkDispatchSORequest,
   type ApiResult,
   type DispatchAttachment,
-} from "../../Api/material_dispatch_server";
+} from "../../Api/Hooks/material_dispatch_server";
 import {
   loadDispatchData,
   saveDispatchData,

@@ -1,4 +1,4 @@
-import { API_ENDPOINTS } from "./api";
+import { API_ENDPOINTS } from "../Endpoints";
 
 // const BASE_URL = "https://fanuc.goval.app:444/api";
 // const MOBILE_LOGIN_URL = `${BASE_URL}/auth/mobile-login`;

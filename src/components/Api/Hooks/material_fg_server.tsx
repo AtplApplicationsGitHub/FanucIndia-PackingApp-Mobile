@@ -1,8 +1,6 @@
 import * as SecureStore from "expo-secure-store";
-import { API_ENDPOINTS } from "./api";
+import { API_ENDPOINTS } from "../Endpoints";
 
-// export const BASE_URL = "https://fanuc.goval.app:444/api";
-// const ASSIGN_LOCATION_URL = `${BASE_URL}/fg-storage/assign-location`;
 
 export type AssignLocationRequest = {
   saleOrderNumber: string;

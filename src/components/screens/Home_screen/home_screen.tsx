@@ -18,7 +18,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 
 type MenuItem = {
-  id: "pick" | "transfer" | "dispatch";
+  id: "pick" | "transfer" | "dispatch" | "customer";
   title: string;
   subtitle: string;
   iconName: string;
@@ -52,7 +52,15 @@ const MENU: MenuItem[] = [
     subtitle: "Ready for shipment",
     iconName: "truck-outline",
   },
+  {
+    id: "customer",
+    title: "Customer Label Print",
+    subtitle: "Print customer labels",
+    iconName: "printer-outline",   // ← Updated icon
+  },
 ];
+
+
 
 function pickBestName(input?: {
   displayName?: string;
@@ -133,18 +141,29 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [route?.params]);
 
   const onPressItem = (item: MenuItem) => () => {
-    switch (item.id) {
-      case "pick":
-        navigation.navigate("PickAndPack");
-        break;
-      case "transfer":
-        navigation.navigate("MaterialFG");
-        break;
-      case "dispatch":
-        navigation.navigate("MaterialDispatch");
-        break;
-    }
-  };
+  switch (item.id) {
+    case "pick":
+      navigation.navigate("PickAndPack");
+      break;
+
+    case "transfer":
+      navigation.navigate("MaterialFG");
+      break;
+
+    case "dispatch":
+      navigation.navigate("MaterialDispatch");
+      break;
+
+    case "customer":   // ✅ FIXED missing colon
+      navigation.navigate("LabelPrint");   // ✅ Navigate to Label Print screen
+      break;
+
+    default:
+      console.warn("Unknown menu item:", item.id);
+      break;
+  }
+};
+
 
   const onLogout = async () => {
     try {

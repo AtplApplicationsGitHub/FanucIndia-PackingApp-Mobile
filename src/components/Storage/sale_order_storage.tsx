@@ -15,7 +15,6 @@ export type StoredMaterialItem = {
   requiredQty: number;
   issuedQty: number;
   packedQty: number;
-  // Timestamps in ISO 8601 format (UTC)
   issuedAt?: string;   // e.g., "2025-10-30T08:35:10.000Z"
   packedAt?: string;   // e.g., "2025-10-30T09:00:00.000Z"
 };
