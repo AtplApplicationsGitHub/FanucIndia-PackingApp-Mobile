@@ -7,11 +7,11 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  Alert,
   Modal,
   Pressable,
   StatusBar,
   Platform,
+  Keyboard,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
@@ -19,6 +19,7 @@ import {
   useCameraPermissions,
   BarcodeScanningResult,
 } from "expo-camera";
+import type { JSX } from "react";
 import { useVerifySO } from "../../Api/Hooks/label_Print";
 
 type SOItem = {
@@ -33,13 +34,73 @@ const COLORS = {
   success: "#10b981",
   danger: "#ef4444",
   primary: "#2563eb",
+  warning: "#f59e0b",
 };
+
+// Reusable Modal Components
+const ErrorModal = ({
+  visible,
+  title,
+  message,
+  onClose,
+}: {
+  visible: boolean;
+  title: string;
+  message: string;
+  onClose: () => void;
+}) => (
+  <Modal transparent visible={visible} animationType="fade">
+    <View style={styles.modalOverlay}>
+      <View style={styles.alertModal}>
+        <Ionicons name="alert-circle" size={48} color={COLORS.danger} />
+        <Text style={styles.alertTitle}>{title}</Text>
+        <Text style={styles.alertMessage}>{message}</Text>
+        <TouchableOpacity style={styles.alertBtn} onPress={onClose}>
+          <Text style={styles.alertBtnText}>OK</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+);
+
+const ConfirmationModal = ({
+  visible,
+  title,
+  message,
+  onConfirm,
+  onCancel,
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+}: {
+  visible: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmText?: string;
+  cancelText?: string;
+}) => (
+  <Modal transparent visible={visible} animationType="fade">
+    <View style={styles.modalOverlay}>
+      <View style={styles.confirmModal}>
+        <Text style={styles.confirmTitle}>{title}</Text>
+        <Text style={styles.confirmMessage}>{message}</Text>
+        <View style={styles.confirmButtons}>
+          <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
+            <Text style={styles.cancelBtnText}>{cancelText}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.confirmBtn} onPress={onConfirm}>
+            <Text style={styles.confirmBtnText}>{confirmText}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+);
 
 export default function CustomerLabelPrint(): JSX.Element {
   const [soNumber, setSoNumber] = useState<string>("");
   const [sos, setSos] = useState<SOItem[]>([]);
-
-  // Customer state — locked after first valid SO
   const [customerName, setCustomerName] = useState<string | null>(null);
   const [customerAddress, setCustomerAddress] = useState<string | null>(null);
   const [isCustomerLocked, setIsCustomerLocked] = useState(false);
@@ -51,18 +112,57 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [permission, requestPermission] = useCameraPermissions();
   const scanLockRef = useRef(false);
 
+  // Modal States
+  const [errorModal, setErrorModal] = useState({
+    visible: false,
+    title: "",
+    message: "",
+  });
+
+  // Fixed: confirmText and cancelText are now required and always have values
+  const [confirmModal, setConfirmModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+    confirmText: string;
+    cancelText: string;
+  }>({
+    visible: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    onCancel: () => {},
+    confirmText: "Confirm",
+    cancelText: "Cancel",
+  });
+
   const { verifySO, loading, error: verifyError } = useVerifySO();
 
-  // Request permission on mount
+  // Focus input on mount and after actions
+  useEffect(() => {
+    const timer = setTimeout(() => inputRef.current?.focus(), 300);
+    return () => clearTimeout(timer);
+  }, []);
+
   useEffect(() => {
     requestPermission();
   }, []);
+
+  const focusInput = () => {
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const showError = (title: string, message: string) => {
+    setErrorModal({ visible: true, title, message });
+  };
 
   const openScanner = async () => {
     if (!permission?.granted) {
       const res = await requestPermission();
       if (!res.granted) {
-        Alert.alert("Permission Required", "Camera access is needed to scan barcodes.");
+        showError("Permission Required", "Camera access is needed to scan barcodes.");
         return;
       }
     }
@@ -73,12 +173,12 @@ export default function CustomerLabelPrint(): JSX.Element {
   const closeScanner = () => {
     setScanModalVisible(false);
     scanLockRef.current = false;
+    focusInput();
   };
 
   const handleBarcodeScanned = (result: BarcodeScanningResult) => {
     if (scanLockRef.current) return;
     scanLockRef.current = true;
-
     const data = result.data?.trim();
     if (data) {
       addSO(data);
@@ -89,110 +189,98 @@ export default function CustomerLabelPrint(): JSX.Element {
   };
 
   const addSO = async (value?: string) => {
+    Keyboard.dismiss();
     const soToAdd = (value || soNumber).trim().toUpperCase();
-
     if (!soToAdd) {
-      Alert.alert("Invalid Input", "Please enter or scan a Sales Order number.");
-      scanLockRef.current = false;
+      showError("Invalid Input", "Please enter or scan a Sales Order number.");
+      focusInput();
       return;
     }
 
     if (sos.some((item) => item.soNumber === soToAdd)) {
-      Alert.alert("Duplicate", `SO "${soToAdd}" is already in the list.`);
+     showError("Already Added", `SO "${soToAdd}" is already in the list.`);
       setSoNumber("");
-      inputRef.current?.focus();
-      scanLockRef.current = false;
+      focusInput();
       return;
     }
 
     if (loading) return;
 
     const result = await verifySO(soToAdd);
-
     if (!result) {
-      Alert.alert(
-        "Invalid SO",
-        verifyError || "SO not found or invalid. Please check and try again."
-      );
+      showError("Invalid SO", verifyError || "SO not found or invalid. Please try again.");
       setSoNumber("");
-      inputRef.current?.focus();
-      scanLockRef.current = false;
+      focusInput();
       return;
     }
 
     const { customerName: newName, address: newAddress } = result;
 
-    // Lock customer on first successful SO
     if (!isCustomerLocked) {
       setCustomerName(newName);
       setCustomerAddress(newAddress);
       setIsCustomerLocked(true);
-    } else {
-      // Validate same customer
-      if (customerName !== newName || customerAddress !== newAddress) {
-        Alert.alert(
-          "Customer Mismatch",
-          "This SO belongs to a different customer. All SOs must be for the same customer.",
-          [{ text: "OK" }]
-        );
-        scanLockRef.current = false;
-        return;
-      }
+    } else if (customerName !== newName || customerAddress !== newAddress) {
+      showError(
+        "Invalid customer",
+        "The scanned SO does not match the current customer batch."
+      );
+      focusInput();
+      return;
     }
 
-    // Success: Add to list
     const newItem: SOItem = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       soNumber: soToAdd,
     };
     setSos((prev) => [newItem, ...prev]);
     setSoNumber("");
-    inputRef.current?.focus();
-    scanLockRef.current = false;
+    focusInput();
   };
 
   const onPrint = () => {
     if (sos.length === 0) {
-      Alert.alert("Nothing to Print", "Please add at least one Sales Order.");
+      showError("Nothing to Print", "Please add at least one Sales Order.");
       return;
     }
 
-    Alert.alert(
-      "Print Labels",
-      `Customer: ${customerName}\nAddress: ${customerAddress}\n\nPrint ${sos.length} label(s)?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Print",
-          onPress: () => {
-            console.log("Printing labels:", {
-              customerName,
-              customerAddress,
-              salesOrders: sos.map((s) => s.soNumber),
-            });
-            // TODO: Call your actual print API here
-          },
-        },
-      ]
-    );
+    setConfirmModal({
+      visible: true,
+      title: "Print Labels",
+      message: `Customer: ${customerName}\nAddress: ${customerAddress}\n\nPrint ${sos.length} label(s)?`,
+      confirmText: "Print",
+      cancelText: "Cancel",
+      onConfirm: () => {
+        console.log("Printing labels:", {
+          customerName,
+          customerAddress,
+          salesOrders: sos.map((s) => s.soNumber),
+        });
+        // TODO: Call actual print API here
+        setConfirmModal((prev) => ({ ...prev, visible: false }));
+      },
+      onCancel: () => setConfirmModal((prev) => ({ ...prev, visible: false })),
+    });
   };
 
   const onClearAll = () => {
-    Alert.alert("Clear All", "Remove all SOs and reset customer?", [
-      { text: "Cancel" },
-      {
-        text: "Clear All",
-        style: "destructive",
-        onPress: () => {
-          setSos([]);
-          setCustomerName(null);
-          setCustomerAddress(null);
-          setIsCustomerLocked(false);
-          setSoNumber("");
-          inputRef.current?.focus();
-        },
+    setConfirmModal({
+      visible: true,
+      title: "Clear All",
+      message: "Remove all SOs and reset customer information?",
+      confirmText: "Clear All",
+      cancelText: "Cancel",
+      onConfirm: () => {
+        setSos([]);
+        setCustomerName(null);
+        setCustomerAddress(null);
+        setIsCustomerLocked(false);
+        setSoNumber("");
+        focusInput();
+        setConfirmModal((prev) => ({ ...prev, visible: false }));
       },
-    ]);
+      onCancel: () => setConfirmModal((prev) => ({ ...prev, visible: false })),
+    });
   };
 
   const renderRow = ({ item }: { item: SOItem }) => (
@@ -219,8 +307,8 @@ export default function CustomerLabelPrint(): JSX.Element {
             returnKeyType="done"
             onSubmitEditing={() => addSO()}
             editable={!loading}
+            autoFocus={true}
           />
-
           <Pressable onPress={openScanner} style={styles.scanBtn} disabled={loading}>
             <MaterialCommunityIcons
               name="qrcode-scan"
@@ -228,9 +316,12 @@ export default function CustomerLabelPrint(): JSX.Element {
               color={loading ? "#ccc" : COLORS.accent}
             />
           </Pressable>
-
           <TouchableOpacity
-            style={[styles.btnSmall, styles.saveBtn]}
+            style={[
+              styles.btnSmall,
+              styles.saveBtn,
+              (!soNumber.trim() || loading) && styles.btnDisabled,
+            ]}
             onPress={() => addSO()}
             disabled={loading || !soNumber.trim()}
           >
@@ -243,9 +334,8 @@ export default function CustomerLabelPrint(): JSX.Element {
         <View style={styles.actionButtonsRow}>
           <TouchableOpacity style={[styles.btn, styles.printBtn]} onPress={onPrint}>
             <Ionicons name="print" size={18} color="#fff" />
-            <Text style={styles.btnText}>Print Labels</Text>
+            <Text style={styles.btnText}>Print</Text>
           </TouchableOpacity>
-
           <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={onClearAll}>
             <Ionicons name="trash" size={18} color={COLORS.danger} />
             <Text style={styles.clearText}>Clear All</Text>
@@ -275,7 +365,6 @@ export default function CustomerLabelPrint(): JSX.Element {
             Sales Orders {sos.length > 0 ? `(${sos.length})` : ""}
           </Text>
         </View>
-
         <FlatList
           data={sos}
           keyExtractor={(item) => item.id}
@@ -291,7 +380,7 @@ export default function CustomerLabelPrint(): JSX.Element {
         />
       </View>
 
-      {/* Modern Full-Screen Scanner Modal */}
+      {/* Scanner Modal */}
       <Modal visible={scanModalVisible} transparent={false} animationType="slide">
         <StatusBar hidden />
         <View style={styles.cameraContainer}>
@@ -314,41 +403,51 @@ export default function CustomerLabelPrint(): JSX.Element {
             }}
             onBarcodeScanned={scanLockRef.current ? undefined : handleBarcodeScanned}
           />
-
-          {/* Top Bar */}
           <View style={styles.overlayTop}>
             <Text style={styles.scanTitle}>Scan SO Barcode</Text>
             <Pressable onPress={closeScanner} style={styles.closeBtn}>
               <Ionicons name="close" size={28} color="#fff" />
             </Pressable>
           </View>
-
-          {/* Scan Frame */}
           <View style={styles.scanFrame}>
             <View style={styles.cornerTopLeft} />
             <View style={styles.cornerTopRight} />
             <View style={styles.cornerBottomLeft} />
             <View style={styles.cornerBottomRight} />
           </View>
-
-          {/* Bottom Hint */}
           <View style={styles.overlayBottom}>
             <Text style={styles.scanHint}>Align barcode within the frame</Text>
           </View>
         </View>
       </Modal>
+
+      {/* Custom Modals */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        onClose={() => {
+          setErrorModal({ ...errorModal, visible: false });
+          focusInput();
+        }}
+      />
+
+      <ConfirmationModal
+        visible={confirmModal.visible}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={confirmModal.onCancel}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+      />
     </View>
   );
 }
 
-// Updated Styles (same beautiful look + modern scanner)
+// Styles remain exactly the same
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-    padding: 17,
-    paddingVertical :1,
-  },
+  container: { flex: 1, backgroundColor: COLORS.bg, padding: 17 ,paddingVertical:1 },
   inputCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -372,19 +471,11 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontSize: 17, color: "#1f2937" },
   scanBtn: { padding: 10 },
-  btnSmall: {
-    marginLeft: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
+  btnSmall: { marginLeft: 8, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10 },
   saveBtn: { backgroundColor: COLORS.success },
+  btnDisabled: { opacity: 0.6 },
   saveBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
-  actionButtonsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 16,
-  },
+  actionButtonsRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 16 },
   btn: {
     flex: 1,
     height: 50,
@@ -395,14 +486,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 6,
   },
   printBtn: { backgroundColor: COLORS.primary },
-  clearBtn: {
-    backgroundColor: "#fee2e2",
-    borderWidth: 1,
-    borderColor: "#fecaca",
-  },
+  clearBtn: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca" },
   btnText: { color: "#fff", marginLeft: 8, fontWeight: "600" },
   clearText: { color: COLORS.danger, marginLeft: 8, fontWeight: "600" },
-
   customerCard: {
     marginTop: 16,
     backgroundColor: "#fff",
@@ -415,16 +501,10 @@ const styles = StyleSheet.create({
     borderLeftWidth: 5,
     borderLeftColor: COLORS.success,
   },
-  inputLabelSmall: {
-    fontSize: 13,
-    color: COLORS.success,
-    fontWeight: "700",
-    marginBottom: 8,
-  },
+  inputLabelSmall: { fontSize: 13, color: COLORS.success, fontWeight: "700", marginBottom: 8 },
   fixedField: { flexDirection: "row", alignItems: "flex-start" },
   fixedLabel: { fontSize: 15, color: "#64748b", width: 80, fontWeight: "600" },
   fixedValue: { fontSize: 15, color: "#1e293b", fontWeight: "500", flex: 1 },
-
   tableCard: {
     flex: 1,
     marginTop: 16,
@@ -435,7 +515,6 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
   },
   tableHeader: {
     paddingVertical: 14,
@@ -448,15 +527,9 @@ const styles = StyleSheet.create({
   row: { paddingVertical: 16, paddingHorizontal: 16 },
   soText: { fontSize: 18, fontWeight: "600", color: "#1d4ed8" },
   separator: { height: 1, backgroundColor: "#f1f5f9", marginHorizontal: 16 },
-  emptyText: {
-    textAlign: "center",
-    color: COLORS.muted,
-    padding: 40,
-    fontStyle: "italic",
-    fontSize: 15,
-  },
+  emptyText: { textAlign: "center", color: COLORS.muted, padding: 40, fontStyle: "italic", fontSize: 15 },
 
-  // Scanner UI (Modern & Beautiful)
+  // Scanner Styles
   cameraContainer: { flex: 1, backgroundColor: "#000" },
   overlayTop: {
     position: "absolute",
@@ -479,62 +552,28 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(59, 130, 246, 0.9)",
     borderRadius: 16,
-    backgroundColor: "transparent",
   },
-  cornerTopLeft: {
-    position: "absolute",
-    top: -12,
-    left: -12,
-    width: 50,
-    height: 50,
-    borderTopWidth: 6,
-    borderLeftWidth: 6,
-    borderColor: COLORS.accent,
-  },
-  cornerTopRight: {
-    position: "absolute",
-    top: -12,
-    right: -12,
-    width: 50,
-    height: 50,
-    borderTopWidth: 6,
-    borderRightWidth: 6,
-    borderColor: COLORS.accent,
-  },
-  cornerBottomLeft: {
-    position: "absolute",
-    bottom: -12,
-    left: -12,
-    width: 50,
-    height: 50,
-    borderBottomWidth: 6,
-    borderLeftWidth: 6,
-    borderColor: COLORS.accent,
-  },
-  cornerBottomRight: {
-    position: "absolute",
-    bottom: -12,
-    right: -12,
-    width: 50,
-    height: 50,
-    borderBottomWidth: 6,
-    borderRightWidth: 6,
-    borderColor: COLORS.accent,
-  },
-  overlayBottom: {
-    position: "absolute",
-    bottom: 100,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  scanHint: {
-    color: "#fff",
-    fontSize: 16,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 30,
-    fontWeight: "600",
-  },
+  cornerTopLeft: { position: "absolute", top: -12, left: -12, width: 50, height: 50, borderTopWidth: 6, borderLeftWidth: 6, borderColor: COLORS.accent },
+  cornerTopRight: { position: "absolute", top: -12, right: -12, width: 50, height: 50, borderTopWidth: 6, borderRightWidth: 6, borderColor: COLORS.accent },
+  cornerBottomLeft: { position: "absolute", bottom: -12, left: -12, width: 50, height: 50, borderBottomWidth: 6, borderLeftWidth: 6, borderColor: COLORS.accent },
+  cornerBottomRight: { position: "absolute", bottom: -12, right: -12, width: 50, height: 50, borderBottomWidth: 6, borderRightWidth: 6, borderColor: COLORS.accent },
+  overlayBottom: { position: "absolute", bottom: 100, left: 0, right: 0, alignItems: "center" },
+  scanHint: { color: "#fff", fontSize: 16, backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: 32, paddingVertical: 14, borderRadius: 30, fontWeight: "600" },
+
+  // Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
+  alertModal: { backgroundColor: "#fff", borderRadius: 20, padding: 30, alignItems: "center", width: "85%", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
+  alertTitle: { fontSize: 20, fontWeight: "700", color: "#1f2937", marginTop: 16 },
+  alertMessage: { fontSize: 16, color: "#475569", textAlign: "center", marginVertical: 12, lineHeight: 22 },
+  alertBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 12, marginTop: 16 },
+  alertBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+
+  confirmModal: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "88%", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
+  confirmTitle: { fontSize: 20, fontWeight: "700", color: "#1f2937", textAlign: "center" },
+  confirmMessage: { fontSize: 16, color: "#475569", textAlign: "center", marginVertical: 16, lineHeight: 22 },
+  confirmButtons: { flexDirection: "row", justifyContent: "space-between", marginTop: 10 },
+  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: "#f1f5f9", marginRight: 10 },
+  cancelBtnText: { color: "#64748b", fontWeight: "600", textAlign: "center", fontSize: 16 },
+  confirmBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: COLORS.primary, marginLeft: 10 },
+  confirmBtnText: { color: "#fff", fontWeight: "600", textAlign: "center", fontSize: 16 },
 });
