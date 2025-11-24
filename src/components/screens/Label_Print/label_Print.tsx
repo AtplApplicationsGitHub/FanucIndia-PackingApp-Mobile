@@ -1,5 +1,5 @@
 // src/screens/CustomerLabelPrint.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   StatusBar,
   Platform,
   Keyboard,
+  Alert,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
@@ -21,6 +22,7 @@ import {
 } from "expo-camera";
 import type { JSX } from "react";
 import { useVerifySO } from "../../Api/Hooks/label_Print";
+import { labelPrintStorage, StoredLabelPrintData } from "../../Storage/label_Print_Storage";
 
 type SOItem = {
   id: string;
@@ -37,7 +39,7 @@ const COLORS = {
   warning: "#f59e0b",
 };
 
-// Reusable Modal Components
+// Reusable Modals
 const ErrorModal = ({
   visible,
   title,
@@ -52,7 +54,6 @@ const ErrorModal = ({
   <Modal transparent visible={visible} animationType="fade">
     <View style={styles.modalOverlay}>
       <View style={styles.alertModal}>
-        <Ionicons name="alert-circle" size={48} color={COLORS.danger} />
         <Text style={styles.alertTitle}>{title}</Text>
         <Text style={styles.alertMessage}>{message}</Text>
         <TouchableOpacity style={styles.alertBtn} onPress={onClose}>
@@ -112,14 +113,13 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [permission, requestPermission] = useCameraPermissions();
   const scanLockRef = useRef(false);
 
-  // Modal States
+  // Modals
   const [errorModal, setErrorModal] = useState({
     visible: false,
     title: "",
     message: "",
   });
 
-  // Fixed: confirmText and cancelText are now required and always have values
   const [confirmModal, setConfirmModal] = useState<{
     visible: boolean;
     title: string;
@@ -140,7 +140,31 @@ export default function CustomerLabelPrint(): JSX.Element {
 
   const { verifySO, loading, error: verifyError } = useVerifySO();
 
-  // Focus input on mount and after actions
+  // Load from storage on mount
+  useEffect(() => {
+    const loadData = async () => {
+      const saved = await labelPrintStorage.load();
+      if (saved.sos.length > 0) {
+        setSos(saved.sos);
+        setCustomerName(saved.customerName);
+        setCustomerAddress(saved.customerAddress);
+        setIsCustomerLocked(saved.isCustomerLocked);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Auto-save whenever data changes
+  useEffect(() => {
+    const dataToSave: StoredLabelPrintData = {
+      sos,
+      customerName,
+      customerAddress,
+      isCustomerLocked,
+    };
+    labelPrintStorage.save(dataToSave);
+  }, [sos, customerName, customerAddress, isCustomerLocked]);
+
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 300);
     return () => clearTimeout(timer);
@@ -150,9 +174,9 @@ export default function CustomerLabelPrint(): JSX.Element {
     requestPermission();
   }, []);
 
-  const focusInput = () => {
+  const focusInput = useCallback(() => {
     setTimeout(() => inputRef.current?.focus(), 100);
-  };
+  }, []);
 
   const showError = (title: string, message: string) => {
     setErrorModal({ visible: true, title, message });
@@ -198,7 +222,7 @@ export default function CustomerLabelPrint(): JSX.Element {
     }
 
     if (sos.some((item) => item.soNumber === soToAdd)) {
-     showError("Already Added", `SO "${soToAdd}" is already in the list.`);
+      showError("Already Added", `SO "${soToAdd}" is already in the list.`);
       setSoNumber("");
       focusInput();
       return;
@@ -208,7 +232,7 @@ export default function CustomerLabelPrint(): JSX.Element {
 
     const result = await verifySO(soToAdd);
     if (!result) {
-      showError("Invalid SO", verifyError || "SO not found or invalid. Please try again.");
+      showError("Invalid SO", verifyError || "SO not found or invalid.");
       setSoNumber("");
       focusInput();
       return;
@@ -216,25 +240,47 @@ export default function CustomerLabelPrint(): JSX.Element {
 
     const { customerName: newName, address: newAddress } = result;
 
-    if (!isCustomerLocked) {
+    // First SO → lock customer
+    if (sos.length === 0) {
       setCustomerName(newName);
       setCustomerAddress(newAddress);
       setIsCustomerLocked(true);
-    } else if (customerName !== newName || customerAddress !== newAddress) {
+    } 
+    // Subsequent SOs → must match existing customer
+    else if (customerName !== newName || customerAddress !== newAddress) {
       showError(
-        "Invalid customer",
-        "The scanned SO does not match the current customer batch."
+        "Customer Mismatch",
+        `This SO belongs to a different customer.\nExpected: ${customerName}\nFound: ${newName}`
       );
       focusInput();
       return;
     }
 
     const newItem: SOItem = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       soNumber: soToAdd,
     };
+
     setSos((prev) => [newItem, ...prev]);
     setSoNumber("");
+    focusInput();
+  };
+
+  const removeSO = (id: string) => {
+    setSos((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+
+      // If no SOs left → unlock customer and clear details
+      if (updated.length === 0) {
+        setCustomerName(null);
+        setCustomerAddress(null);
+        setIsCustomerLocked(false);
+        labelPrintStorage.clear(); // Clear storage too
+      }
+
+      return updated;
+    });
+
     focusInput();
   };
 
@@ -251,12 +297,12 @@ export default function CustomerLabelPrint(): JSX.Element {
       confirmText: "Print",
       cancelText: "Cancel",
       onConfirm: () => {
-        console.log("Printing labels:", {
+        console.log("Printing:", {
           customerName,
           customerAddress,
-          salesOrders: sos.map((s) => s.soNumber),
+          sos: sos.map((s) => s.soNumber),
         });
-        // TODO: Call actual print API here
+        // TODO: Call actual print API
         setConfirmModal((prev) => ({ ...prev, visible: false }));
       },
       onCancel: () => setConfirmModal((prev) => ({ ...prev, visible: false })),
@@ -266,16 +312,17 @@ export default function CustomerLabelPrint(): JSX.Element {
   const onClearAll = () => {
     setConfirmModal({
       visible: true,
-      title: "Clear All",
-      message: "Remove all SOs and reset customer information?",
+      title: "Clear All Data",
+      message: "This will remove all Sales Orders and customer details.",
       confirmText: "Clear All",
       cancelText: "Cancel",
-      onConfirm: () => {
+      onConfirm: async () => {
         setSos([]);
         setCustomerName(null);
         setCustomerAddress(null);
         setIsCustomerLocked(false);
         setSoNumber("");
+        await labelPrintStorage.clear();
         focusInput();
         setConfirmModal((prev) => ({ ...prev, visible: false }));
       },
@@ -286,6 +333,13 @@ export default function CustomerLabelPrint(): JSX.Element {
   const renderRow = ({ item }: { item: SOItem }) => (
     <View style={styles.row}>
       <Text style={styles.soText}>{item.soNumber}</Text>
+      <TouchableOpacity
+        onPress={() => removeSO(item.id)}
+        style={styles.deleteBtn}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
+      </TouchableOpacity>
     </View>
   );
 
@@ -344,9 +398,9 @@ export default function CustomerLabelPrint(): JSX.Element {
       </View>
 
       {/* Customer Card */}
-      {isCustomerLocked && (
+      {isCustomerLocked && customerName && (
         <View style={styles.customerCard}>
-          <Text style={styles.inputLabelSmall}>Customer Details (Locked)</Text>
+          <Text style={styles.inputLabelSmall}>Customer Details</Text>
           <View style={styles.fixedField}>
             <Text style={styles.fixedLabel}>Name:</Text>
             <Text style={styles.fixedValue}>{customerName}</Text>
@@ -388,18 +442,7 @@ export default function CustomerLabelPrint(): JSX.Element {
             style={StyleSheet.absoluteFillObject}
             facing="back"
             barcodeScannerSettings={{
-              barcodeTypes: [
-                "qr",
-                "code128",
-                "code39",
-                "code93",
-                "ean13",
-                "ean8",
-                "upc_a",
-                "upc_e",
-                "pdf417",
-                "datamatrix",
-              ],
+              barcodeTypes: ["qr", "code128", "code39", "code93", "ean13", "ean8", "upc_a", "upc_e", "pdf417", "datamatrix"],
             }}
             onBarcodeScanned={scanLockRef.current ? undefined : handleBarcodeScanned}
           />
@@ -421,7 +464,7 @@ export default function CustomerLabelPrint(): JSX.Element {
         </View>
       </Modal>
 
-      {/* Custom Modals */}
+      {/* Modals */}
       <ErrorModal
         visible={errorModal.visible}
         title={errorModal.title}
@@ -445,9 +488,9 @@ export default function CustomerLabelPrint(): JSX.Element {
   );
 }
 
-// Styles remain exactly the same
+// Updated styles (added delete button style)
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg, padding: 17 ,paddingVertical:1 },
+  container: { flex: 1, backgroundColor: COLORS.bg, padding: 17, paddingVertical: 1 },
   inputCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -524,12 +567,17 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e2e8f0",
   },
   headerText: { fontSize: 15, fontWeight: "700", color: "#475569" },
-  row: { paddingVertical: 16, paddingHorizontal: 16 },
-  soText: { fontSize: 18, fontWeight: "600", color: "#1d4ed8" },
+  row: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  soText: { fontSize: 18, fontWeight: "600", color: "#1d4ed8", flex: 1 },
+  deleteBtn: { padding: 8 },
   separator: { height: 1, backgroundColor: "#f1f5f9", marginHorizontal: 16 },
   emptyText: { textAlign: "center", color: COLORS.muted, padding: 40, fontStyle: "italic", fontSize: 15 },
-
-  // Scanner Styles
   cameraContainer: { flex: 1, backgroundColor: "#000" },
   overlayTop: {
     position: "absolute",
@@ -559,15 +607,12 @@ const styles = StyleSheet.create({
   cornerBottomRight: { position: "absolute", bottom: -12, right: -12, width: 50, height: 50, borderBottomWidth: 6, borderRightWidth: 6, borderColor: COLORS.accent },
   overlayBottom: { position: "absolute", bottom: 100, left: 0, right: 0, alignItems: "center" },
   scanHint: { color: "#fff", fontSize: 16, backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: 32, paddingVertical: 14, borderRadius: 30, fontWeight: "600" },
-
-  // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
   alertModal: { backgroundColor: "#fff", borderRadius: 20, padding: 30, alignItems: "center", width: "85%", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
   alertTitle: { fontSize: 20, fontWeight: "700", color: "#1f2937", marginTop: 16 },
   alertMessage: { fontSize: 16, color: "#475569", textAlign: "center", marginVertical: 12, lineHeight: 22 },
   alertBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 12, marginTop: 16 },
   alertBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-
   confirmModal: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "88%", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
   confirmTitle: { fontSize: 20, fontWeight: "700", color: "#1f2937", textAlign: "center" },
   confirmMessage: { fontSize: 16, color: "#475569", textAlign: "center", marginVertical: 16, lineHeight: 22 },
