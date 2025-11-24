@@ -642,7 +642,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                   "ean8",
                   "upc_a",
                   "upc_e",
-                  "itf",
                 ],
               }}
               onBarcodeScanned={scanLock ? undefined : onBarcodeScanned}

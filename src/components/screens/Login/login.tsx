@@ -33,7 +33,7 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
   const [pwd, setPwd] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [currentVersion, setCurrentVersion] = useState("Vr.0.01");
+  const [currentVersion, setCurrentVersion] = useState("Vr.0.02");
 
   const [modal, setModal] = useState<{ visible: boolean; title: string; message: string }>({
     visible: false,

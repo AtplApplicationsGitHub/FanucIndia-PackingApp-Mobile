@@ -30,4 +30,9 @@ export const API_ENDPOINTS = {
       `${BASE_URL}/dispatch/mobile/${dispatchId}/attachments`,
     SO_DELETE: (soId: number) => `${BASE_URL}/dispatch/so/${soId}`,
   },
+
+  LABEL_PRINT: {
+    VERIFY_SO: (soNumber: string) =>
+      `${BASE_URL}/sales-crud/verify-so/${soNumber}`,
+  },
 };

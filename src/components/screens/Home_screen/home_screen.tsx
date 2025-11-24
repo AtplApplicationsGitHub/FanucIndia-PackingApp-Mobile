@@ -41,6 +41,12 @@ const MENU: MenuItem[] = [
     iconName: "cube-outline",
   },
   {
+    id: "customer",
+    title: "Customer Label Print",
+    subtitle: "Print customer labels",
+    iconName: "printer-outline",   // ← Updated icon
+  },
+  {
     id: "transfer",
     title: "Material FG / Transfer",
     subtitle: "Finished goods & movement",
@@ -51,12 +57,6 @@ const MENU: MenuItem[] = [
     title: "Material Dispatch",
     subtitle: "Ready for shipment",
     iconName: "truck-outline",
-  },
-  {
-    id: "customer",
-    title: "Customer Label Print",
-    subtitle: "Print customer labels",
-    iconName: "printer-outline",   // ← Updated icon
   },
 ];
 

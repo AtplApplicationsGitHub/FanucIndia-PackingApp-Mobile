@@ -1,7 +1,5 @@
 import { API_ENDPOINTS } from "../Endpoints";
 
-// const BASE_URL = "https://fanuc.goval.app:444/api";
-// const MOBILE_LOGIN_URL = `${BASE_URL}/auth/mobile-login`;
 
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
