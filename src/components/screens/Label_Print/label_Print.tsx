@@ -1,10 +1,5 @@
 // src/screens/CustomerLabelPrint.tsx
-import React, {
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-} from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -18,13 +13,13 @@ import {
   Keyboard,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import {
-  useCameraPermissions,
-  BarcodeScanningResult,
-} from "expo-camera";
+import { useCameraPermissions, BarcodeScanningResult } from "expo-camera";
 import type { JSX } from "react";
 import { useVerifySO } from "../../Api/Hooks/UselabelPrint";
-import { labelPrintStorage, StoredLabelPrintData } from "../../Storage/label_Print_Storage";
+import {
+  labelPrintStorage,
+  StoredLabelPrintData,
+} from "../../Storage/label_Print_Storage";
 import ScannerModal from "../../Scanner/ScannerModal";
 
 type SOItem = {
@@ -33,12 +28,12 @@ type SOItem = {
 };
 
 const COLORS = {
-  accent: "#3b82f6",
+  accent: "#3b82f6ff",
   muted: "#9ca3af",
   bg: "#f3f6fb",
   success: "#10b981",
   danger: "#ef4444",
-  primary: "#2563eb",
+  primary: "#111827",
   warning: "#f59e0b",
 };
 
@@ -189,7 +184,10 @@ export default function CustomerLabelPrint(): JSX.Element {
     if (!permission?.granted) {
       const res = await requestPermission();
       if (!res.granted) {
-        showError("Permission Required", "Camera access is needed to scan barcodes.");
+        showError(
+          "Permission Required",
+          "Camera access is needed to scan barcodes."
+        );
         return;
       }
     }
@@ -357,7 +355,11 @@ export default function CustomerLabelPrint(): JSX.Element {
               editable={!loading}
               autoFocus={true}
             />
-            <Pressable onPress={openScanner} style={styles.scanBtn} disabled={loading}>
+            <Pressable
+              onPress={openScanner}
+              style={styles.scanBtn}
+              disabled={loading}
+            >
               <MaterialCommunityIcons
                 name="qrcode-scan"
                 size={22}
@@ -383,7 +385,8 @@ export default function CustomerLabelPrint(): JSX.Element {
           <TouchableOpacity
             style={[styles.printBtnRight, loading && styles.btnDisabled]}
             onPress={onPrint}
-            disabled={loading || sos.length === 0}>
+            disabled={loading || sos.length === 0}
+          >
             <Ionicons name="print" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -410,7 +413,10 @@ export default function CustomerLabelPrint(): JSX.Element {
             Sales Orders {sos.length > 0 ? `(${sos.length})` : ""}
           </Text>
           {sos.length > 0 && (
-            <TouchableOpacity onPress={onClearAll} style={styles.clearHeaderBtn}>
+            <TouchableOpacity
+              onPress={onClearAll}
+              style={styles.clearHeaderBtn}
+            >
               <Text style={styles.clearHeaderText}>Clear All</Text>
             </TouchableOpacity>
           )}
@@ -452,7 +458,7 @@ export default function CustomerLabelPrint(): JSX.Element {
         visible={confirmModal.visible}
         title={confirmModal.title}
         message={confirmModal.message}
-        onBridge={confirmModal.onConfirm}
+        onConfirm={confirmModal.onConfirm}
         onCancel={confirmModal.onCancel}
         confirmText={confirmModal.confirmText}
         cancelText={confirmModal.cancelText}
@@ -462,7 +468,12 @@ export default function CustomerLabelPrint(): JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg, padding: 17, paddingVertical: 1 },
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+    padding: 17,
+    paddingVertical: 1,
+  },
   inputCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -492,22 +503,26 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontSize: 17, color: "#1f2937", paddingVertical: 0 },
   scanBtn: { padding: 10 },
-  btnSmall: { marginLeft: 8, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10 },
+  btnSmall: {
+    marginLeft: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
   saveBtn: { backgroundColor: COLORS.success },
   btnDisabled: { opacity: 0.6 },
   saveBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
 
   // Print Button on the Right
-  printBtnRight: {
-    backgroundColor: COLORS.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-  printBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+printBtnRight: {
+  backgroundColor: "#111827",   // ← change your color here
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 20,
+  paddingVertical: 14,
+  borderRadius: 12,
+  gap: 8,
+},
 
   customerCard: {
     marginTop: 16,
@@ -566,19 +581,103 @@ const styles = StyleSheet.create({
   soText: { fontSize: 18, fontWeight: "600", color: "#1d4ed8", flex: 1 },
   deleteBtn: { padding: 8 },
   separator: { height: 1, backgroundColor: "#f1f5f9", marginHorizontal: 16 },
-  emptyText: { textAlign: "center", color: COLORS.muted, padding: 40, fontStyle: "italic", fontSize: 15 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
-  alertModal: { backgroundColor: "#fff", borderRadius: 20, padding: 30, alignItems: "center", width: "85%", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
-  alertTitle: { fontSize: 20, fontWeight: "700", color: "#1f2937", marginTop: 16 },
-  alertMessage: { fontSize: 16, color: "#475569", textAlign: "center", marginVertical: 12, lineHeight: 22 },
-  alertBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 12, marginTop: 16 },
+  emptyText: {
+    textAlign: "center",
+    color: COLORS.muted,
+    padding: 40,
+    fontStyle: "italic",
+    fontSize: 15,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  alertModal: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 30,
+    alignItems: "center",
+    width: "85%",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  alertTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1f2937",
+    marginTop: 16,
+  },
+  alertMessage: {
+    fontSize: 16,
+    color: "#475569",
+    textAlign: "center",
+    marginVertical: 12,
+    lineHeight: 22,
+  },
+  alertBtn: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 16,
+  },
   alertBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  confirmModal: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "88%", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
-  confirmTitle: { fontSize: 20, fontWeight: "700", color: "#1f2937", textAlign: "center" },
-  confirmMessage: { fontSize: 16, color: "#475569", textAlign: "center", marginVertical: 16, lineHeight: 22 },
-  confirmButtons: { flexDirection: "row", justifyContent: "space-between", marginTop: 10 },
-  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: "#f1f5f9", marginRight: 10 },
-  cancelBtnText: { color: "#64748b", fontWeight: "600", textAlign: "center", fontSize: 16 },
-  confirmBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: COLORS.primary, marginLeft: 10 },
-  confirmBtnText: { color: "#fff", fontWeight: "600", textAlign: "center", fontSize: 16 },
+  confirmModal: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    width: "88%",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  confirmTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1f2937",
+    textAlign: "center",
+  },
+  confirmMessage: {
+    fontSize: 16,
+    color: "#475569",
+    textAlign: "center",
+    marginVertical: 16,
+    lineHeight: 22,
+  },
+  confirmButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 10,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#f1f5f9",
+    marginRight: 10,
+  },
+  cancelBtnText: {
+    color: "#64748b",
+    fontWeight: "600",
+    textAlign: "center",
+    fontSize: 16,
+  },
+  confirmBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    marginLeft: 10,
+  },
+  confirmBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    textAlign: "center",
+    fontSize: 16,
+  },
 });
