@@ -26,7 +26,7 @@ import {
   fetchExistingAttachments,
   type AttachmentItem,
   updateAttachmentDescription,
-} from "../../Api/Hooks/UseSalesOrder";
+} from "../../../Api/Hooks/UseSalesOrder";
 
 interface FileItem {
   id: string;

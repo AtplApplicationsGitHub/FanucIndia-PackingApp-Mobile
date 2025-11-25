@@ -1,6 +1,4 @@
 import { API_ENDPOINTS } from "../Endpoints";
-
-
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
     p,

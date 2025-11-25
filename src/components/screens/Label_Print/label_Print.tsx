@@ -15,9 +15,7 @@ import {
   Modal,
   Pressable,
   StatusBar,
-  Platform,
   Keyboard,
-  Alert,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
@@ -25,10 +23,9 @@ import {
   BarcodeScanningResult,
 } from "expo-camera";
 import type { JSX } from "react";
-
 import { useVerifySO } from "../../Api/Hooks/UselabelPrint";
 import { labelPrintStorage, StoredLabelPrintData } from "../../Storage/label_Print_Storage";
-import ScannerModal from "../../Scanner/ScannerModal"; // ← NEW IMPORT
+import ScannerModal from "../../Scanner/ScannerModal";
 
 type SOItem = {
   id: string;
@@ -45,7 +42,7 @@ const COLORS = {
   warning: "#f59e0b",
 };
 
-// Reusable Modals
+// Reusable Modals (unchanged)
 const ErrorModal = ({
   visible,
   title,
@@ -111,13 +108,12 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [customerName, setCustomerName] = useState<string | null>(null);
   const [customerAddress, setCustomerAddress] = useState<string | null>(null);
   const [isCustomerLocked, setIsCustomerLocked] = useState(false);
-
   const inputRef = useRef<TextInput>(null);
 
   // Scanner state
   const [scanModalVisible, setScanModalVisible] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const scanLockRef = useRef(false); // Prevents multiple scans
+  const scanLockRef = useRef(false);
 
   // Modals
   const [errorModal, setErrorModal] = useState({
@@ -125,7 +121,6 @@ export default function CustomerLabelPrint(): JSX.Element {
     title: "",
     message: "",
   });
-
   const [confirmModal, setConfirmModal] = useState<{
     visible: boolean;
     title: string;
@@ -211,7 +206,6 @@ export default function CustomerLabelPrint(): JSX.Element {
   const handleBarcodeScanned = (result: BarcodeScanningResult) => {
     if (scanLockRef.current) return;
     scanLockRef.current = true;
-
     const data = result.data?.trim();
     if (data) {
       addSO(data);
@@ -224,20 +218,17 @@ export default function CustomerLabelPrint(): JSX.Element {
   const addSO = async (value?: string) => {
     Keyboard.dismiss();
     const soToAdd = (value || soNumber).trim().toUpperCase();
-
     if (!soToAdd) {
       showError("Invalid Input", "Please enter or scan a Sales Order number.");
       focusInput();
       return;
     }
-
     if (sos.some((item) => item.soNumber === soToAdd)) {
       showError("Already Added", `SO "${soToAdd}" is already in the list.`);
       setSoNumber("");
       focusInput();
       return;
     }
-
     if (loading) return;
 
     const result = await verifySO(soToAdd);
@@ -250,14 +241,11 @@ export default function CustomerLabelPrint(): JSX.Element {
 
     const { customerName: newName, address: newAddress } = result;
 
-    // First SO → lock customer
     if (sos.length === 0) {
       setCustomerName(newName);
       setCustomerAddress(newAddress);
       setIsCustomerLocked(true);
-    }
-    // Subsequent SOs → must match customer
-    else if (customerName !== newName || customerAddress !== newAddress) {
+    } else if (customerName !== newName || customerAddress !== newAddress) {
       showError(
         "Customer Mismatch",
         `This SO belongs to a different customer.\nExpected: ${customerName}\nFound: ${newName}`
@@ -270,7 +258,6 @@ export default function CustomerLabelPrint(): JSX.Element {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       soNumber: soToAdd,
     };
-
     setSos((prev) => [newItem, ...prev]);
     setSoNumber("");
     focusInput();
@@ -279,14 +266,12 @@ export default function CustomerLabelPrint(): JSX.Element {
   const removeSO = (id: string) => {
     setSos((prev) => {
       const updated = prev.filter((item) => item.id !== id);
-
       if (updated.length === 0) {
         setCustomerName(null);
         setCustomerAddress(null);
         setIsCustomerLocked(false);
         labelPrintStorage.clear();
       }
-
       return updated;
     });
     focusInput();
@@ -297,7 +282,6 @@ export default function CustomerLabelPrint(): JSX.Element {
       showError("Nothing to Print", "Please add at least one Sales Order.");
       return;
     }
-
     setConfirmModal({
       visible: true,
       title: "Print Labels",
@@ -355,52 +339,52 @@ export default function CustomerLabelPrint(): JSX.Element {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
 
-      {/* Input Card */}
+      {/* Input Card with Print Button on the Right */}
       <View style={styles.inputCard}>
-        <View style={styles.inputFieldWrapper}>
-          <TextInput
-            ref={inputRef}
-            value={soNumber}
-            onChangeText={setSoNumber}
-            placeholder="Enter or scan SO"
-            placeholderTextColor={COLORS.muted}
-            style={styles.input}
-            autoCapitalize="characters"
-            returnKeyType="done"
-            onSubmitEditing={() => addSO()}
-            editable={!loading}
-            autoFocus={true}
-          />
-          <Pressable onPress={openScanner} style={styles.scanBtn} disabled={loading}>
-            <MaterialCommunityIcons
-              name="qrcode-scan"
-              size={22}
-              color={loading ? "#ccc" : COLORS.accent}
+        <View style={styles.inputRow}>
+          {/* Input + Scan + Add */}
+          <View style={styles.inputFieldWrapper}>
+            <TextInput
+              ref={inputRef}
+              value={soNumber}
+              onChangeText={setSoNumber}
+              placeholder="Enter or scan SO"
+              placeholderTextColor={COLORS.muted}
+              style={styles.input}
+              autoCapitalize="characters"
+              returnKeyType="done"
+              onSubmitEditing={() => addSO()}
+              editable={!loading}
+              autoFocus={true}
             />
-          </Pressable>
-          <TouchableOpacity
-            style={[
-              styles.btnSmall,
-              styles.saveBtn,
-              (!soNumber.trim() || loading) && styles.btnDisabled,
-            ]}
-            onPress={() => addSO()}
-            disabled={loading || !soNumber.trim()}
-          >
-            <Text style={styles.saveBtnText}>
-              {loading ? "Checking..." : "Add"}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <Pressable onPress={openScanner} style={styles.scanBtn} disabled={loading}>
+              <MaterialCommunityIcons
+                name="qrcode-scan"
+                size={22}
+                color={loading ? "#ccc" : COLORS.accent}
+              />
+            </Pressable>
+            <TouchableOpacity
+              style={[
+                styles.btnSmall,
+                styles.saveBtn,
+                (!soNumber.trim() || loading) && styles.btnDisabled,
+              ]}
+              onPress={() => addSO()}
+              disabled={loading || !soNumber.trim()}
+            >
+              <Text style={styles.saveBtnText}>
+                {loading ? "Checking..." : "Add"}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-        <View style={styles.actionButtonsRow}>
-          <TouchableOpacity style={[styles.btn, styles.printBtn]} onPress={onPrint}>
-            <Ionicons name="print" size={18} color="#fff" />
-            <Text style={styles.btnText}>Print</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={onClearAll}>
-            <Ionicons name="trash" size={18} color={COLORS.danger} />
-            <Text style={styles.clearText}>Clear All</Text>
+          {/* Print Button - Now on the Right */}
+          <TouchableOpacity
+            style={[styles.printBtnRight, loading && styles.btnDisabled]}
+            onPress={onPrint}
+            disabled={loading || sos.length === 0}>
+            <Ionicons name="print" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -408,7 +392,6 @@ export default function CustomerLabelPrint(): JSX.Element {
       {/* Customer Card */}
       {isCustomerLocked && customerName && (
         <View style={styles.customerCard}>
-          <Text style={styles.inputLabelSmall}>Customer Details</Text>
           <View style={styles.fixedField}>
             <Text style={styles.fixedLabel}>Name:</Text>
             <Text style={styles.fixedValue}>{customerName}</Text>
@@ -426,6 +409,11 @@ export default function CustomerLabelPrint(): JSX.Element {
           <Text style={styles.headerText}>
             Sales Orders {sos.length > 0 ? `(${sos.length})` : ""}
           </Text>
+          {sos.length > 0 && (
+            <TouchableOpacity onPress={onClearAll} style={styles.clearHeaderBtn}>
+              <Text style={styles.clearHeaderText}>Clear All</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <FlatList
           data={sos}
@@ -442,14 +430,15 @@ export default function CustomerLabelPrint(): JSX.Element {
         />
       </View>
 
-      {/* Scanner Modal - Now external component */}
+      {/* Scanner Modal */}
       <ScannerModal
         visible={scanModalVisible}
         onClose={closeScanner}
         onBarcodeScanned={handleBarcodeScanned}
         scanLock={scanLockRef.current}
       />
-      {/* Error & Confirmation Modals */}
+
+      {/* Modals */}
       <ErrorModal
         visible={errorModal.visible}
         title={errorModal.title}
@@ -459,12 +448,11 @@ export default function CustomerLabelPrint(): JSX.Element {
           focusInput();
         }}
       />
-
       <ConfirmationModal
         visible={confirmModal.visible}
         title={confirmModal.title}
         message={confirmModal.message}
-        onConfirm={confirmModal.onConfirm}
+        onBridge={confirmModal.onConfirm}
         onCancel={confirmModal.onCancel}
         confirmText={confirmModal.confirmText}
         cancelText={confirmModal.cancelText}
@@ -486,36 +474,41 @@ const styles = StyleSheet.create({
     elevation: 5,
     marginTop: 10,
   },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   inputFieldWrapper: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#f8fafc",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    paddingHorizontal: 12,
+    paddingLeft: 8,
     height: 54,
+    marginRight: 12,
   },
-  input: { flex: 1, fontSize: 17, color: "#1f2937" },
+  input: { flex: 1, fontSize: 17, color: "#1f2937", paddingVertical: 0 },
   scanBtn: { padding: 10 },
   btnSmall: { marginLeft: 8, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10 },
   saveBtn: { backgroundColor: COLORS.success },
   btnDisabled: { opacity: 0.6 },
   saveBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
-  actionButtonsRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 16 },
-  btn: {
-    flex: 1,
-    height: 50,
-    borderRadius: 12,
+
+  // Print Button on the Right
+  printBtnRight: {
+    backgroundColor: COLORS.primary,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    marginHorizontal: 6,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
   },
-  printBtn: { backgroundColor: COLORS.primary },
-  clearBtn: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca" },
-  btnText: { color: "#fff", marginLeft: 8, fontWeight: "600" },
-  clearText: { color: COLORS.danger, marginLeft: 8, fontWeight: "600" },
+  printBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+
   customerCard: {
     marginTop: 16,
     backgroundColor: "#fff",
@@ -528,10 +521,10 @@ const styles = StyleSheet.create({
     borderLeftWidth: 5,
     borderLeftColor: COLORS.success,
   },
-  inputLabelSmall: { fontSize: 13, color: COLORS.success, fontWeight: "700", marginBottom: 8 },
   fixedField: { flexDirection: "row", alignItems: "flex-start" },
   fixedLabel: { fontSize: 15, color: "#64748b", width: 80, fontWeight: "600" },
   fixedValue: { fontSize: 15, color: "#1e293b", fontWeight: "500", flex: 1 },
+
   tableCard: {
     flex: 1,
     marginTop: 16,
@@ -544,6 +537,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   tableHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 14,
     paddingHorizontal: 16,
     backgroundColor: "#f8fafc",
@@ -551,6 +547,15 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e2e8f0",
   },
   headerText: { fontSize: 15, fontWeight: "700", color: "#475569" },
+  clearHeaderBtn: {
+    backgroundColor: "#fee2e2",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
+  clearHeaderText: { color: COLORS.danger, fontWeight: "600", fontSize: 14 },
   row: {
     paddingVertical: 16,
     paddingHorizontal: 16,

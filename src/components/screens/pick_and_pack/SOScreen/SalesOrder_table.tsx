@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { OrdersSummaryItem } from "../../Api/Hooks/UseSalesOrder";
+import type { OrdersSummaryItem } from "../../../Api/Hooks/UseSalesOrder";
 
 type Props = {
   data?: OrdersSummaryItem[];

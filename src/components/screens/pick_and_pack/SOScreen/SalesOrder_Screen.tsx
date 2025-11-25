@@ -25,13 +25,13 @@ import {
   downloadOrderDetails,
   uploadIssueData,
   type OrdersSummaryItem,
-} from "../../Api/Hooks/UseSalesOrder";
+} from "../../../Api/Hooks/UseSalesOrder";
 import {
   hasOrderDetails,
   getOrderDetails,
   deleteOrderDetails,
   type StoredMaterialItem,
-} from "../../Storage/sale_order_storage";
+} from "../../../Storage/sale_order_storage";
 
 export type RootStackParamList = {
   Login: undefined;

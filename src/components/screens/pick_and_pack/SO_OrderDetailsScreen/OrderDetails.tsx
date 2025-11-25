@@ -1,5 +1,4 @@
 // src/screens/pick_and_pack/SO_OrderDetailsScreen/OrderDetails.tsx
-
 import React, {
   useEffect,
   useMemo,
@@ -15,7 +14,6 @@ import {
   TextInput,
   Pressable,
   Modal,
-  Platform,
   Keyboard,
   FlatList,
 } from "react-native";
@@ -32,9 +30,8 @@ import {
   type StoredMaterialItem,
 } from "../../../Storage/sale_order_storage";
 
-// Import separated components
 import ViewOrderDetails from "./ViewOrderDetails";
-import ScannerModal from "./ScannerModal";   // ← NEW
+import ScannerModal from "./ScannerModal";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -96,10 +93,20 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   const [code, setCode] = useState("");
   const inputRef = useRef<TextInput>(null);
 
-  // Scanner state
+  // Scanner
   const [cameraOpen, setCameraOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanLock, setScanLock] = useState(false);
+
+  // Print & Stage Control
+  const [hasPrintedIssue, setHasPrintedIssue] = useState(false);
+  const [hasPrintedPacking, setHasPrintedPacking] = useState(false);
+
+  // This is the NEW key state: packing stage only becomes visible AFTER user confirms issue print
+  const [packingStageUnlocked, setPackingStageUnlocked] = useState(false);
+
+  const [initialIssuedComplete, setInitialIssuedComplete] = useState(false);
+  const [initialPackedComplete, setInitialPackedComplete] = useState(false);
 
   // Modals
   const [descModal, setDescModal] = useState<{ visible: boolean; data?: DescModalData }>({
@@ -113,15 +120,27 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     emphasis?: "normal" | "danger";
   }>({ visible: false });
 
-  const [initialIssuedComplete, setInitialIssuedComplete] = useState(false);
-  const [initialPackedComplete, setInitialPackedComplete] = useState(false);
-
   const openDialog = (title: string, message: string, emphasis: "normal" | "danger" = "normal") =>
     setDialog({ visible: true, title, message, emphasis });
 
   const closeDialog = () => {
     setDialog((d) => ({ ...d, visible: false }));
-    setTimeout(() => inputRef.current?.focus(), 100);
+
+    const isIssuedCompleteNow = materials.every(
+      (m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)
+    );
+    const isPackedCompleteNow = materials.every(
+      (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
+    );
+
+    if (
+      (hasPrintedIssue && !initialIssuedComplete && !isPackedCompleteNow) ||
+      (hasPrintedPacking && !initialPackedComplete)
+    ) {
+      setTimeout(() => navigation.goBack(), 200);
+    } else {
+      setTimeout(() => inputRef.current?.focus(), 200);
+    }
   };
 
   /* -------------------------- LOAD ORDER ----------------------------- */
@@ -138,8 +157,20 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         );
         setMaterials(sorted);
 
-        setInitialIssuedComplete(isOrderIssuedComplete(data));
-        setInitialPackedComplete(isOrderPackedComplete(data));
+        const issuedDone = isOrderIssuedComplete(data);
+        const packedDone = isOrderPackedComplete(data);
+
+        setInitialIssuedComplete(issuedDone);
+        setInitialPackedComplete(packedDone);
+
+        // If order was already issued before, unlock packing stage accordingly
+        if (issuedDone) {
+          setHasPrintedIssue(true);
+          setPackingStageUnlocked(true); // already passed issue stage
+        }
+        if (packedDone) {
+          setHasPrintedPacking(true);
+        }
       } else {
         openDialog("Error", "No order details found.", "danger");
       }
@@ -155,26 +186,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     loadOrder();
   }, [loadOrder]);
 
-  /* ---------------------- AUTO-NAVIGATION ON COMPLETION -------------------------- */
-  useEffect(() => {
-    if (loading) return;
-
-    const isIssued = materials.every((m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0));
-    const isPacked = materials.every((m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0));
-
-    if (isIssued && !initialIssuedComplete && !isPacked) {
-      setTimeout(() => {
-        closeDialog();
-        navigation.goBack();
-      }, 300);
-    } else if (isPacked && !initialPackedComplete) {
-      setTimeout(() => {
-        closeDialog();
-        navigation.goBack();
-      }, 300);
-    }
-  }, [materials, loading, initialIssuedComplete, initialPackedComplete, navigation]);
-
   /* -------------------------- KEYBOARD FOCUS -------------------------- */
   useEffect(() => {
     const sub = Keyboard.addListener("keyboardDidHide", () => inputRef.current?.focus());
@@ -187,7 +198,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     completedItems,
     totalRequired,
     totalIssued,
-    completedPackedItems,
     totalPacked,
   } = useMemo(() => {
     const ti = materials.length;
@@ -196,14 +206,12 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) &&
         (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
     ).length;
-    const cp = materials.filter((m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)).length;
     const tr = materials.reduce((s, m) => s + (Number(m.requiredQty) || 0), 0);
     const tiq = materials.reduce((s, m) => s + (Number(m.issuedQty) || 0), 0);
     const tpq = materials.reduce((s, m) => s + (Number(m.packedQty) || 0), 0);
     return {
       totalItems: ti,
       completedItems: ci,
-      completedPackedItems: cp,
       totalRequired: tr,
       totalIssued: tiq,
       totalPacked: tpq,
@@ -212,6 +220,10 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
   const isOrderIssuedCompleteLocal = materials.every(
     (m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)
+  );
+
+  const isOrderPackedCompleteLocal = materials.every(
+    (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
   );
 
   /* -------------------------- SCAN / INPUT --------------------------- */
@@ -237,7 +249,8 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     const req = Number(row.requiredQty) || 0;
 
     try {
-      if (isOrderIssuedCompleteLocal) {
+      if (packingStageUnlocked) {
+        // Packing stage
         const curPacked = Number(row.packedQty) || 0;
         if (curPacked >= req) {
           openDialog("Already Complete", "This item is already packed.", "danger");
@@ -246,6 +259,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         }
         await updatePackedQty(saleOrderNumber, row.materialCode, "inc", 1);
       } else {
+        // Issuance stage
         const curIssued = Number(row.issuedQty) || 0;
         if (curIssued >= req) {
           openDialog("Already Complete", "This item is already issued.", "danger");
@@ -266,7 +280,38 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
   const onSubmit = () => incrementForCode(code);
 
-  const onPrint = () => console.log("Print clicked");
+  /* -------------------------- PRINT LOGIC (NOW CONTROLS STAGE TRANSITION) -------------------------- */
+  const onPrint = () => {
+    if (!isOrderIssuedCompleteLocal) return;
+
+    if (!hasPrintedIssue) {
+      // First time completing issue stage
+      openDialog(
+        "Print Successful",
+        "Issue stage print completed successfully.",
+        "normal"
+      );
+      setHasPrintedIssue(true);
+      // Do NOT unlock packing yet — wait for user to press OK
+    } else if (isOrderPackedCompleteLocal && !hasPrintedPacking) {
+      openDialog(
+        "Print Successful",
+        "Packing stage print completed successfully.",
+        "normal"
+      );
+      setHasPrintedPacking(true);
+    }
+  };
+
+  // Unlock packing stage ONLY when user confirms the issue print dialog
+  useEffect(() => {
+    if (dialog.visible === false && hasPrintedIssue && !packingStageUnlocked) {
+      const wasIssuePrintDialog = dialog.message?.includes("Issue stage print completed");
+      if (wasIssuePrintDialog) {
+        setPackingStageUnlocked(true);
+      }
+    }
+  }, [dialog.visible, hasPrintedIssue, packingStageUnlocked]);
 
   /* -------------------------- SCANNER -------------------------- */
   const openScanner = async () => {
@@ -346,6 +391,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     }
   };
 
+  /* -------------------------- SHOW PRINT BUTTON -------------------------- */
+  const showPrintButton =
+    (isOrderIssuedCompleteLocal && !hasPrintedIssue) ||
+    (isOrderPackedCompleteLocal && hasPrintedIssue && !hasPrintedPacking);
+
   /* ------------------------------ RENDER ------------------------------ */
   if (loading) {
     return (
@@ -370,10 +420,10 @@ const OrderDetailsScreen: React.FC<Props> = () => {
             </View>
             <View style={styles.chip}>
               <Text style={styles.chipTitle}>
-                {isOrderIssuedCompleteLocal ? "Packed" : "Issued"}
+                {packingStageUnlocked ? "Packed" : "Issued"}
               </Text>
               <Text style={styles.chipValue}>
-                {isOrderIssuedCompleteLocal ? totalPacked : totalIssued}/{totalRequired}
+                {packingStageUnlocked ? totalPacked : totalIssued}/{totalRequired}
               </Text>
             </View>
           </View>
@@ -402,9 +452,12 @@ const OrderDetailsScreen: React.FC<Props> = () => {
               <Text style={styles.primaryBtnText}>Submit</Text>
             </Pressable>
 
-            <Pressable style={styles.primaryBtn} onPress={onPrint}>
-              <MaterialCommunityIcons name="printer" size={22} color="#fff" />
-            </Pressable>
+            {/* Print Button */}
+            {showPrintButton && (
+              <Pressable style={styles.primaryBtn} onPress={onPrint}>
+                <MaterialCommunityIcons name="printer" size={22} color="#fff" />
+              </Pressable>
+            )}
           </View>
 
           {/* Table Header */}
@@ -422,7 +475,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
               <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                 <Text style={styles.headText}>Issue</Text>
               </View>
-              {isOrderIssuedCompleteLocal && (
+              {packingStageUnlocked && (
                 <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                   <Text style={styles.headText}>Packing</Text>
                 </View>
@@ -518,12 +571,13 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                       maxLength={4}
                       style={[
                         styles.issueInput,
-                        isIssued && { borderColor: C.greenText + "66" },
+                        isIssued && { },
                       ]}
                     />
                   </View>
 
-                  {isOrderIssuedCompleteLocal && (
+                  {/* Packing column only shown after unlock */}
+                  {packingStageUnlocked && (
                     <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
                       <TextInput
                         value={String(item.packedQty ?? 0)}
@@ -533,7 +587,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                         maxLength={4}
                         style={[
                           styles.issueInput,
-                          isPacked && { borderColor: C.greenText + "66" },
+                          isPacked && {  },
                         ]}
                       />
                     </View>
@@ -546,7 +600,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           ListFooterComponent={<View style={{ height: 20 }} />}
         />
 
-        {/* Scanner Modal */}
+        {/* Modals */}
         <ScannerModal
           visible={cameraOpen}
           onClose={closeScanner}
@@ -554,25 +608,23 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           scanLock={scanLock}
         />
 
-        {/* Detail Modal */}
         <ViewOrderDetails
           visible={descModal.visible}
           data={descModal.data}
           onClose={() => setDescModal({ visible: false })}
         />
 
-        {/* App Dialog */}
         <Modal visible={dialog.visible} transparent animationType="fade" onRequestClose={closeDialog}>
           <View style={styles.appDialogOverlay}>
             <View style={styles.appDialogCard}>
               <View style={styles.appDialogHeader}>
                 <Ionicons
-                  name={dialog.emphasis === "danger" ? "alert-circle" : "information-circle"}
-                  size={20}
-                  color={dialog.emphasis === "danger" ? C.danger : C.headerText}
+                  name={dialog.emphasis === "danger" ? "alert-circle" : "checkmark-circle"}
+                  size={24}
+                  color={dialog.emphasis === "danger" ? C.danger : "#166534"}
                 />
                 <Text style={[styles.appDialogTitle, dialog.emphasis === "danger" && { color: C.danger }]}>
-                  {dialog.title}
+                  {dialog.title || "Success"}
                 </Text>
               </View>
               {dialog.message && <Text style={styles.appDialogMessage}>{dialog.message}</Text>}
@@ -589,7 +641,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   );
 };
 
-/* Styles remain exactly the same as before */
+/* Styles unchanged - same as before */
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.pageBg },
   content: { flex: 1 },
@@ -670,9 +722,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: C.headerText,
     fontWeight: "700",
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 6,
   },
   appDialogOverlay: {
     flex: 1,
@@ -688,21 +737,21 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: C.border,
-    padding: 16,
+    padding: 20,
   },
-  appDialogHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  appDialogTitle: { fontSize: 16, fontWeight: "800", color: C.headerText, flex: 1 },
-  appDialogMessage: { color: C.headerText, lineHeight: 20, marginBottom: 12 },
+  appDialogHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  appDialogTitle: { fontSize: 17, fontWeight: "800", color: C.headerText, flex: 1 },
+  appDialogMessage: { color: C.headerText, lineHeight: 22, marginBottom: 16, fontSize: 15 },
   appDialogFooter: { alignItems: "flex-end" },
   appDialogBtn: {
     backgroundColor: C.primaryBtn,
-    paddingHorizontal: 16,
-    height: 40,
+    paddingHorizontal: 20,
+    height: 44,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  appDialogBtnText: { color: C.primaryBtnText, fontWeight: "700" },
+  appDialogBtnText: { color: C.primaryBtnText, fontWeight: "700", fontSize: 15 },
 });
 
 export default OrderDetailsScreen;

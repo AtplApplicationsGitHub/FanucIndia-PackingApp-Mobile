@@ -1,5 +1,3 @@
-// src/screens/pick_and_pack/SO_OrderDetailsScreen/ViewOrderDetails.tsx
-
 import React from "react";
 import {
   View,
