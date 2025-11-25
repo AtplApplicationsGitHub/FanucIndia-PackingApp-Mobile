@@ -25,7 +25,7 @@ import {
   downloadOrderDetails,
   uploadIssueData,
   type OrdersSummaryItem,
-} from "../../Api/Hooks/SalesOrder_server";
+} from "../../Api/Hooks/UseSalesOrder";
 import {
   hasOrderDetails,
   getOrderDetails,

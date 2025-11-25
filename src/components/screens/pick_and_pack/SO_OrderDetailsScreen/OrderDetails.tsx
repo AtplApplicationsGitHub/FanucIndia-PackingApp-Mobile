@@ -1,4 +1,5 @@
-// OrderDetails.tsx
+// src/screens/pick_and_pack/SO_OrderDetailsScreen/OrderDetails.tsx
+
 import React, {
   useEffect,
   useMemo,
@@ -15,18 +16,13 @@ import {
   Pressable,
   Modal,
   Platform,
-  StatusBar,
   Keyboard,
   FlatList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import {
-  CameraView,
-  useCameraPermissions,
-  type BarcodeScanningResult,
-} from "expo-camera";
+import { useCameraPermissions } from "expo-camera";
 import {
   getOrderDetails,
   updateIssuedQty,
@@ -34,7 +30,11 @@ import {
   isOrderIssuedComplete,
   isOrderPackedComplete,
   type StoredMaterialItem,
-} from "../../Storage/sale_order_storage";
+} from "../../../Storage/sale_order_storage";
+
+// Import separated components
+import ViewOrderDetails from "./ViewOrderDetails";
+import ScannerModal from "./ScannerModal";   // ← NEW
 
 export type RootStackParamList = {
   Login: undefined;
@@ -53,6 +53,22 @@ type OrderDetailsScreenRouteProp = RouteProp<
 
 type Props = { route: OrderDetailsScreenRouteProp };
 
+type DescModalData = {
+  materialCode?: string;
+  description?: string;
+  batchNo?: string;
+  soDonorBatch?: string;
+  certNo?: string;
+  binNo?: string | number;
+  adf?: string;
+  requiredQty?: number;
+  packingStage?: string;
+  issuedQty?: number;
+  packedQty?: number;
+  issuedAt?: string;
+  packedAt?: string;
+};
+
 const C = {
   pageBg: "#F7F7F8",
   headerText: "#0B0F19",
@@ -70,49 +86,26 @@ const C = {
   danger: "#B91C1C",
 };
 
-type MaterialRow = StoredMaterialItem;
-
-type DescModalData = {
-  materialCode?: string;
-  description?: string;
-  batchNo?: string;
-  soDonorBatch?: string;
-  certNo?: string;
-  binNo?: string | number;
-  adf?: string;
-  requiredQty?: number;
-  packingStage?: string;
-  issuedQty?: number;
-  packedQty?: number;
-  issuedAt?: string;
-  packedAt?: string;
-};
-
 const OrderDetailsScreen: React.FC<Props> = () => {
   const route = useRoute<OrderDetailsScreenRouteProp>();
   const { saleOrderNumber } = route.params;
-  const navigation = useNavigation<{
-    navigate: (screen: keyof RootStackParamList, params?: any) => void;
-    goBack: () => void;
-  }>();
+  const navigation = useNavigation<any>();
 
   const [loading, setLoading] = useState(true);
-  const [materials, setMaterials] = useState<MaterialRow[]>([]);
+  const [materials, setMaterials] = useState<StoredMaterialItem[]>([]);
   const [code, setCode] = useState("");
-  const inputRef = useRef<TextInput | null>(null);
+  const inputRef = useRef<TextInput>(null);
 
-  // Camera / scanner
+  // Scanner state
   const [cameraOpen, setCameraOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanLock, setScanLock] = useState(false);
 
-  // Row quick view modal
-  const [descModal, setDescModal] = useState<{
-    visible: boolean;
-    data?: DescModalData;
-  }>({ visible: false });
+  // Modals
+  const [descModal, setDescModal] = useState<{ visible: boolean; data?: DescModalData }>({
+    visible: false,
+  });
 
-  // App dialog modal
   const [dialog, setDialog] = useState<{
     visible: boolean;
     title?: string;
@@ -120,40 +113,33 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     emphasis?: "normal" | "danger";
   }>({ visible: false });
 
-  const openDialog = (
-    title: string,
-    message: string,
-    emphasis: "normal" | "danger" = "normal"
-  ) => setDialog({ visible: true, title, message, emphasis });
+  const [initialIssuedComplete, setInitialIssuedComplete] = useState(false);
+  const [initialPackedComplete, setInitialPackedComplete] = useState(false);
+
+  const openDialog = (title: string, message: string, emphasis: "normal" | "danger" = "normal") =>
+    setDialog({ visible: true, title, message, emphasis });
 
   const closeDialog = () => {
     setDialog((d) => ({ ...d, visible: false }));
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
-  const [initialIssuedComplete, setInitialIssuedComplete] = useState(false);
-  const [initialPackedComplete, setInitialPackedComplete] = useState(false);
-
   /* -------------------------- LOAD ORDER ----------------------------- */
-
   const loadOrder = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getOrderDetails(saleOrderNumber);
       if (data && Array.isArray(data.orderDetails)) {
         const sorted = [...data.orderDetails].sort((a, b) =>
-          String(a.materialCode ?? "")
-            .localeCompare(String(b.materialCode ?? ""), undefined, {
-              numeric: true,
-              sensitivity: "base",
-            })
+          String(a.materialCode ?? "").localeCompare(String(b.materialCode ?? ""), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          })
         );
         setMaterials(sorted);
 
-        const isIssued = isOrderIssuedComplete(data);
-        const isPacked = isOrderPackedComplete(data);
-        setInitialIssuedComplete(isIssued);
-        setInitialPackedComplete(isPacked);
+        setInitialIssuedComplete(isOrderIssuedComplete(data));
+        setInitialPackedComplete(isOrderPackedComplete(data));
       } else {
         openDialog("Error", "No order details found.", "danger");
       }
@@ -170,16 +156,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   }, [loadOrder]);
 
   /* ---------------------- AUTO-NAVIGATION ON COMPLETION -------------------------- */
-
   useEffect(() => {
     if (loading) return;
 
-    const isIssued = materials.every(
-      (m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0)
-    );
-    const isPacked = materials.every(
-      (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
-    );
+    const isIssued = materials.every((m) => (m.issuedQty ?? 0) >= (m.requiredQty ?? 0));
+    const isPacked = materials.every((m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0));
 
     if (isIssued && !initialIssuedComplete && !isPacked) {
       setTimeout(() => {
@@ -192,25 +173,15 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         navigation.goBack();
       }, 300);
     }
-  }, [
-    materials,
-    loading,
-    initialIssuedComplete,
-    initialPackedComplete,
-    navigation,
-  ]);
+  }, [materials, loading, initialIssuedComplete, initialPackedComplete, navigation]);
 
-  /* -------------------------- KEYBOARD ------------------------------- */
-
+  /* -------------------------- KEYBOARD FOCUS -------------------------- */
   useEffect(() => {
-    const sub = Keyboard.addListener("keyboardDidHide", () => {
-      inputRef.current?.focus();
-    });
+    const sub = Keyboard.addListener("keyboardDidHide", () => inputRef.current?.focus());
     return () => sub.remove();
   }, []);
 
   /* --------------------------- SUMMARY ------------------------------- */
-
   const {
     totalItems,
     completedItems,
@@ -225,9 +196,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         (m.issuedQty ?? 0) >= (m.requiredQty ?? 0) &&
         (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
     ).length;
-    const cp = materials.filter(
-      (m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)
-    ).length;
+    const cp = materials.filter((m) => (m.packedQty ?? 0) >= (m.requiredQty ?? 0)).length;
     const tr = materials.reduce((s, m) => s + (Number(m.requiredQty) || 0), 0);
     const tiq = materials.reduce((s, m) => s + (Number(m.issuedQty) || 0), 0);
     const tpq = materials.reduce((s, m) => s + (Number(m.packedQty) || 0), 0);
@@ -246,7 +215,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   );
 
   /* -------------------------- SCAN / INPUT --------------------------- */
-
   const incrementForCode = async (materialCodeInput: string) => {
     const codeTrim = materialCodeInput.trim();
     if (!codeTrim) {
@@ -256,12 +224,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     }
 
     const idx = materials.findIndex(
-      (m) =>
-        String(m.materialCode).toLowerCase() === codeTrim.toLowerCase()
+      (m) => String(m.materialCode).toLowerCase() === codeTrim.toLowerCase()
     );
 
     if (idx === -1) {
-      openDialog("Invalid Material Code", "", "danger");
+      openDialog("Invalid Material Code", `Code "${codeTrim}" not found in order.`, "danger");
       setCode("");
       return;
     }
@@ -288,7 +255,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         await updateIssuedQty(saleOrderNumber, row.materialCode, "inc", 1);
       }
 
-      // Refresh UI
       const updated = await getOrderDetails(saleOrderNumber);
       if (updated) setMaterials(updated.orderDetails);
       setCode("");
@@ -298,17 +264,16 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     }
   };
 
-  const onSubmit = () => {
-    incrementForCode(code);
-  };
+  const onSubmit = () => incrementForCode(code);
 
-  /* -------------------------- SCANNER -------------------------------- */
+  const onPrint = () => console.log("Print clicked");
 
+  /* -------------------------- SCANNER -------------------------- */
   const openScanner = async () => {
-    if (!permission || !permission.granted) {
+    if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        openDialog("Permission needed", "Camera access is required.", "danger");
+        openDialog("Permission Required", "Camera access is needed to scan codes.", "danger");
         return;
       }
     }
@@ -321,7 +286,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
-  const onBarcodeScanned = async (result: BarcodeScanningResult) => {
+  const onBarcodeScanned = async (result: any) => {
     if (scanLock) return;
     const data = result?.data?.trim();
     if (!data) return;
@@ -329,6 +294,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     setScanLock(true);
     setCode(data);
     await incrementForCode(data);
+
     setTimeout(() => {
       setCameraOpen(false);
       setScanLock(false);
@@ -337,13 +303,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   };
 
   /* ----------------------- QUANTITY EDITORS -------------------------- */
-
   const validateNumberInput = (raw: string) => {
     const digits = raw.replace(/[^\d]/g, "");
-    if (digits === "" || isNaN(Number(digits))) {
-      return { isValid: false, value: 0 };
-    }
-    return { isValid: true, value: Number(digits) };
+    return { isValid: digits === "" || !isNaN(Number(digits)), value: Number(digits) || 0 };
   };
 
   const setIssuedQtyAt = async (index: number, raw: string) => {
@@ -352,7 +314,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
       openDialog("Invalid Input", "Please enter a valid number.", "danger");
       return;
     }
-
     const row = materials[index];
     const req = Number(row.requiredQty) || 0;
     const clamped = Math.max(0, Math.min(value, req));
@@ -372,7 +333,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
       openDialog("Invalid Input", "Please enter a valid number.", "danger");
       return;
     }
-
     const row = materials[index];
     const req = Number(row.requiredQty) || 0;
     const clamped = Math.max(0, Math.min(value, req));
@@ -386,8 +346,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     }
   };
 
-  /* ------------------------------ UI --------------------------------- */
-
+  /* ------------------------------ RENDER ------------------------------ */
   if (loading) {
     return (
       <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
@@ -402,22 +361,19 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   return (
     <SafeAreaView style={styles.screen} edges={["left", "right", "bottom"]}>
       <View style={styles.content}>
-        {/* ---------- FIXED HEADER ---------- */}
+        {/* Fixed Header */}
         <View style={styles.fixedWrapper}>
           <View style={styles.chipsRow}>
             <View style={styles.chip}>
               <Text style={styles.chipTitle}>Completed Items</Text>
-              <Text style={styles.chipValue}>
-                {completedItems}/{totalItems}
-              </Text>
+              <Text style={styles.chipValue}>{completedItems}/{totalItems}</Text>
             </View>
             <View style={styles.chip}>
               <Text style={styles.chipTitle}>
                 {isOrderIssuedCompleteLocal ? "Packed" : "Issued"}
               </Text>
               <Text style={styles.chipValue}>
-                {isOrderIssuedCompleteLocal ? totalPacked : totalIssued}/
-                {totalRequired}
+                {isOrderIssuedCompleteLocal ? totalPacked : totalIssued}/{totalRequired}
               </Text>
             </View>
           </View>
@@ -437,21 +393,21 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                 onSubmitEditing={onSubmit}
                 autoFocus
               />
-              <Pressable
-                onPress={openScanner}
-                style={styles.inputIconBtn}
-                accessibilityLabel="Open scanner"
-                hitSlop={10}
-              >
-                <MaterialCommunityIcons name="qrcode-scan" size={20} />
+              <Pressable onPress={openScanner} style={styles.inputIconBtn}>
+                <MaterialCommunityIcons name="qrcode-scan" size={20} color={C.icon} />
               </Pressable>
             </View>
 
             <Pressable style={styles.primaryBtn} onPress={onSubmit}>
               <Text style={styles.primaryBtnText}>Submit</Text>
             </Pressable>
+
+            <Pressable style={styles.primaryBtn} onPress={onPrint}>
+              <MaterialCommunityIcons name="printer" size={22} color="#fff" />
+            </Pressable>
           </View>
 
+          {/* Table Header */}
           <View style={styles.card}>
             <View style={styles.tableHead}>
               <View style={[styles.cell, styles.flex15, styles.left]}>
@@ -475,7 +431,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           </View>
         </View>
 
-        {/* ---------- LIST ---------- */}
+        {/* List */}
         <FlatList
           data={materials}
           keyExtractor={(item, i) => `${item.materialCode}-${i}`}
@@ -483,35 +439,17 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           style={styles.list}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.select({ ios: "on-drag", android: "on-drag" })}
-          showsVerticalScrollIndicator
-          automaticallyAdjustContentInsets={false}
-          contentInsetAdjustmentBehavior="never"
-          removeClippedSubviews
-          initialNumToRender={20}
-          maxToRenderPerBatch={20}
-          windowSize={11}
           renderItem={({ item, index }) => {
             const req = Number(item.requiredQty ?? 0);
             const isIssued = Number(item.issuedQty ?? 0) >= req;
             const isPacked = Number(item.packedQty ?? 0) >= req;
-            const rowBg = isPacked
-              ? C.greenBg
-              : isIssued
-              ? C.yellowBg
-              : undefined;
-            const issuedColor = isPacked
-              ? C.greenText
-              : isIssued
-              ? C.yellowText
-              : C.headerText;
-            const pillIssued = isIssued && req > 0;
-            const pillPacked = isPacked && req > 0;
-            const truncatedDesc = item.description
-              ? String(item.description).length > 30
+            const rowBg = isPacked ? C.greenBg : isIssued ? C.yellowBg : undefined;
+            const issuedColor = isPacked ? C.greenText : isIssued ? C.yellowText : C.headerText;
+            const truncatedDesc =
+              item.description && String(item.description).length > 30
                 ? String(item.description).substring(0, 30) + "..."
-                : String(item.description)
-              : "";
+                : item.description || "";
+
             return (
               <View style={styles.card}>
                 <Pressable
@@ -524,7 +462,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                         batchNo: String(item.batchNo ?? ""),
                         soDonorBatch: String(item.soDonorBatch ?? ""),
                         certNo: String(item.certNo ?? ""),
-                        binNo: item.binNo as any,
+                        binNo: item.binNo,
                         adf: String(item.adf ?? ""),
                         requiredQty: req,
                         issuedQty: Number(item.issuedQty ?? 0),
@@ -540,10 +478,7 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                     <Text
                       style={[
                         styles.metricText,
-                        (isIssued || isPacked) && {
-                          color: issuedColor,
-                          fontWeight: "700",
-                        },
+                        (isIssued || isPacked) && { color: issuedColor, fontWeight: "700" },
                       ]}
                       numberOfLines={1}
                     >
@@ -566,13 +501,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                   <View style={[styles.cell, styles.flex12, styles.right]}>
                     <Text
                       style={[
-                        (isIssued || isPacked) && {
-                          color: issuedColor,
-                          fontWeight: "700",
-                        },
+                        styles.metricText,
+                        (isIssued || isPacked) && { color: issuedColor, fontWeight: "700" },
                       ]}
                     >
-                      {item.requiredQty}
+                      {req}
                     </Text>
                   </View>
 
@@ -582,10 +515,10 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                       onChangeText={(t) => setIssuedQtyAt(index, t)}
                       keyboardType="number-pad"
                       inputMode="numeric"
-                      maxLength={3}
+                      maxLength={4}
                       style={[
                         styles.issueInput,
-                        pillIssued && { borderColor: C.greenText + "66" },
+                        isIssued && { borderColor: C.greenText + "66" },
                       ]}
                     />
                   </View>
@@ -597,10 +530,10 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                         onChangeText={(t) => setPackedQtyAt(index, t)}
                         keyboardType="number-pad"
                         inputMode="numeric"
-                        maxLength={3}
+                        maxLength={4}
                         style={[
                           styles.issueInput,
-                          pillPacked && { borderColor: C.greenText + "66" },
+                          isPacked && { borderColor: C.greenText + "66" },
                         ]}
                       />
                     </View>
@@ -609,210 +542,40 @@ const OrderDetailsScreen: React.FC<Props> = () => {
               </View>
             );
           }}
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Text style={styles.subText}>No materials found.</Text>
-            </View>
-          }
+          ListEmptyComponent={<Text style={styles.subText}>No materials found.</Text>}
           ListFooterComponent={<View style={{ height: 20 }} />}
         />
 
-        {/* ---------- SCANNER MODAL ---------- */}
-        <Modal
+        {/* Scanner Modal */}
+        <ScannerModal
           visible={cameraOpen}
-          onRequestClose={closeScanner}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          transparent={false}
-        >
-          <StatusBar hidden />
-          <View style={styles.fullscreenCameraWrap}>
-            <CameraView
-              style={styles.fullscreenCamera}
-              facing="back"
-              barcodeScannerSettings={{
-                barcodeTypes: [
-                  "qr",
-                  "pdf417",
-                  "code128",
-                  "code39",
-                  "code93",
-                  "codabar",
-                  "ean13",
-                  "ean8",
-                  "upc_a",
-                  "upc_e",
-                ],
-              }}
-              onBarcodeScanned={scanLock ? undefined : onBarcodeScanned}
-            />
+          onClose={closeScanner}
+          onBarcodeScanned={onBarcodeScanned}
+          scanLock={scanLock}
+        />
 
-            <View style={styles.fullscreenTopBar}>
-              <Text style={styles.fullscreenTitle}>Scan a code</Text>
-              <Pressable
-                onPress={closeScanner}
-                style={styles.fullscreenCloseBtn}
-              >
-                <Ionicons name="close" size={22} color="#fff" />
-              </Pressable>
-            </View>
-
-            <View style={styles.fullscreenBottomBar}>
-              <Text style={styles.fullscreenHint}>
-                Align the code within the frame
-              </Text>
-            </View>
-          </View>
-        </Modal>
-
-        {/* ---------- DETAIL MODAL ---------- */}
-        <Modal
+        {/* Detail Modal */}
+        <ViewOrderDetails
           visible={descModal.visible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setDescModal({ visible: false })}
-        >
-          <View style={styles.descOverlay}>
-            <View style={styles.descCard}>
-              <View style={styles.descHeader}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    flex: 1,
-                  }}
-                >
-                  <Ionicons
-                    name="cube-outline"
-                    size={18}
-                    color={C.headerText}
-                  />
-                  <Text style={styles.descTitle}>
-                    {descModal.data?.materialCode ?? "Material"}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={() => setDescModal({ visible: false })}
-                >
-                  <Ionicons name="close" size={22} color={C.headerText} />
-                </Pressable>
-              </View>
+          data={descModal.data}
+          onClose={() => setDescModal({ visible: false })}
+        />
 
-              <View style={styles.descBody}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Description</Text>
-                  <Text style={styles.infoValue}>
-                    {descModal.data?.description ?? "-"}
-                  </Text>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Batch No</Text>
-                  <Text style={styles.infoValue}>
-                    {descModal.data?.batchNo ?? "-"}
-                  </Text>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>SO Donor Batch</Text>
-                  <Text style={styles.infoValue}>
-                    {descModal.data?.soDonorBatch ?? "-"}
-                  </Text>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Cert No</Text>
-                  <Text style={styles.infoValue}>
-                    {descModal.data?.certNo ?? "-"}
-                  </Text>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>A/D/F</Text>
-                  <Text style={styles.infoValue}>
-                    {descModal.data?.adf ?? "-"}
-                  </Text>
-                </View>
-
-                <View style={styles.infoGrid}>
-                  <View style={styles.infoCardSmall}>
-                    <Text style={styles.infoSmallLabel}>Bin No</Text>
-                    <Text style={styles.infoSmallValue}>
-                      {String(descModal.data?.binNo ?? "-")}
-                    </Text>
-                  </View>
-                  <View style={styles.infoCardSmall}>
-                    <Text style={styles.infoSmallLabel}>Required Qty</Text>
-                    <Text style={styles.infoSmallValue}>
-                      {String(descModal.data?.requiredQty ?? 0)}
-                    </Text>
-                  </View>
-                  <View style={styles.infoCardSmall}>
-                    <Text style={styles.infoSmallLabel}>Issued Qty</Text>
-                    <Text style={styles.infoSmallValue}>
-                      {String(descModal.data?.issuedQty ?? 0)}
-                    </Text>
-                  </View>
-                  <View style={styles.infoCardSmall}>
-                    <Text style={styles.infoSmallLabel}>Packed Qty</Text>
-                    <Text style={styles.infoSmallValue}>
-                      {String(descModal.data?.packedQty ?? 0)}
-                    </Text>
-                  </View>
-                  {descModal.data?.issuedAt && (
-                    <View style={styles.infoCardSmall}>
-                      <Text style={styles.infoSmallLabel}>Issued At</Text>
-                      <Text style={styles.infoSmallValue}>
-                        {new Date(descModal.data.issuedAt).toLocaleString()}
-                      </Text>
-                    </View>
-                  )}
-                  {descModal.data?.packedAt && (
-                    <View style={styles.infoCardSmall}>
-                      <Text style={styles.infoSmallLabel}>Packed At</Text>
-                      <Text style={styles.infoSmallValue}>
-                        {new Date(descModal.data.packedAt).toLocaleString()}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* ---------- APP DIALOG ---------- */}
-        <Modal
-          visible={dialog.visible}
-          transparent
-          animationType="fade"
-          onRequestClose={closeDialog}>
+        {/* App Dialog */}
+        <Modal visible={dialog.visible} transparent animationType="fade" onRequestClose={closeDialog}>
           <View style={styles.appDialogOverlay}>
             <View style={styles.appDialogCard}>
               <View style={styles.appDialogHeader}>
                 <Ionicons
-                  name={
-                    dialog.emphasis === "danger"
-                      ? "alert-circle"
-                      : "information-circle"
-                  }
+                  name={dialog.emphasis === "danger" ? "alert-circle" : "information-circle"}
                   size={20}
                   color={dialog.emphasis === "danger" ? C.danger : C.headerText}
                 />
-                <Text
-                  style= {[
-                    styles.appDialogTitle,
-                    dialog.emphasis === "danger" && { color: C.danger },
-                  ]}
-                  numberOfLines={2}
-                >
+                <Text style={[styles.appDialogTitle, dialog.emphasis === "danger" && { color: C.danger }]}>
                   {dialog.title}
                 </Text>
               </View>
-              {dialog.message ? (
-                <Text style={styles.appDialogMessage}>{dialog.message}</Text>
-              ) : null}
+              {dialog.message && <Text style={styles.appDialogMessage}>{dialog.message}</Text>}
               <View style={styles.appDialogFooter}>
                 <Pressable style={styles.appDialogBtn} onPress={closeDialog}>
                   <Text style={styles.appDialogBtnText}>OK</Text>
@@ -826,20 +589,13 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   );
 };
 
-/* ------------------------------------------------- Styles ------------------------------------------------- */
+/* Styles remain exactly the same as before */
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.pageBg },
   content: { flex: 1 },
-  fixedWrapper: {
-    paddingHorizontal: 10,
-    paddingTop: 8,
-  },
+  fixedWrapper: { paddingHorizontal: 10, paddingTop: 8 },
   list: { flex: 1 },
-  bodyListContent: {
-    paddingHorizontal: 10,
-    paddingBottom: 20,
-    rowGap: 10,
-  },
+  bodyListContent: { paddingHorizontal: 10, paddingBottom: 20, rowGap: 10 },
   chipsRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
   chip: {
     flex: 1,
@@ -851,18 +607,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   chipTitle: { color: C.subText, fontSize: 12, fontWeight: "600" },
-  chipValue: {
-    color: C.headerText,
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  inputRow: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-    marginBottom: 10,
-  },
+  chipValue: { color: C.headerText, fontSize: 18, fontWeight: "700", marginTop: 2 },
+  inputRow: { flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 10 },
   inputWrap: { flex: 1, position: "relative" },
   input: {
     backgroundColor: C.card,
@@ -892,13 +638,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   primaryBtnText: { color: C.primaryBtnText, fontWeight: "700" },
-  card: {
-    backgroundColor: C.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C.border,
-    overflow: "hidden",
-  },
+  card: { backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, overflow: "hidden" },
   tableHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -909,12 +649,7 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   headText: { color: C.subText, fontWeight: "600", fontSize: 12 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
+  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 12 },
   cell: { justifyContent: "center" },
   left: { alignItems: "flex-start" },
   right: { alignItems: "flex-end" },
@@ -925,14 +660,8 @@ const styles = StyleSheet.create({
   flex14: { flex: 1.4 },
   metricText: { fontSize: 14, fontWeight: "500", color: C.headerText },
   sep: { height: 1, backgroundColor: C.border },
-  emptyWrap: { padding: 16, alignItems: "center" },
-  subText: { color: C.subText, fontSize: 12 },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
+  subText: { color: C.subText, fontSize: 12, textAlign: "center", marginTop: 20 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
   muted: { color: C.subText },
   issueInput: {
     minWidth: 44,
@@ -941,99 +670,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: C.headerText,
     fontWeight: "700",
-  },
-  fullscreenCameraWrap: { flex: 1, backgroundColor: "#000" },
-  fullscreenCamera: { flex: 1 },
-  fullscreenTopBar: {
-    position: "absolute",
-    top: Platform.select({ ios: 44, android: 16 }),
-    left: 16,
-    right: 16,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-  },
-  fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 14, flex: 1 },
-  fullscreenCloseBtn: {
-    height: 28,
-    width: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.25)",
-  },
-  fullscreenBottomBar: {
-    position: "absolute",
-    bottom: 24,
-    left: 16,
-    right: 16,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  fullscreenHint: { color: "#fff", fontSize: 12 },
-  descOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-  },
-  descCard: {
-    width: "100%",
-    maxWidth: 560,
-    backgroundColor: C.card,
-    borderRadius: 14,
     borderWidth: 1,
     borderColor: C.border,
-    overflow: "hidden",
-  },
-  descHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  descTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: "800",
-    color: C.headerText,
-  },
-  descBody: { padding: 16, gap: 12 },
-  infoRow: { gap: 6 },
-  infoLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: C.subText,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  infoValue: { fontSize: 14, color: C.headerText, lineHeight: 20 },
-  infoGrid: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
-  infoCardSmall: {
-    flex: 1,
-    minWidth: 100,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: "#FAFAFA",
-    marginBottom: 10,
-  },
-  infoSmallLabel: { fontSize: 11, color: C.subText, fontWeight: "700" },
-  infoSmallValue: {
-    fontSize: 16,
-    color: C.headerText,
-    fontWeight: "800",
-    marginTop: 2,
+    borderRadius: 6,
   },
   appDialogOverlay: {
     flex: 1,
@@ -1051,18 +690,8 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     padding: 16,
   },
-  appDialogHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-  },
-  appDialogTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: C.headerText,
-    flex: 1,
-  },
+  appDialogHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  appDialogTitle: { fontSize: 16, fontWeight: "800", color: C.headerText, flex: 1 },
   appDialogMessage: { color: C.headerText, lineHeight: 20, marginBottom: 12 },
   appDialogFooter: { alignItems: "flex-end" },
   appDialogBtn: {

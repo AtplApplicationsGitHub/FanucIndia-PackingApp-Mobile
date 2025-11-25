@@ -6,6 +6,7 @@ import {
   StyleSheet,
   FlatList,
   Platform,
+  Switch,
 } from "react-native";
 import {
   useSafeAreaInsets,
@@ -16,6 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
+import { useKeyboardDisabled } from "../../utils/keyboard";
 
 type MenuItem = {
   id: "pick" | "transfer" | "dispatch" | "customer";
@@ -44,7 +46,7 @@ const MENU: MenuItem[] = [
     id: "customer",
     title: "Customer Label Print",
     subtitle: "Print customer labels",
-    iconName: "printer-outline",   // ← Updated icon
+    iconName: "printer-outline",
   },
   {
     id: "transfer",
@@ -59,8 +61,6 @@ const MENU: MenuItem[] = [
     iconName: "truck-outline",
   },
 ];
-
-
 
 function pickBestName(input?: {
   displayName?: string;
@@ -87,6 +87,9 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const [displayName, setDisplayName] = useState<string>("User");
   const [greeting, setGreeting] = useState<string>(computeGreeting());
 
+  // Global keyboard toggle
+  const [keyboardDisabled, setKeyboardDisabled] = useKeyboardDisabled();
+
   // Update greeting every minute
   useEffect(() => {
     const tick = () => setGreeting(computeGreeting());
@@ -94,7 +97,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     return () => clearInterval(id);
   }, []);
 
-  // Name from navigation params
+  // Name from route params
   useEffect(() => {
     const byParams = pickBestName(route?.params as any);
     if (byParams) setDisplayName(byParams);
@@ -110,7 +113,6 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           AsyncStorage.getItem("username"),
           AsyncStorage.getItem("user"),
         ]);
-
         const parsedUser = k3
           ? (() => {
               try {
@@ -141,29 +143,23 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [route?.params]);
 
   const onPressItem = (item: MenuItem) => () => {
-  switch (item.id) {
-    case "pick":
-      navigation.navigate("PickAndPack");
-      break;
-
-    case "transfer":
-      navigation.navigate("MaterialFG");
-      break;
-
-    case "dispatch":
-      navigation.navigate("MaterialDispatch");
-      break;
-
-    case "customer":   // ✅ FIXED missing colon
-      navigation.navigate("LabelPrint");   // ✅ Navigate to Label Print screen
-      break;
-
-    default:
-      console.warn("Unknown menu item:", item.id);
-      break;
-  }
-};
-
+    switch (item.id) {
+      case "pick":
+        navigation.navigate("PickAndPack");
+        break;
+      case "transfer":
+        navigation.navigate("MaterialFG");
+        break;
+      case "dispatch":
+        navigation.navigate("MaterialDispatch");
+        break;
+      case "customer":
+        navigation.navigate("LabelPrint");
+        break;
+      default:
+        console.warn("Unknown menu item:", item.id);
+    }
+  };
 
   const onLogout = async () => {
     try {
@@ -186,42 +182,52 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
-      {/* ---------- TOP NOTCH SAFE AREA (Header) ---------- */}
+      {/* Header */}
       <SafeAreaView edges={["top"]} style={{ backgroundColor: PRIMARY }}>
         <View style={[styles.header, { paddingHorizontal: 12 }]}>
           <View style={styles.brandLeft} accessible accessibilityRole="header">
             <View style={styles.logoBadge}>
               <Ionicons name="flash" size={18} color={HEADER_TEXT} />
             </View>
-            <Text
-              style={styles.brandText}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
+            <Text style={styles.brandText} numberOfLines={1} adjustsFontSizeToFit>
               <Text style={{ fontWeight: "700" }}>Scan Pack</Text>
               <Text style={{ fontWeight: "700" }}> · FANUC India</Text>
             </Text>
           </View>
-
           <TouchableOpacity
             onPress={onLogout}
             activeOpacity={0.85}
             style={styles.logoutBtn}
             accessibilityRole="button"
             accessibilityLabel="Logout"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
 
-      {/* ---------- MAIN CONTENT ---------- */}
+      {/* Main Content */}
       <View style={styles.content}>
-        <Text style={styles.greeting}>
-          {greeting},{" "}
-          <Text style={{ fontWeight: "700" }}>{username}</Text>
-        </Text>
+        {/* Greeting + Keyboard Toggle */}
+        <View style={styles.greetingContainer}>
+          <Text style={styles.greeting}>
+            {greeting},{" "}
+            <Text style={{ fontWeight: "700" }}>{username}</Text>
+          </Text>
+
+          {/* <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>
+              {keyboardDisabled ? "Scan Only" : "Keyboard"}
+            </Text>
+            <Switch
+              value={!keyboardDisabled}
+              onValueChange={(val) => setKeyboardDisabled(!val)}
+              trackColor={{ false: "#DC2626", true: PRIMARY }}
+              thumbColor={keyboardDisabled ? "#991B1B" : "#FFFFFF"}
+              ios_backgroundColor="#3e3e3e"
+            />
+          </View> */}
+        </View>
 
         <FlatList
           data={MENU}
@@ -263,14 +269,12 @@ export default HomeScreen;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
-
-  /* Header is now inside its own top-only SafeAreaView */
   header: {
     backgroundColor: PRIMARY,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 56, // comfortable baseline
+    minHeight: 56,
     ...Platform.select({
       android: { elevation: 2 },
       ios: {
@@ -302,7 +306,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     flexShrink: 1,
   },
-
   logoutBtn: {
     backgroundColor: "#FFE380",
     paddingHorizontal: 14,
@@ -315,10 +318,24 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   logoutText: { color: HEADER_TEXT, fontSize: 13, fontWeight: "700" },
-
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 16 },
-  greeting: { fontSize: 18, color: BODY_TEXT, marginBottom: 12 },
-
+  greetingContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  greeting: { fontSize: 18, color: BODY_TEXT },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  toggleLabel: {
+    fontSize: 14,
+    color: MUTED,
+    fontWeight: "600",
+  },
   card: {
     flexDirection: "row",
     alignItems: "center",

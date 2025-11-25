@@ -19,7 +19,7 @@ import {
   useCameraPermissions,
   type BarcodeScanningResult,
 } from "expo-camera";
-import { assignFgLocation, type AssignLocationResponse } from "../../Api/Hooks/material_fg_server";
+import { assignFgLocation, type AssignLocationResponse } from "../../Api/Hooks/Usematerial_fg";
 
 type ScanItem = {
   id: string;

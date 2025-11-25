@@ -1,4 +1,10 @@
-import React, { useState, useLayoutEffect, useMemo, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useLayoutEffect,
+  useMemo,
+  useEffect,
+  useRef,
+} from "react";
 import {
   View,
   Text,
@@ -20,7 +26,7 @@ import {
   fetchExistingAttachments,
   type AttachmentItem,
   updateAttachmentDescription,
-} from "../../Api/Hooks/SalesOrder_server";
+} from "../../Api/Hooks/UseSalesOrder";
 
 interface FileItem {
   id: string;
@@ -34,7 +40,8 @@ interface FileItem {
   isDirty?: boolean;
 }
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE_MB = 10;
 const BUTTON_WIDTH = 140;
 const DEBOUNCE_DELAY = 800; // ms
 
@@ -57,7 +64,6 @@ export default function AttachmentScreen() {
   const [modalMessage, setModalMessage] = useState("");
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
 
-  // Debounce timers for each file description
   const debounceTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
 
   useEffect(() => {
@@ -122,41 +128,62 @@ export default function AttachmentScreen() {
         multiple: true,
       });
 
-      if (result.canceled) return;
+      if (result.canceled || !result.assets) {
+        return;
+      }
 
-      const validFiles = result.assets.filter(
-        (file) => file.size <= MAX_FILE_SIZE
+      const assets = result.assets;
+
+      // Filter valid and large files safely (size can be null/undefined)
+      const validFiles = assets.filter(
+        (file) => file.size == null || file.size <= MAX_FILE_SIZE
       );
-      const largeFiles = result.assets.filter(
-        (file) => file.size > MAX_FILE_SIZE
+
+      const largeFiles = assets.filter(
+        (file) => file.size != null && file.size > MAX_FILE_SIZE
       );
 
       if (largeFiles.length > 0) {
+        const largeFileNames = largeFiles
+          .map(
+            (f) =>
+              `• ${f.name} (${(f.size! / (1024 * 1024)).toFixed(1)} MB)`
+          )
+          .join("\n");
+
         Alert.alert(
-          "File Too Large",
-          `Some files exceed the 10MB limit and were not added: ${largeFiles
-            .map((f) => f.name)
-            .join(", ")}`
+          `File Too Large (> ${MAX_FILE_SIZE_MB} MB)`,
+          `The following files were skipped:\n\n${largeFileNames}`,
+          [{ text: "OK" }]
         );
       }
 
+      if (validFiles.length === 0) {
+        if (largeFiles.length === 0) {
+          Alert.alert("No Files Selected", "No valid files were picked.");
+        }
+        return;
+      }
+
       const newFiles: FileItem[] = validFiles.map((file, index) => {
-        const uniqueName = getUniqueName(file.name || "Unknown");
+        const safeName = file.name || `File-${Date.now()}-${index}`;
+        const uniqueName = getUniqueName(safeName);
+
         return {
-          id: `${Date.now()}-${index}`,
+          id: `${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
           name: uniqueName,
           description: "",
           status: "Pending",
           uri: file.uri,
-          mimeType: file.mimeType,
-          timestamp: Date.now(),
+          mimeType: file.mimeType ?? "application/octet-stream",
+          timestamp: Date.now() + index,
         };
       });
 
       setFiles((prev) => [...prev, ...newFiles]);
-    } catch (error) {
-      console.log(error);
-      Alert.alert("Error", "Unable to pick file");
+    } catch (error: any) {
+      console.error("Document picker error:", error);
+      Alert.alert("Error", error.message || "Unable to pick file(s)");
     }
   };
 
@@ -172,10 +199,7 @@ export default function AttachmentScreen() {
   const uploadFiles = async () => {
     const pendingFiles = files.filter((f) => f.status === "Pending");
     if (pendingFiles.length === 0) {
-      Alert.alert(
-        "No new files",
-        "Please add at least one new file to upload."
-      );
+      Alert.alert("No new files", "Please add at least one new file to upload.");
       return;
     }
 
@@ -186,7 +210,7 @@ export default function AttachmentScreen() {
     try {
       setFiles((prev) =>
         prev.map((f) =>
-          f.status === "Pending" ? { ...f, status: "Uploading" as const } : f
+          f.status === "Pending" ? { ...f, status: "Uploading" } : f
         )
       );
 
@@ -200,23 +224,23 @@ export default function AttachmentScreen() {
       await uploadAttachments(saleOrderNumber, attachments);
       await loadExistingAttachments();
       setFiles([]);
-      setModalTitle("Success");
-      setModalMessage(
-        `${pendingFiles.length} new file(s) uploaded successfully!`
-      );
+      setModalTitle("Upload Successful");
+      setModalMessage(`${pendingFiles.length} file(s) uploaded successfully!`);
       setModalVisible(true);
     } catch (e: any) {
       console.error("Upload error:", e);
       setFiles((prev) =>
         prev.map((f) =>
-          f.status === "Uploading" ? { ...f, status: "Failed" as const } : f
+          f.status === "Uploading" ? { ...f, status: "Failed" } : f
         )
       );
-      let errorMessage = e?.message ?? "Please try again.";
+
+      let errorMessage = e?.message ?? "Upload failed. Please try again.";
       if (errorMessage.includes("413")) {
         errorMessage =
-          "The file(s) are too large to upload. Please select smaller files or upload fewer at a time.";
+          "Server rejected the upload (file too large or too many files). Try uploading fewer or smaller files.";
       }
+
       setModalTitle("Upload Failed");
       setModalMessage(errorMessage);
       setModalVisible(true);
@@ -241,7 +265,6 @@ export default function AttachmentScreen() {
         )
       );
     } else {
-      // For existing files, update local state immediately
       setExistingAttachments((prev) =>
         prev.map((att) => {
           const uniqueId = att.id || att.uri;
@@ -261,15 +284,11 @@ export default function AttachmentScreen() {
 
     try {
       await updateAttachmentDescription(dbId, description.trim());
-      // Optionally show success (silent success)
     } catch (error: any) {
       console.error("Failed to update description:", error);
-      // Revert on failure
       await loadExistingAttachments();
-      setModalTitle("Update Failed");
-      setModalMessage(
-        error?.message || "Could not save description. Reverted to original."
-      );
+      setModalTitle("Save Failed");
+      setModalMessage("Could not save description. Changes reverted.");
       setModalVisible(true);
     } finally {
       setSavingIds((prev) => {
@@ -283,14 +302,11 @@ export default function AttachmentScreen() {
   const handleDescriptionChange = (item: FileItem, text: string) => {
     updateFileDescription(item.id, text);
 
-    // Only auto-save for uploaded existing files
     if (item.status === "Uploaded" && item.dbId) {
-      // Clear previous timer
       if (debounceTimerRef.current[item.id]) {
         clearTimeout(debounceTimerRef.current[item.id]);
       }
 
-      // Set new debounced save
       debounceTimerRef.current[item.id] = setTimeout(() => {
         saveDescription(item.dbId!, text, item.id);
       }, DEBOUNCE_DELAY);
@@ -299,27 +315,19 @@ export default function AttachmentScreen() {
 
   const getStatusColor = (status: FileItem["status"]) => {
     switch (status) {
-      case "Uploaded":
-        return "#4CAF50";
-      case "Failed":
-        return "#F44336";
-      case "Uploading":
-        return "#2196F3";
-      default:
-        return "#FF9800";
+      case "Uploaded": return "#4CAF50";
+      case "Failed": return "#F44336";
+      case "Uploading": return "#2196F3";
+      default: return "#FF9800";
     }
   };
 
   const getStatusText = (status: FileItem["status"]) => {
     switch (status) {
-      case "Uploaded":
-        return "Uploaded";
-      case "Failed":
-        return "Failed";
-      case "Uploading":
-        return "Uploading...";
-      default:
-        return "Pending";
+      case "Uploaded": return "Uploaded";
+      case "Failed": return "Failed";
+      case "Uploading": return "Uploading...";
+      default: return "Pending";
     }
   };
 
@@ -337,7 +345,7 @@ export default function AttachmentScreen() {
         <View style={styles.descriptionContainer}>
           <TextInput
             style={[styles.cellDescription, styles.input]}
-            placeholder="Enter description"
+            placeholder="Enter description (optional)"
             value={item.description}
             onChangeText={(text) => handleDescriptionChange(item, text)}
             editable={!uploading && (item.status === "Pending" || item.status === "Uploaded")}
@@ -345,11 +353,7 @@ export default function AttachmentScreen() {
             blurOnSubmit={true}
           />
           {isSaving && (
-            <ActivityIndicator
-              size={14}
-              color="#2196F3"
-              style={styles.savingIndicator}
-            />
+            <ActivityIndicator size={14} color="#2196F3" style={styles.savingIndicator} />
           )}
         </View>
         <View style={styles.statusCell}>
@@ -362,8 +366,9 @@ export default function AttachmentScreen() {
               onPress={() => removeFile(item.id)}
               disabled={uploading}
             >
-              <Ionicons name="close-circle" size={16} color="#F44336" />
-            </TouchableOpacity>
+              <Ionicons name="close-circle" size={18} color="#F44336" />
+            </TouchableOpacity
+            >
           )}
         </View>
       </View>
@@ -372,15 +377,10 @@ export default function AttachmentScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* ------------------- HEADER WITH FIXED-SIZE BUTTONS ------------------- */}
+      {/* Header Buttons */}
       <View style={styles.header}>
-        {/* NEW FILES BUTTON */}
         <TouchableOpacity
-          style={[
-            styles.fixedButton,
-            styles.addButton,
-            uploading && { opacity: 0.7 },
-          ]}
+          style={[styles.fixedButton, styles.addButton, uploading && { opacity: 0.7 }]}
           onPress={pickFile}
           disabled={uploading}
         >
@@ -388,7 +388,6 @@ export default function AttachmentScreen() {
           <Text style={styles.fixedButtonText}>New Files</Text>
         </TouchableOpacity>
 
-        {/* UPLOAD BUTTON */}
         <TouchableOpacity
           style={[
             styles.fixedButton,
@@ -404,20 +403,20 @@ export default function AttachmentScreen() {
             <>
               <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
               <Text style={styles.fixedButtonText}>
-                {`Upload (${pendingCount})`}
+                Upload ({pendingCount})
               </Text>
             </>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* ------------------- FILE LIST SECTION ------------------- */}
+      {/* File List or Empty State */}
       {displayFiles.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="folder-outline" size={48} color="#B0BEC5" />
           <Text style={styles.emptyText}>No attachments yet</Text>
           <Text style={styles.emptySubText}>
-            Add your first attachment using the button above
+            Tap "New Files" to add attachments
           </Text>
         </View>
       ) : (
@@ -439,7 +438,7 @@ export default function AttachmentScreen() {
         </>
       )}
 
-      {/* ------------------- MODAL ------------------- */}
+      {/* Modal */}
       <Modal
         visible={modalVisible}
         transparent={true}
@@ -448,6 +447,11 @@ export default function AttachmentScreen() {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
+            <Ionicons
+              name={modalTitle.includes("Success") || modalTitle.includes("Successful") ? "checkmark-circle" : "alert-circle"}
+              size={40}
+              color={modalTitle.includes("Success") || modalTitle.includes("Successful") ? "#4CAF50" : "#F44336"}
+            />
             <Text style={styles.modalTitle}>{modalTitle}</Text>
             <Text style={styles.modalMessage}>{modalMessage}</Text>
             <TouchableOpacity
@@ -463,23 +467,16 @@ export default function AttachmentScreen() {
   );
 }
 
-/* ------------------- STYLES ------------------- */
+/* ==================== STYLES ==================== */
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    padding: 16,
-  },
+  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
 
-  /* ---------- HEADER ---------- */
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
     marginBottom: 16,
     marginTop: 8,
   },
-
   fixedButton: {
     width: BUTTON_WIDTH,
     flexDirection: "row",
@@ -488,24 +485,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
   },
-  fixedButtonText: {
-    marginLeft: 6,
-    fontWeight: "500",
-    fontSize: 14,
-  },
+  fixedButtonText: { marginLeft: 6, fontWeight: "500", fontSize: 14, color: "#da1010ff" },
+  addButton: { borderWidth: 1, borderStyle: "dashed", borderColor: "#B0BEC5", backgroundColor: "#fff" },
+  uploadButton: { backgroundColor: "#2196F3" },
 
-  addButton: {
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: "#B0BEC5",
-    backgroundColor: "#fff",
-  },
-
-  uploadButton: {
-    backgroundColor: "#2196F3",
-  },
-
-  /* ---------- TABLE ---------- */
   tableHeader: {
     flexDirection: "row",
     backgroundColor: "#F5F5F5",
@@ -514,36 +497,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#E0E0E0",
   },
-  headerCellSNo: {
-    flex: 1,
-    fontWeight: "bold",
-    textAlign: "center",
-    fontSize: 12,
-    color: "#757575",
-  },
-  headerCellName: {
-    flex: 3,
-    fontWeight: "bold",
-    textAlign: "left",
-    fontSize: 12,
-    paddingLeft: 8,
-    color: "#757575",
-  },
-  headerCellDescription: {
-    flex: 4,
-    fontWeight: "bold",
-    textAlign: "left",
-    fontSize: 12,
-    paddingLeft: 8,
-    color: "#757575",
-  },
-  headerCellStatus: {
-    flex: 2,
-    fontWeight: "bold",
-    textAlign: "center",
-    fontSize: 12,
-    color: "#757575",
-  },
+  headerCellSNo: { flex: 1, fontWeight: "bold", textAlign: "center", fontSize: 12, color: "#757575" },
+  headerCellName: { flex: 3, fontWeight: "bold", fontSize: 12, paddingLeft: 8, color: "#757575" },
+  headerCellDescription: { flex: 4, fontWeight: "bold", fontSize: 12, paddingLeft: 8, color: "#757575" },
+  headerCellStatus: { flex: 2, fontWeight: "bold", textAlign: "center", fontSize: 12, color: "#757575" },
 
   row: {
     flexDirection: "row",
@@ -553,111 +510,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     minHeight: 50,
   },
-  cellSNo: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 12,
-    color: "#424242",
-  },
-  cellName: {
-    flex: 3,
-    textAlign: "left",
-    fontSize: 12,
-    paddingLeft: 8,
-    color: "#424242",
-  },
-  descriptionContainer: {
-    flex: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingLeft: 8,
-  },
-  cellDescription: {
-    flex: 1,
-  },
-  input: {
-    fontSize: 12,
-    paddingHorizontal: 8,
-    height: 40,
-  },
-  savingIndicator: {
-    marginLeft: 6,
-  },
-  statusCell: {
-    flex: 2,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingRight: 8,
-  },
-  removeButton: {
-    paddingLeft: 8,
-  },
+  cellSNo: { flex: 1, textAlign: "center", fontSize: 12, color: "#424242" },
+  cellName: { flex: 3, fontSize: 12, paddingLeft: 8, color: "#424242" },
+  descriptionContainer: { flex: 4, flexDirection: "row", alignItems: "center", paddingLeft: 8 },
+  cellDescription: { flex: 1 },
+  input: { fontSize: 12, paddingHorizontal: 8, height: 40 },
+  savingIndicator: { marginLeft: 6 },
+  statusCell: { flex: 2, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingRight: 8 },
+  removeButton: { paddingLeft: 8 },
 
-  fileList: {
-    flex: 1,
-  },
-  listContent: {
-    flexGrow: 1,
-  },
+  fileList: { flex: 1 },
+  listContent: { flexGrow: 1 },
 
   emptyState: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: 40,
-    borderWidth: 1,
+    borderWidth: 2,
     borderStyle: "dashed",
     borderColor: "#B0BEC5",
-    borderRadius: 8,
+    borderRadius: 12,
     marginTop: 20,
   },
-  emptyText: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginTop: 8,
-    color: "#757575",
-  },
-  emptySubText: {
-    fontSize: 12,
-    color: "#B0BEC5",
-    textAlign: "center",
-    marginTop: 4,
-  },
+  emptyText: { fontSize: 16, fontWeight: "600", marginTop: 12, color: "#424242" },
+  emptySubText: { fontSize: 13, color: "#78909C", textAlign: "center", marginTop: 6 },
 
-  /* ---------- MODAL ---------- */
-  modalContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  modalContent: {
-    backgroundColor: "#fff",
-    padding: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    width: "80%",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 10,
-  },
-  modalMessage: {
-    fontSize: 14,
-    textAlign: "center",
-    marginBottom: 20,
-    lineHeight: 20,
-  },
-  modalButton: {
-    backgroundColor: "#2196F3",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  modalButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
+  modalContainer: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" },
+  modalContent: { backgroundColor: "#fff", padding: 24, borderRadius: 12, alignItems: "center", width: "85%", maxWidth: 400 },
+  modalTitle: { fontSize: 20, fontWeight: "bold", marginTop: 12, marginBottom: 8 },
+  modalMessage: { fontSize: 14, textAlign: "center", color: "#555", lineHeight: 20, marginBottom: 20 },
+  modalButton: { backgroundColor: "#2196F3", paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8 },
+  modalButtonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
 });

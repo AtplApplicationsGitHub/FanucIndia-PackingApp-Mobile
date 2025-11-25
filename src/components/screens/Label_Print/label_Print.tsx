@@ -1,5 +1,10 @@
 // src/screens/CustomerLabelPrint.tsx
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import {
   View,
   Text,
@@ -16,13 +21,14 @@ import {
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
-  CameraView,
   useCameraPermissions,
   BarcodeScanningResult,
 } from "expo-camera";
 import type { JSX } from "react";
-import { useVerifySO } from "../../Api/Hooks/label_Print";
+
+import { useVerifySO } from "../../Api/Hooks/UselabelPrint";
 import { labelPrintStorage, StoredLabelPrintData } from "../../Storage/label_Print_Storage";
+import ScannerModal from "../../Scanner/ScannerModal"; // ← NEW IMPORT
 
 type SOItem = {
   id: string;
@@ -108,10 +114,10 @@ export default function CustomerLabelPrint(): JSX.Element {
 
   const inputRef = useRef<TextInput>(null);
 
-  // Scanner
+  // Scanner state
   const [scanModalVisible, setScanModalVisible] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const scanLockRef = useRef(false);
+  const scanLockRef = useRef(false); // Prevents multiple scans
 
   // Modals
   const [errorModal, setErrorModal] = useState({
@@ -140,7 +146,7 @@ export default function CustomerLabelPrint(): JSX.Element {
 
   const { verifySO, loading, error: verifyError } = useVerifySO();
 
-  // Load from storage on mount
+  // Load saved data on mount
   useEffect(() => {
     const loadData = async () => {
       const saved = await labelPrintStorage.load();
@@ -154,7 +160,7 @@ export default function CustomerLabelPrint(): JSX.Element {
     loadData();
   }, []);
 
-  // Auto-save whenever data changes
+  // Auto-save on any change
   useEffect(() => {
     const dataToSave: StoredLabelPrintData = {
       sos,
@@ -165,11 +171,13 @@ export default function CustomerLabelPrint(): JSX.Element {
     labelPrintStorage.save(dataToSave);
   }, [sos, customerName, customerAddress, isCustomerLocked]);
 
+  // Focus input on mount
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 300);
     return () => clearTimeout(timer);
   }, []);
 
+  // Request camera permission
   useEffect(() => {
     requestPermission();
   }, []);
@@ -203,6 +211,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   const handleBarcodeScanned = (result: BarcodeScanningResult) => {
     if (scanLockRef.current) return;
     scanLockRef.current = true;
+
     const data = result.data?.trim();
     if (data) {
       addSO(data);
@@ -215,6 +224,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   const addSO = async (value?: string) => {
     Keyboard.dismiss();
     const soToAdd = (value || soNumber).trim().toUpperCase();
+
     if (!soToAdd) {
       showError("Invalid Input", "Please enter or scan a Sales Order number.");
       focusInput();
@@ -245,8 +255,8 @@ export default function CustomerLabelPrint(): JSX.Element {
       setCustomerName(newName);
       setCustomerAddress(newAddress);
       setIsCustomerLocked(true);
-    } 
-    // Subsequent SOs → must match existing customer
+    }
+    // Subsequent SOs → must match customer
     else if (customerName !== newName || customerAddress !== newAddress) {
       showError(
         "Customer Mismatch",
@@ -270,17 +280,15 @@ export default function CustomerLabelPrint(): JSX.Element {
     setSos((prev) => {
       const updated = prev.filter((item) => item.id !== id);
 
-      // If no SOs left → unlock customer and clear details
       if (updated.length === 0) {
         setCustomerName(null);
         setCustomerAddress(null);
         setIsCustomerLocked(false);
-        labelPrintStorage.clear(); // Clear storage too
+        labelPrintStorage.clear();
       }
 
       return updated;
     });
-
     focusInput();
   };
 
@@ -302,7 +310,7 @@ export default function CustomerLabelPrint(): JSX.Element {
           customerAddress,
           sos: sos.map((s) => s.soNumber),
         });
-        // TODO: Call actual print API
+        // TODO: Connect to actual print API here
         setConfirmModal((prev) => ({ ...prev, visible: false }));
       },
       onCancel: () => setConfirmModal((prev) => ({ ...prev, visible: false })),
@@ -434,37 +442,14 @@ export default function CustomerLabelPrint(): JSX.Element {
         />
       </View>
 
-      {/* Scanner Modal */}
-      <Modal visible={scanModalVisible} transparent={false} animationType="slide">
-        <StatusBar hidden />
-        <View style={styles.cameraContainer}>
-          <CameraView
-            style={StyleSheet.absoluteFillObject}
-            facing="back"
-            barcodeScannerSettings={{
-              barcodeTypes: ["qr", "code128", "code39", "code93", "ean13", "ean8", "upc_a", "upc_e", "pdf417", "datamatrix"],
-            }}
-            onBarcodeScanned={scanLockRef.current ? undefined : handleBarcodeScanned}
-          />
-          <View style={styles.overlayTop}>
-            <Text style={styles.scanTitle}>Scan SO Barcode</Text>
-            <Pressable onPress={closeScanner} style={styles.closeBtn}>
-              <Ionicons name="close" size={28} color="#fff" />
-            </Pressable>
-          </View>
-          <View style={styles.scanFrame}>
-            <View style={styles.cornerTopLeft} />
-            <View style={styles.cornerTopRight} />
-            <View style={styles.cornerBottomLeft} />
-            <View style={styles.cornerBottomRight} />
-          </View>
-          <View style={styles.overlayBottom}>
-            <Text style={styles.scanHint}>Align barcode within the frame</Text>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modals */}
+      {/* Scanner Modal - Now external component */}
+      <ScannerModal
+        visible={scanModalVisible}
+        onClose={closeScanner}
+        onBarcodeScanned={handleBarcodeScanned}
+        scanLock={scanLockRef.current}
+      />
+      {/* Error & Confirmation Modals */}
       <ErrorModal
         visible={errorModal.visible}
         title={errorModal.title}
@@ -488,7 +473,6 @@ export default function CustomerLabelPrint(): JSX.Element {
   );
 }
 
-// Updated styles (added delete button style)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg, padding: 17, paddingVertical: 1 },
   inputCard: {
@@ -578,35 +562,6 @@ const styles = StyleSheet.create({
   deleteBtn: { padding: 8 },
   separator: { height: 1, backgroundColor: "#f1f5f9", marginHorizontal: 16 },
   emptyText: { textAlign: "center", color: COLORS.muted, padding: 40, fontStyle: "italic", fontSize: 15 },
-  cameraContainer: { flex: 1, backgroundColor: "#000" },
-  overlayTop: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 60 : 30,
-    left: 20,
-    right: 20,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  scanTitle: { color: "#fff", fontSize: 19, fontWeight: "700" },
-  closeBtn: { position: "absolute", right: 0, padding: 10 },
-  scanFrame: {
-    position: "absolute",
-    top: "50%",
-    left: "10%",
-    right: "10%",
-    height: 280,
-    marginTop: -140,
-    borderWidth: 2,
-    borderColor: "rgba(59, 130, 246, 0.9)",
-    borderRadius: 16,
-  },
-  cornerTopLeft: { position: "absolute", top: -12, left: -12, width: 50, height: 50, borderTopWidth: 6, borderLeftWidth: 6, borderColor: COLORS.accent },
-  cornerTopRight: { position: "absolute", top: -12, right: -12, width: 50, height: 50, borderTopWidth: 6, borderRightWidth: 6, borderColor: COLORS.accent },
-  cornerBottomLeft: { position: "absolute", bottom: -12, left: -12, width: 50, height: 50, borderBottomWidth: 6, borderLeftWidth: 6, borderColor: COLORS.accent },
-  cornerBottomRight: { position: "absolute", bottom: -12, right: -12, width: 50, height: 50, borderBottomWidth: 6, borderRightWidth: 6, borderColor: COLORS.accent },
-  overlayBottom: { position: "absolute", bottom: 100, left: 0, right: 0, alignItems: "center" },
-  scanHint: { color: "#fff", fontSize: 16, backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: 32, paddingVertical: 14, borderRadius: 30, fontWeight: "600" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
   alertModal: { backgroundColor: "#fff", borderRadius: 20, padding: 30, alignItems: "center", width: "85%", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 10, elevation: 10 },
   alertTitle: { fontSize: 20, fontWeight: "700", color: "#1f2937", marginTop: 16 },

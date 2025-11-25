@@ -17,7 +17,7 @@ import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
-import { loginApiWithEmail } from "../../Api/Hooks/server";
+import { loginApiWithEmail } from "../../Api/Hooks/Auth";
 
 type NavProps = NativeStackScreenProps<RootStackParamList, "Login">;
 
