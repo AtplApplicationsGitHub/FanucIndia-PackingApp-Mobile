@@ -34,5 +34,6 @@ export const API_ENDPOINTS = {
   LABEL_PRINT: {
     VERIFY_SO: (soNumber: string) =>
       `${BASE_URL}/sales-crud/verify-so/${soNumber}`,
+    PRINT: `${BASE_URL}/sales-crud/label-print`,
   },
 };
