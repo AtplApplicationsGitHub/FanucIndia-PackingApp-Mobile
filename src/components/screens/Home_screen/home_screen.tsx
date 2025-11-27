@@ -20,7 +20,7 @@ import type { RootStackParamList } from "../../../../App";
 import { useKeyboardDisabled } from "../../utils/keyboard";
 
 type MenuItem = {
-  id: "pick" | "transfer" | "dispatch" | "customer";
+  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle";
   title: string;
   subtitle: string;
   iconName: string;
@@ -55,11 +55,18 @@ const MENU: MenuItem[] = [
     iconName: "swap-horizontal",
   },
   {
+    id: "vehicle",
+    title: "Vehicle Entry",
+    subtitle: "Register vehicle arrival",
+    iconName: "car-outline",
+  },
+  {
     id: "dispatch",
     title: "Material Dispatch",
     subtitle: "Ready for shipment",
     iconName: "truck-outline",
   },
+  
 ];
 
 function pickBestName(input?: {
@@ -155,6 +162,9 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         break;
       case "customer":
         navigation.navigate("LabelPrint");
+        break;
+      case "vehicle":
+        navigation.navigate("VehicleEntry");
         break;
       default:
         console.warn("Unknown menu item:", item.id);

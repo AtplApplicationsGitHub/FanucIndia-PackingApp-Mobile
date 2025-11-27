@@ -17,11 +17,9 @@ export const API_ENDPOINTS = {
     UPDATE_ATTACHMENT_DESC: (fileId: string) =>
       `${BASE_URL}/v1/erp-material-files/${fileId}`,
   },
-
   MATERIAL_FG: {
     ASSIGN_LOCATION: `${BASE_URL}/fg-storage/assign-location`,
   },
-
   MATERIAL_DISPATCH: {
     HEADER: `${BASE_URL}/dispatch/mobile/header`,
     SO_LINK: (dispatchId: string) =>

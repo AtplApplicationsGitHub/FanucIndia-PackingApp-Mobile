@@ -1,5 +1,5 @@
-// SalesOrder_table.tsx
-import React from "react";
+// SalesOrdersStyledTable.tsx
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { OrdersSummaryItem } from "../../../Api/Hooks/UseSalesOrder";
+import SalesOrderTableStorage from "../../../Storage/SalesOrder_table_Storage"; // Make sure path is correct
 
 type Props = {
   data?: OrdersSummaryItem[];
@@ -47,29 +48,11 @@ const C = {
 
 const getColumnFlex = (screenWidth: number) => {
   if (screenWidth < 350) {
-    return {
-      so: 1.5,
-      status: 1.6,
-      gap: 0.3,
-      priority: 0.8,
-      action: 1.5,
-    };
+    return { so: 1.5, status: 1.6, gap: 0.3, priority: 0.8, action: 1.5 };
   } else if (screenWidth < 400) {
-    return {
-      so: 1.4,
-      status: 1.4,
-      gap: 0.3,
-      priority: 0.9,
-      action: 1.4,
-    };
+    return { so: 1.4, status: 1.4, gap: 0.3, priority: 0.9, action: 1.4 };
   } else {
-    return {
-      so: 1.3,
-      status: 1.3,
-      gap: 0.3,
-      priority: 1.0,
-      action: 1.3,
-    };
+    return { so: 1.3, status: 1.3, gap: 0.3, priority: 1.0, action: 1.3 };
   }
 };
 
@@ -92,9 +75,23 @@ const IconTap: React.FC<
   </Pressable>
 );
 
+const getRelativeLabel = (secs: number) => {
+  if (secs < 1) return "just now";
+  if (secs < 60) return `${secs} sec${secs === 1 ? "" : "s"} ago`;
+  if (secs < 3600) {
+    const m = Math.floor(secs / 60);
+    return `${m} min${m === 1 ? "" : "s"} ago`;
+  }
+  if (secs < 86400) {
+    const h = Math.floor(secs / 3600);
+    return `${h} hr${h === 1 ? "" : "s"} ago`;
+  }
+  const days = Math.floor(secs / 86400);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+};
+
 const Row: React.FC<{
   item: OrdersSummaryItem;
-  onPress?: () => void;
   onDownload?: () => void;
   onView?: () => void;
   onUpload?: () => void;
@@ -120,81 +117,102 @@ const Row: React.FC<{
   uploading = false,
   columnFlex,
 }) => {
-  const currentPhase = phase;
+  const [elapsedSec, setElapsedSec] = useState<number>(0);
   const isUploading = uploading;
 
-  const statusText =
-    (item as any)?.status ??
-    (isUploading
-      ? "Uploading..."
-      : !downloaded
-      ? "Not downloaded"
-      : currentPhase === "issue" && !issueCompleted
-      ? "Issuing in progress"
-      : currentPhase === "issue" && issueCompleted
-      ? "Ready to upload (Issue)"
-      : currentPhase === "packing" && !packCompleted
-      ? "Packing in progress"
-      : currentPhase === "packing" && packCompleted
-      ? "Ready to upload (Packing)"
-      : "Unknown status");
+  // Persistent timer based on saved timestamp
+  useEffect(() => {
+    if (!downloaded) {
+      setElapsedSec(0);
+      return;
+    }
 
-  const totalItems = (item as any)?.totalItems != null ? String((item as any).totalItems) : "-";
-  const totalMaterials = (item as any)?.totalMaterials != null ? String((item as any).totalMaterials) : "-";
-  const priority = item.priority != null ? String(item.priority) : "-";
+    let mounted = true;
+    let interval: NodeJS.Timeout;
 
-  const showDownloadOnly = !downloaded;
-  const showProgressActions = downloaded && 
-    ((currentPhase === "issue" && !issueCompleted) || 
-     (currentPhase === "packing" && !packCompleted));
-  const showUploadButton = downloaded && 
-    ((currentPhase === "issue" && issueCompleted) || 
-     (currentPhase === "packing" && packCompleted));
+    const updateElapsed = async () => {
+      const savedTs = await SalesOrderTableStorage.getDownloadedTimestamp(item.saleOrderNumber);
+      if (!savedTs || !mounted) return;
+
+      const diff = Math.floor((Date.now() - savedTs) / 1000);
+      setElapsedSec(diff);
+    };
+
+    updateElapsed(); // Immediate update
+    interval = setInterval(updateElapsed, 1000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [downloaded, item.saleOrderNumber]);
+
+  const currentPhase = phase;
+  const showUploadButton =
+    downloaded &&
+    ((currentPhase === "issue" && issueCompleted) ||
+      (currentPhase === "packing" && packCompleted));
+
+  const showProgressActions =
+    downloaded &&
+    ((currentPhase === "issue" && !issueCompleted) ||
+      (currentPhase === "packing" && !packCompleted));
 
   const isSOClickable = downloaded && !showUploadButton;
+  const timerIsLink = elapsedSec >= 3600 && !!onView;
 
   const rowStyle = [
     styles.row,
-    showUploadButton && { backgroundColor: C.greenBg, borderColor: C.greenBorder },
+    showUploadButton && {
+      backgroundColor: C.greenBg,
+      borderColor: C.greenBorder,
+    },
     isUploading && { opacity: 0.9 },
   ];
 
+  // Wrap download/delete to save/remove timestamp
+  const handleDownload = async () => {
+    await SalesOrderTableStorage.setDownloadedTimestamp(item.saleOrderNumber);
+    onDownload?.();
+  };
+
+  const handleDelete = async () => {
+    await SalesOrderTableStorage.removeDownloadedTimestamp(item.saleOrderNumber);
+    onDelete?.();
+  };
+
   return (
     <View style={rowStyle}>
-      {/* SO */}
+      {/* SO + Timer */}
       <View style={[styles.cell, { flex: columnFlex.so }]}>
         {isSOClickable && onView ? (
-          <Pressable
-            onPress={onView}
-            disabled={isUploading}
-            accessibilityLabel={`View order ${item.saleOrderNumber}`}
-            style={styles.soPressable}
-          >
-            <Text
-              style={[
-                styles.soText,
-                { color: C.blue, textDecorationLine: "underline" },
-                isUploading && { opacity: 0.4 },
-              ]}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-            >
+          <Pressable onPress={onView} disabled={isUploading} style={styles.soPressable}>
+            <Text style={[styles.soText, { color: C.blue, textDecorationLine: "underline" }]}>
               {item.saleOrderNumber}
             </Text>
           </Pressable>
         ) : (
-          <Text
-            style={[
-              styles.soText,
-              showUploadButton && { color: C.greenText },
-              isUploading && { opacity: 0.4 },
-            ]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
+          <Text style={[styles.soText, showUploadButton && { color: C.greenText }]}>
             {item.saleOrderNumber}
           </Text>
         )}
+
+        {/* Persistent Relative Timer */}
+        <View style={{ marginTop: 6 }}>
+          {downloaded && (
+            timerIsLink && onView ? (
+              <Pressable onPress={onView} disabled={isUploading}>
+                <Text style={[styles.smallTimer, { color: C.blue, textDecorationLine: "underline" }]}>
+                  {getRelativeLabel(elapsedSec)}
+                </Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.smallTimer}>
+                {getRelativeLabel(elapsedSec)}
+              </Text>
+            )
+          )}
+        </View>
       </View>
 
       {/* Status */}
@@ -203,47 +221,51 @@ const Row: React.FC<{
           numberOfLines={2}
           style={[
             styles.statusText,
-            showUploadButton ? { color: C.greenText, fontWeight: "700" } : undefined,
-            isUploading ? { color: C.blue } : undefined,
-            currentPhase === "packing" && !packCompleted ? { color: C.orange } : undefined,
+            showUploadButton && { color: C.greenText, fontWeight: "700" },
+            isUploading && { color: C.blue },
+            currentPhase === "packing" && !packCompleted && { color: C.orange },
           ]}
         >
-          {statusText}
+          {item.status}
         </Text>
       </View>
 
       {/* Priority */}
       <View style={[styles.cell, styles.centerCell, { flex: columnFlex.priority }]}>
-        <Text style={styles.metricText}>{priority}</Text>
+        <Text style={styles.metricText}>{item.priority ?? "-"}</Text>
       </View>
 
-      {/* Action */}
+      {/* Actions */}
       <View style={[styles.cell, styles.actionCell, { flex: columnFlex.action }]}>
         <View style={styles.actionBar}>
-          {showDownloadOnly && onDownload && (
-            <IconTap onPress={onDownload} disabled={isUploading} ariaLabel="Download order details">
+          {/* Download */}
+          {!downloaded && onDownload && (
+            <IconTap onPress={handleDownload} disabled={isUploading} ariaLabel="Download">
               <Ionicons name="download-outline" size={20} color={isUploading ? C.gray : C.icon} />
             </IconTap>
           )}
 
+          {/* Document */}
           {(showProgressActions || showUploadButton) && onDocument && (
-            <IconTap onPress={onDocument} disabled={isUploading} ariaLabel="Open documents">
+            <IconTap onPress={onDocument} disabled={isUploading} ariaLabel="Documents">
               <Ionicons name="document-outline" size={20} color={isUploading ? C.gray : C.icon} />
             </IconTap>
           )}
 
+          {/* Upload */}
           {showUploadButton && onUpload && (
             isUploading ? (
               <ActivityIndicator size="small" color={C.blue} />
             ) : (
-              <IconTap onPress={onUpload} disabled={isUploading} ariaLabel={`Upload ${currentPhase} data`}>
+              <IconTap onPress={onUpload} ariaLabel="Upload">
                 <Ionicons name="cloud-upload-outline" size={20} color={C.blue} />
               </IconTap>
             )
           )}
 
+          {/* Delete */}
           {downloaded && onDelete && (
-            <IconTap onPress={onDelete} disabled={isUploading} ariaLabel="Delete local order data">
+            <IconTap onPress={handleDelete} disabled={isUploading} ariaLabel="Delete local data">
               <Ionicons name="trash-outline" size={20} color={isUploading ? C.gray : C.icon} />
             </IconTap>
           )}
@@ -277,25 +299,23 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
       <View style={styles.tableHeader}>
         <Text style={[styles.thText, { flex: columnFlex.so }]}>SO</Text>
         <Text style={[styles.thText, { flex: columnFlex.status }]}>Status</Text>
-        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.priority }]}>Priority</Text>
-        <Text style={[styles.thText, styles.thRight, { flex: columnFlex.action }]}>Action</Text>
+        <Text style={[styles.thText, styles.thCenter, { flex: columnFlex.priority }]}>
+          Priority
+        </Text>
+        <Text style={[styles.thText, styles.thRight, { flex: columnFlex.action }]}>
+          Action
+        </Text>
       </View>
 
       <FlatList
         data={data}
         keyExtractor={(it) => it.saleOrderNumber}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh ?? undefined} colors={[C.blue]} tintColor={C.blue} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[C.blue]} tintColor={C.blue} />
         }
         ItemSeparatorComponent={() => <View style={styles.sep} />}
         renderItem={({ item }) => {
           const so = item.saleOrderNumber;
-          const downloaded = !!downloadedMap[so];
-          const issueCompleted = !!issueCompletedMap[so];
-          const packCompleted = !!packCompletedMap[so];
-          const phase = phaseMap[so] ?? "issue";
-          const isUploading = uploading === so;
-
           return (
             <Row
               item={item}
@@ -304,11 +324,11 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
               onUpload={onUpload ? () => onUpload(item) : undefined}
               onDocument={onDocument ? () => onDocument(item) : undefined}
               onDelete={onDelete ? () => onDelete(item) : undefined}
-              downloaded={downloaded}
-              issueCompleted={issueCompleted}
-              packCompleted={packCompleted}
-              phase={phase}
-              uploading={isUploading}
+              downloaded={!!downloadedMap[so]}
+              issueCompleted={!!issueCompletedMap[so]}
+              packCompleted={!!packCompletedMap[so]}
+              phase={phaseMap[so] ?? "issue"}
+              uploading={uploading === so}
               columnFlex={columnFlex}
             />
           );
@@ -328,9 +348,14 @@ const SalesOrdersStyledTable: React.FC<Props> = ({
 
 export default SalesOrdersStyledTable;
 
+// Styles unchanged
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.pageBg, paddingHorizontal: 12, paddingTop: 8 },
-
+  container: {
+    flex: 1,
+    backgroundColor: C.pageBg,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
   tableHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -345,7 +370,6 @@ const styles = StyleSheet.create({
   thText: { fontSize: 12, fontWeight: "700", color: C.gray },
   thCenter: { textAlign: "center" },
   thRight: { textAlign: "right" },
-
   row: {
     backgroundColor: C.card,
     borderColor: C.border,
@@ -364,21 +388,35 @@ const styles = StyleSheet.create({
   soText: { color: "#111827", fontSize: 14, fontWeight: "700" },
   statusText: { color: "#111827", fontSize: 13, fontWeight: "600", lineHeight: 16 },
   metricText: { color: "#111827", fontSize: 13, fontWeight: "500" },
-
-  actionBar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 1, flexWrap: "nowrap" },
-
+  actionBar: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 12,
+  },
   iconTap: {
-    backgroundColor: "transparent",
-    borderWidth: 0,
     height: 32,
     width: 32,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 6,
   },
-
   sep: { height: 8 },
-
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 60 },
-  emptyTitle: { fontSize: 16, fontWeight: "700", color: C.headerText, marginTop: 12 },
+  empty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: C.headerText,
+    marginTop: 12,
+  },
+  smallTimer: {
+    color: "#111827",
+    fontSize: 12,
+    fontWeight: "700",
+  },
 });

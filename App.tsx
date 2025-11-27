@@ -4,7 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-// Adjust these import paths if your file structure differs
+// Adjust import paths if your folder structure is different
 import LoginScreen from "./src/components/screens/Login/login";
 import HomeScreen from "./src/components/screens/Home_screen/home_screen";
 import SalesOrderScreen from "./src/components/screens/pick_and_pack/SOScreen/SalesOrder_Screen";
@@ -12,15 +12,17 @@ import MaterialFGScreen from "./src/components/screens/Material_FG/material_fg";
 import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/material_dispatch";
 import OrderDetailsScreen from "./src/components/screens/pick_and_pack/SO_OrderDetailsScreen/OrderDetails";
 import UploadScreen from "./src/components/screens/pick_and_pack/SOScreen/upload";
-import LabelPrint from "./src/components/screens/Label_Print/label_Print"; // <- renamed import for consistency
+import LabelPrint from "./src/components/screens/Label_Print/label_Print";
+import VehicleEntry from "./src/components/screens/Vehicle_Entry/VehicleEntry";
 import { RefreshButton } from "./src/components/Storage_Clear/Storage_Clear";
 
 export type RootStackParamList = {
   Login: undefined;
   Home: { displayName?: string } | undefined;
-  PickAndPack: undefined; // SalesOrderScreen (pick & pack list)
-  SalesOrderScreen: undefined; // kept in case other code navigates by this name
-  LabelPrint: undefined; // Label print screen
+  PickAndPack: undefined;
+  SalesOrderScreen: undefined;
+  LabelPrint: undefined;
+  VehicleEntry: undefined;
   MaterialFG: undefined;
   MaterialDispatch: undefined;
   OrderDetails: { saleOrderNumber: string };
@@ -33,6 +35,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <StatusBar style="dark" />
+
       <Stack.Navigator
         initialRouteName="Login"
         screenOptions={{
@@ -60,19 +63,18 @@ export default function App() {
           options={{ headerShown: false }}
         />
 
-        {/* Pick & Pack list - NO BACK BUTTON */}
+        {/* Pick & Pack List – No back button */}
         <Stack.Screen
           name="PickAndPack"
           component={SalesOrderScreen}
           options={{
             title: "Pick and Pack",
-            headerLeft: () => null, // remove back button
+            headerLeft: () => null, // removes back button
             headerRight: () => <RefreshButton />,
-            headerRightContainerStyle: { backgroundColor: "transparent" },
           }}
         />
 
-        {/* Optional: keep direct SalesOrderScreen route if other code references it */}
+        {/* Optional fallback if other parts of code still use this name */}
         <Stack.Screen
           name="SalesOrderScreen"
           component={SalesOrderScreen}
@@ -86,18 +88,21 @@ export default function App() {
         <Stack.Screen
           name="LabelPrint"
           component={LabelPrint}
-          options={{
-            title: "Label Print",
-          }}
+          options={{ title: "Label Print" }}
+        />
+
+        {/* Vehicle Entry */}
+        <Stack.Screen
+          name="VehicleEntry"
+          component={VehicleEntry}
+          options={{ title: "Vehicle Entry" }}
         />
 
         {/* Material FG */}
         <Stack.Screen
           name="MaterialFG"
           component={MaterialFGScreen}
-          options={{
-            title: "Material FG/Transfer",
-          }}
+          options={{ title: "Material FG/Transfer" }}
         />
 
         {/* Material Dispatch */}
@@ -107,18 +112,18 @@ export default function App() {
           options={{ title: "Material Dispatch" }}
         />
 
-        {/* Order Details - Back goes to PickAndPack (label shows Pick and Pack) */}
+        {/* Order Details */}
         <Stack.Screen
           name="OrderDetails"
           component={OrderDetailsScreen}
           options={({ route }) => ({
             title: `Order ${route.params.saleOrderNumber}`,
+            headerBackTitle: "Pick and Pack", // what the back button says
             headerBackVisible: true,
-            headerBackTitle: "Pick and Pack",
           })}
         />
 
-        {/* Upload (modal) */}
+        {/* Upload – presented as modal */}
         <Stack.Screen
           name="Upload"
           component={UploadScreen}

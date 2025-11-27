@@ -63,6 +63,12 @@ type SOEntry = {
   createdAt: number;
 };
 
+type FileAttachment = {
+  id?: string | number;
+  fileName: string;
+  uploadedAt?: string | number | Date | null;
+};
+
 const C = {
   bg: "#FFFFFF",
   card: "#FFFFFF",
@@ -752,33 +758,44 @@ const MaterialDispatchScreen: React.FC = () => {
             </View>
 
             {/* Uploaded Files */}
-            {uploadedAttachments.length > 0 && (
-              <View style={styles.uploadedFilesSection}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Uploaded Files</Text>
-                  <Text style={styles.fileCount}>({uploadedAttachments.length} files)</Text>
-                </View>
-                <View style={styles.uploadedFilesContainer}>
-                  <ScrollView style={styles.uploadedFilesList} showsVerticalScrollIndicator={false}>
-                    {uploadedAttachments.map((file) => (
-                      <View key={file.id} style={styles.uploadedFileItem}>
-                        <View style={styles.fileInfo}>
-                          <Ionicons name="checkmark-circle" size={18} color={C.green} />
-                          <View style={styles.fileDetails}>
-                            <Text style={styles.uploadedFileName} numberOfLines={1}>
-                              {file.fileName}
-                            </Text>
-                            <Text style={styles.fileUploadDate}>
-                              Uploaded {new Date(file.uploadedAt).toLocaleDateString()}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                    ))}
-                  </ScrollView>
+            {uploadedAttachments?.length > 0 && (
+  <View style={styles.uploadedFilesSection}>
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>Uploaded Files</Text>
+      <Text style={styles.fileCount}>({uploadedAttachments.length} files)</Text>
+    </View>
+
+    <View style={styles.uploadedFilesContainer}>
+      <ScrollView style={styles.uploadedFilesList} showsVerticalScrollIndicator={false}>
+        {uploadedAttachments.map((file: FileAttachment, index: number) => {
+          // ensure we always pass a string key
+          const key = file.id !== undefined && file.id !== null ? String(file.id) : `file-${index}`;
+
+          // guard uploadedAt and format safely
+          let uploadedDateText = "Uploaded —";
+          if (file.uploadedAt) {
+            const d = new Date(file.uploadedAt);
+            uploadedDateText = isNaN(d.getTime()) ? "Uploaded —" : `Uploaded ${d.toLocaleDateString()}`;
+          }
+
+          return (
+            <View key={key} style={styles.uploadedFileItem}>
+              <View style={styles.fileInfo}>
+                <Ionicons name="checkmark-circle" size={18} color={C.green} />
+                <View style={styles.fileDetails}>
+                  <Text style={styles.uploadedFileName} numberOfLines={1}>
+                    {file.fileName ?? "Unnamed file"}
+                  </Text>
+                  <Text style={styles.fileUploadDate}>{uploadedDateText}</Text>
                 </View>
               </View>
-            )}
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  </View>
+)}
 
             {/* Buttons */}
             <View style={styles.fileModalActions}>

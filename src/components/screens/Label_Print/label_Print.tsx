@@ -401,15 +401,10 @@ export default function CustomerLabelPrint(): JSX.Element {
               styles.printBtnRight,
               (isLoading || sos.length === 0) && styles.btnDisabled,
             ]}
-          >
-            {printLoading ? (
-              <Text style={styles.printBtnText}>Printing...</Text>
-            ) : (
+          > 
               <>
                 <Ionicons name="print" size={20} color="#fff" />
-                <Text style={styles.printBtnText}>Print</Text>
               </>
-            )}
           </TouchableOpacity>
         </View>
       </View>
