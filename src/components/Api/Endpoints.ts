@@ -34,4 +34,10 @@ export const API_ENDPOINTS = {
       `${BASE_URL}/sales-crud/verify-so/${soNumber}`,
     PRINT: `${BASE_URL}/sales-crud/label-print`,
   },
+
+  VEHICLE_ENTRY: {
+    FETCH_CUSTOMERS: `${BASE_URL}/lookup/customers`,
+    SAVE_VEHICLE_ENTRY: `${BASE_URL}/vehicle-entry`,
+    UPLOAD_ATTACHMENTS: (id: string | number) => `${BASE_URL}/vehicle-entry/${id}/attachments`,
+  },
 };

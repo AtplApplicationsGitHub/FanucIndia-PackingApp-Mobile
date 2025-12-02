@@ -1,5 +1,5 @@
-// VehicleEntry.tsx
-import React, { useEffect, useRef, useState } from "react";
+// src/screens/VehicleEntry.tsx
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -10,117 +10,89 @@ import {
   Alert,
   StyleSheet,
   Platform,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
-
-import UploadImages from "../Vehicle_Entry/upload_Images";
-
-type Customer = { id: string; name: string };
-type Photo = { uri: string; name: string };
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { useVehicleEntry, Customer } from '../../Api/Hooks/UseVehicleEntry';
+import UploadImages from './upload_Images'; // Make sure path is correct
 
 export default function VehicleEntryScreen() {
-  // Form fields
-  const [customerQuery, setCustomerQuery] = useState("");
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const {
+    customers,
+    loadingCustomers,
+    saving,
+    error,
+    debouncedSearch,
+    saveVehicleEntry,
+    clearCustomers,
+  } = useVehicleEntry();
+
+  const [customerQuery, setCustomerQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-
-  const [vehicleNumber, setVehicleNumber] = useState("");      
-  const [transporterName, setTransporterName] = useState("");
-  const [driverNumber, setDriverNumber] = useState("");
-
-  // UI state
-  const [saving, setSaving] = useState(false);
+  const [vehicleNumber, setVehicleNumber] = useState('');
+  const [transporterName, setTransporterName] = useState('');
+  const [driverNumber, setDriverNumber] = useState('');
   const [entrySaved, setEntrySaved] = useState(false);
+    const [photos, setPhotos] = React.useState([]);
+  const [savedEntryId, setSavedEntryId] = React.useState<number | null>(null);
 
-  // Photos state
-  const [photos, setPhotos] = useState<Photo[]>([]);
-
-  const searchDebounce = useRef<NodeJS.Timeout | null>(null);
-
-  // Fake Master Customers (Local only)
-  const MASTER_CUSTOMERS: Customer[] = [
-    { id: "1", name: "Ramesh Kumar" },
-    { id: "2", name: "Suresh Naik" },
-    { id: "3", name: "Vijay Rao" },
-    { id: "4", name: "Anitha R" },
-    { id: "5", name: "Kiran Patil" },
-  ];
-
-  // Request permissions on mount
+  // Permissions
   useEffect(() => {
     (async () => {
-      if (Platform.OS !== "web") {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert("Permission required", "Camera access is needed to take photos.");
-        }
-
-        const { status: libraryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (libraryStatus !== "granted") {
-          Alert.alert("Permission required", "Gallery access is needed to pick photos.");
-        }
+      if (Platform.OS !== 'web') {
+        await ImagePicker.requestCameraPermissionsAsync();
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       }
     })();
   }, []);
 
-  // Customer search with debounce
-  useEffect(() => {
-    if (customerQuery.length < 3) {
-      setCustomers([]);
-      return;
-    }
-
-    if (searchDebounce.current) clearTimeout(searchDebounce.current);
-
-    searchDebounce.current = setTimeout(() => {
-      const filtered = MASTER_CUSTOMERS.filter((c) =>
-        c.name.toLowerCase().includes(customerQuery.toLowerCase())
-      );
-      setCustomers(filtered);
-    }, 300);
-  }, [customerQuery]);
-
-  // Vehicle number formatting
-  const onVehicleChange = (raw: string) => {
-    const cleaned = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  // Validation
+  const formatVehicleNumber = (text: string) => {
+    const cleaned = text.replace(/[^A-Z0-9]/gi, '').toUpperCase();
     setVehicleNumber(cleaned);
   };
 
   const isVehicleValid = (v: string) => /^[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}$/.test(v);
   const isDriverValid = (d: string) => /^\d{10}$/.test(d);
 
-  const allFieldsValid = () =>
-    selectedCustomer !== null &&
+  const isFormValid = () =>
+    selectedCustomer &&
     isVehicleValid(vehicleNumber) &&
-    transporterName.trim().length > 0 &&
+    transporterName.trim() &&
     isDriverValid(driverNumber);
 
-  // Save entry
-  const saveEntry = () => {
-    if (!allFieldsValid()) {
-      Alert.alert("Invalid Data", "Please fill all fields correctly.");
+  const handleSave = async () => {
+    if (!isFormValid()) {
+      Alert.alert('Invalid Data', 'Please fill all fields correctly.');
       return;
     }
 
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    const result = await saveVehicleEntry({
+      customerName: selectedCustomer!.name,
+      vehicleNumber,
+      transporterName,
+      driverNumber,
+    });
+
+    if (result?.id) {
+      setSavedEntryId(result.id);
       setEntrySaved(true);
-      Alert.alert("Success", "Vehicle entry saved locally!");
-    }, 800);
+      Alert.alert('Success!', `Vehicle Entry Saved! ID: ${result.id}`);
+    } else {
+      Alert.alert('Error', error || 'Failed to save entry');
+    }
   };
 
-  // Clear all fields
   const clearAll = () => {
-    setCustomerQuery("");
+    setCustomerQuery('');
     setSelectedCustomer(null);
-    setCustomers([]);
-    setVehicleNumber("");
-    setTransporterName("");
-    setDriverNumber("");
+    clearCustomers();
+    setVehicleNumber('');
+    setTransporterName('');
+    setDriverNumber('');
     setPhotos([]);
     setEntrySaved(false);
+    setSavedEntryId(null);
   };
 
   return (
@@ -128,46 +100,51 @@ export default function VehicleEntryScreen() {
       {/* Customer Search */}
       <TextInput
         style={styles.input}
-        placeholder="Customer Name *"
+        placeholder="Search Customer Name (min 3 chars) *"
         value={customerQuery}
-        onChangeText={(t) => {
-          setCustomerQuery(t);
+        onChangeText={(text) => {
+          setCustomerQuery(text);
+          setSelectedCustomer(null);
           setEntrySaved(false);
+          debouncedSearch(text);
         }}
       />
 
-      {customers.length > 0 && (
+      {loadingCustomers && (
+        <ActivityIndicator style={{ marginTop: 8 }} color="#007AFF" />
+      )}
+
+      {customers.length > 0 && !selectedCustomer && (
         <FlatList
-          style={styles.searchList}
+          style={styles.dropdown}
           data={customers}
-          keyExtractor={(i) => i.id}
+          keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => (
             <TouchableOpacity
-              style={styles.searchItem}
+              style={styles.dropdownItem}
               onPress={() => {
                 setSelectedCustomer(item);
                 setCustomerQuery(item.name);
-                setCustomers([]);
+                clearCustomers();
               }}
             >
-              <Text>{item.name}</Text>
+              <Text style={styles.customerName}>{item.name}</Text>
+              <Text style={styles.customerAddr}>{item.address}</Text>
             </TouchableOpacity>
           )}
         />
       )}
 
-      {/* Selected Customer Display */}
-
       {/* Vehicle Number */}
       <TextInput
         style={styles.input}
-        placeholder="Vehicle Number (e.g. KA01AB1234) *"
+        placeholder="Vehicle Number (e.g. MH12AB1234) *"
         value={vehicleNumber}
-        onChangeText={onVehicleChange}
+        onChangeText={formatVehicleNumber}
         autoCapitalize="characters"
       />
-      {!isVehicleValid(vehicleNumber) && vehicleNumber.length > 0 && (
-        <Text style={styles.error}>Invalid format (e.g. KA01AB1234)</Text>
+      {!isVehicleValid(vehicleNumber) && vehicleNumber.length > 6 && (
+        <Text style={styles.errorText}>Invalid format. Use: MH12AB1234</Text>
       )}
 
       {/* Driver Mobile */}
@@ -177,13 +154,13 @@ export default function VehicleEntryScreen() {
         value={driverNumber}
         keyboardType="number-pad"
         maxLength={10}
-        onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ""))}
+        onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ''))}
       />
       {!isDriverValid(driverNumber) && driverNumber.length > 0 && (
-        <Text style={styles.error}>Must be exactly 10 digits</Text>
+        <Text style={styles.errorText}>Enter exactly 10 digits</Text>
       )}
 
-      {/* Transporter */}
+      {/* Transporter Name */}
       <TextInput
         style={styles.input}
         placeholder="Transporter Name *"
@@ -191,113 +168,105 @@ export default function VehicleEntryScreen() {
         onChangeText={setTransporterName}
       />
 
-      {/* Action Buttons - Side by Side */}
+      {/* Buttons */}
       <View style={styles.buttonRow}>
         <TouchableOpacity
-          style={[styles.actionBtn, styles.saveBtn]}
-          onPress={saveEntry}
-          disabled={saving || entrySaved}
+          style={[styles.btn, styles.saveBtn, (!isFormValid() || saving) && styles.btnDisabled]}
+          onPress={handleSave}
+          disabled={!isFormValid() || saving}
         >
           {saving ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <View style={styles.btnContent}>
+            <>
               <Ionicons name="save-outline" size={20} color="#fff" />
               <Text style={styles.btnText}>Save Entry</Text>
-            </View>
+            </>
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.actionBtn, styles.clearBtn]}
-          onPress={clearAll}
-        >
+        <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={clearAll}>
           <Ionicons name="trash-outline" size={20} color="#fff" />
-          <Text style={styles.btnText}>Clear All</Text>
+          <Text style={styles.btnText}>Clear</Text>
         </TouchableOpacity>
       </View>
-      {/* Upload Images - Only after save */}
-      {entrySaved && <UploadImages photos={photos} setPhotos={setPhotos} />}
+
+      {/* Success + Upload Section */}
+      {entrySaved && savedEntryId && (
+        <>
+          <View style={styles.successBox}>
+            <Ionicons name="checkmark-circle" size={24} color="green" />
+            <Text style={styles.successText}>
+              Vehicle Entry saved successfully! (ID: {savedEntryId})
+            </Text>
+          </View>
+
+          {/* PASS savedEntryId HERE */}
+          <UploadImages
+            vehicleEntryId={savedEntryId}
+            photos={photos}
+            setPhotos={setPhotos}
+            onUploadSuccess={() => {
+              Alert.alert("Uploaded!", "All photos uploaded successfully.");
+            }}
+          />
+        </>
+      )}
+
+      {error && <Text style={styles.errorText}>{error}</Text>}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: "#fff" },
+  container: { flex: 1, padding: 16, backgroundColor: '#f8f9fa' },
   input: {
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: "#ddd",
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 12,
-    fontSize: 16,
-  },
-  error: { fontSize: 12, color: "#c00", marginTop: 4, marginLeft: 4 },
-  selectedCustomer: {
-    marginTop: 8,
-    padding: 10,
-    backgroundColor: "#e6f7ff",
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#91d5ff",
-  },
-  selectedText: { color: "#007AFF", fontWeight: "600" },
-
-  buttonRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 24,
-    gap: 12,
-  },
-  actionBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 15,
+    borderColor: '#ddd',
+    padding: 14,
     borderRadius: 10,
+    fontSize: 16,
+    marginTop: 12,
+  },
+  dropdown: {
+    maxHeight: 200,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginTop: 8,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  dropdownItem: { padding: 14, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  customerName: { fontSize: 16, fontWeight: '600' },
+  customerAddr: { fontSize: 13, color: '#666', marginTop: 2 },
+  buttonRow: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  btn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
     gap: 8,
   },
-  saveBtn: {
-    backgroundColor: "#007AFF",
-  },
-  clearBtn: {
-    backgroundColor: "#FF3B30",
-  },
-  btnContent: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  btnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-
+  saveBtn: { backgroundColor: '#007AFF' },
+  clearBtn: { backgroundColor: '#FF3B30' },
+  btnDisabled: { backgroundColor: '#aaa' },
+  btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  errorText: { color: '#d32f2f', marginTop: 6, fontSize: 13 },
   successBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: "#d4edda",
-    borderRadius: 8,
-    borderColor: "#c3e6cb",
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#d4edda',
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 20,
     borderWidth: 1,
+    borderColor: '#c3e6cb',
   },
-  successText: {
-    marginLeft: 8,
-    color: "#155724",
-    fontWeight: "600",
-  },
-
-  searchList: {
-    maxHeight: 200,
-    borderWidth: 1,
-    borderColor: "#eee",
-    marginTop: 6,
-    borderRadius: 8,
-    backgroundColor: "#fff",
-    zIndex: 10,
-  },
-  searchItem: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f2f2f2",
-  },
+  successText: { marginLeft: 10, color: '#155724', fontWeight: '600' },
 });
