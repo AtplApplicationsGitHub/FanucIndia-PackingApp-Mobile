@@ -1,7 +1,7 @@
-// src/hooks/useVehicleEntry.ts
+// src/Api/Hooks/useVehicleEntry.tsx
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as SecureStore from "expo-secure-store";
-import { API_ENDPOINTS } from "../Endpoints";
+import { API_ENDPOINTS, BASE_URL } from "../Endpoints";
 
 export type Customer = {
   id: number;
@@ -10,9 +10,12 @@ export type Customer = {
 };
 
 export type Attachment = {
-  id: number;
+  id: string; // generated id (path + uploadedAt)
   url: string;
-  filename: string;
+  fileName: string;
+  size?: number;
+  mimeType?: string;
+  uploadedAt?: string;
 };
 
 export type VehicleEntryResponse = {
@@ -42,6 +45,15 @@ const parseResponseBody = async (res: Response) => {
   }
 };
 
+const buildFileUrl = (relativePath: string) => {
+  // If the returned path is already a full URL, return it
+  if (!relativePath) return relativePath;
+  if (relativePath.startsWith("http://") || relativePath.startsWith("https://")) return relativePath;
+  // remove trailing '/api' from BASE_URL to get file host
+  const fileHost = BASE_URL.replace(/\/api\/?$/, "");
+  return `${fileHost}/${relativePath.replace(/^\/+/, "")}`;
+};
+
 export const useVehicleEntry = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
@@ -53,6 +65,7 @@ export const useVehicleEntry = () => {
   const searchControllerRef = useRef<AbortController | null>(null);
   const saveControllerRef = useRef<AbortController | null>(null);
   const uploadControllerRef = useRef<AbortController | null>(null);
+  const attachmentsControllerRef = useRef<AbortController | null>(null);
 
   const clearError = useCallback(() => setError(null), []);
   const clearCustomers = useCallback(() => setCustomers([]), []);
@@ -213,12 +226,10 @@ export const useVehicleEntry = () => {
 
         const formData = new FormData();
         photos.forEach((photo, index) => {
-          // Provide a fallback filename/type
           const fileName = photo.name ?? `photo_${index + 1}.jpg`;
           const fileType = photo.type ?? "image/jpeg";
 
-          // In Expo/React Native, append a file-like object
-          // @ts-ignore - platform-specific FormData file shape
+          // @ts-ignore - React Native FormData file-like object
           formData.append("files", {
             uri: photo.uri,
             name: fileName,
@@ -232,7 +243,7 @@ export const useVehicleEntry = () => {
           method: "POST",
           headers: {
             Authorization: authHeader,
-            // IMPORTANT: do NOT set Content-Type for multipart; let fetch set the boundary.
+            // IMPORTANT: do NOT set Content-Type for multipart/form-data; let fetch set the boundary.
             Accept: "application/json",
           },
           body: formData as any,
@@ -244,10 +255,29 @@ export const useVehicleEntry = () => {
           throw new Error(body?.message ?? `Upload failed (${res.status})`);
         }
 
-        const data = (await parseResponseBody(res)) as { attachments?: Attachment[] } | Attachment[];
+        const data = (await parseResponseBody(res)) as { attachments?: any[] } | any[];
         // Normalize: server may return array or object containing attachments
-        if (Array.isArray(data)) return data as Attachment[];
-        return (data && (data as any).attachments) ? (data as any).attachments : [];
+        const attachmentsArray = Array.isArray(data) ? data : (data && data.attachments) ? data.attachments : [];
+        // Try to map server response to Attachment[]
+        const mapped: Attachment[] = attachmentsArray.map((a: any, idx: number) => {
+          // server might return fileName / path / mimeType / uploadedAt
+          const path = a.path ?? a.filePath ?? a.url ?? "";
+          const fileName = a.fileName ?? a.filename ?? a.name ?? `file_${idx}`;
+          const uploadedAt = a.uploadedAt ?? a.createdAt ?? null;
+          const size = a.size ?? null;
+          const mimeType = a.mimeType ?? a.contentType ?? null;
+          const id = `${path}::${uploadedAt ?? idx}`;
+          return {
+            id,
+            url: path ? buildFileUrl(path) : a.url ?? "",
+            fileName,
+            size,
+            mimeType,
+            uploadedAt,
+          };
+        });
+
+        return mapped;
       } catch (err: any) {
         if (err?.name === "AbortError") {
           console.debug("uploadAttachments aborted");
@@ -265,6 +295,101 @@ export const useVehicleEntry = () => {
   );
 
   /**
+   * Fetch existing attachments for a vehicle entry (GET /vehicle-entry/:id/attachments)
+   * Returns Attachment[] | null
+   */
+  const fetchAttachments = useCallback(
+    async (vehicleEntryId: number | string): Promise<Attachment[] | null> => {
+      setError(null);
+
+      if (attachmentsControllerRef.current) attachmentsControllerRef.current.abort();
+      const controller = new AbortController();
+      attachmentsControllerRef.current = controller;
+
+      try {
+        const authHeader = await getAuthTokenHeader();
+        if (!authHeader) throw new Error("Authentication token missing. Please login again.");
+
+        const url = API_ENDPOINTS.VEHICLE_ENTRY.GET_ATTACHMENTS(vehicleEntryId);
+
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) throw new Error("Session expired. Please log in again.");
+          if (res.status === 404) {
+            return [];
+          }
+          const body = await parseResponseBody(res);
+          throw new Error(body?.message ?? `Failed to fetch attachments (${res.status})`);
+        }
+
+        const data = (await parseResponseBody(res)) as any[];
+        if (!Array.isArray(data)) {
+          // If server returns object -> try to extract attachments
+          const attachmentsArray = data?.attachments ?? [];
+          if (!Array.isArray(attachmentsArray)) throw new Error("Invalid attachments response format");
+          // use attachmentsArray going forward
+          return attachmentsArray.map((a: any, idx: number) => {
+            const path = a.path ?? a.filePath ?? a.url ?? "";
+            const fileName = a.fileName ?? a.filename ?? a.name ?? `file_${idx}`;
+            const uploadedAt = a.uploadedAt ?? a.createdAt ?? null;
+            const size = a.size ?? null;
+            const mimeType = a.mimeType ?? a.contentType ?? null;
+            const id = `${path}::${uploadedAt ?? idx}`;
+            return {
+              id,
+              url: path ? buildFileUrl(path) : a.url ?? "",
+              fileName,
+              size,
+              mimeType,
+              uploadedAt,
+            } as Attachment;
+          });
+        }
+
+        // data is array
+        const mapped: Attachment[] = data.map((a: any, idx: number) => {
+          const path = a.path ?? a.filePath ?? a.url ?? "";
+          const fileName = a.fileName ?? a.filename ?? a.name ?? `file_${idx}`;
+          const uploadedAt = a.uploadedAt ?? a.createdAt ?? null;
+          const size = a.size ?? null;
+          const mimeType = a.mimeType ?? a.contentType ?? null;
+          const id = `${path}::${uploadedAt ?? idx}`;
+          return {
+            id,
+            url: path ? buildFileUrl(path) : a.url ?? "",
+            fileName,
+            size,
+            mimeType,
+            uploadedAt,
+          } as Attachment;
+        });
+
+        return mapped;
+      } catch (err: any) {
+        if (err?.name === "AbortError") {
+          console.debug("fetchAttachments aborted");
+          return null;
+        }
+        console.error("fetchAttachments error:", err);
+        setError(err?.message ?? "Failed to load attachments");
+        return null;
+      } finally {
+        if (attachmentsControllerRef.current === controller) attachmentsControllerRef.current = null;
+      }
+    },
+    [getAuthTokenHeader]
+  );
+
+  /**
    * Convenience: save entry then upload photos.
    * Returns the saved VehicleEntryResponse with attachments property if upload succeeded,
    * or null on failure.
@@ -274,18 +399,14 @@ export const useVehicleEntry = () => {
       payload: SavePayload,
       photos: { uri: string; name?: string; type?: string }[] = []
     ): Promise<VehicleEntryResponse | null> => {
-      // First save entry
       const saved = await saveVehicleEntry(payload);
       if (!saved || !saved.id) {
-        // saveVehicleEntry already sets error
         return null;
       }
 
-      // If there are photos, upload them
       if (photos.length > 0) {
         const attachments = await uploadAttachments(saved.id, photos);
         if (attachments === null) {
-          // upload failed -> set error (uploadAttachments sets error) and return saved (or null depending on desired behavior)
           return { ...saved, attachments: saved.attachments ?? [] };
         }
         return { ...saved, attachments };
@@ -314,6 +435,10 @@ export const useVehicleEntry = () => {
       uploadControllerRef.current.abort();
       uploadControllerRef.current = null;
     }
+    if (attachmentsControllerRef.current) {
+      attachmentsControllerRef.current.abort();
+      attachmentsControllerRef.current = null;
+    }
   }, []);
 
   // cleanup on unmount
@@ -332,6 +457,7 @@ export const useVehicleEntry = () => {
     debouncedSearch,
     saveVehicleEntry,
     uploadAttachments,
+    fetchAttachments, // NEW
     saveAndUpload,
     clearError,
     clearCustomers,

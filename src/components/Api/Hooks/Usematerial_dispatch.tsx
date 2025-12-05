@@ -14,9 +14,10 @@ const DISPATCH_SO_DELETE_URL = (soId: number) => `${BASE_URL}/dispatch/so/${soId
 const DISPATCH_UPDATE_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}`;
 
 export type CreateDispatchHeaderRequest = {
-  customerName: string;
+  // customerName and address are now optional for create
+  customerName?: string;
   transporterName: string;
-  address: string;
+  address?: string;
   vehicleNumber: string;
 };
 
@@ -156,8 +157,9 @@ export async function createDispatchHeader(
   const token = opts?.token ?? (await getToken());
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
-  if (!payload.customerName?.trim() || !payload.transporterName?.trim() || !payload.address?.trim() || !payload.vehicleNumber?.trim()) {
-    return { ok: false, status: 0, error: "All fields are required." };
+  // Only transporterName and vehicleNumber are required now.
+  if (!payload.transporterName?.trim() || !payload.vehicleNumber?.trim()) {
+    return { ok: false, status: 0, error: "Transporter name and vehicle number are required." };
   }
 
   try {
@@ -194,10 +196,9 @@ export async function updateDispatchHeader(
   const token = opts?.token ?? (await getToken());
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
-  const hasCustomer = payload.customerName;
-  const hasTransporter = payload.transporterName;
-  if (!hasCustomer || !hasTransporter) {
-    return { ok: false, status: 0, error: "Customer and transporter names are required." };
+  // Allow partial updates. But require at least one field to update.
+  if (!payload || Object.keys(payload).length === 0) {
+    return { ok: false, status: 0, error: "At least one field must be provided to update." };
   }
 
   try {

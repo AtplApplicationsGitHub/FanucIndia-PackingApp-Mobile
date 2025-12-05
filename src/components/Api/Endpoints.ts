@@ -38,6 +38,9 @@ export const API_ENDPOINTS = {
   VEHICLE_ENTRY: {
     FETCH_CUSTOMERS: `${BASE_URL}/lookup/customers`,
     SAVE_VEHICLE_ENTRY: `${BASE_URL}/vehicle-entry`,
-    UPLOAD_ATTACHMENTS: (id: string | number) => `${BASE_URL}/vehicle-entry/${id}/attachments`,
+    UPLOAD_ATTACHMENTS: (id: string | number) =>
+      `${BASE_URL}/vehicle-entry/${id}/attachments`,
+    GET_ATTACHMENTS: (id: string | number) =>
+      `${BASE_URL}/vehicle-entry/${id}/attachments`, // ← NEW
   },
 };

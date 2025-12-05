@@ -1,5 +1,5 @@
-// upload_Images/UploadImages.tsx
-import React from "react";
+// src/upload_Images/UploadImages.tsx
+import React, { useEffect } from "react";
 import {
   View,
   Text,
@@ -12,12 +12,12 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
-  Platform,
+  Linking,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { Ionicons } from "@expo/vector-icons";
-import { useVehicleEntry } from "../../Api/Hooks/UseVehicleEntry";
+import { useVehicleEntry, Attachment } from "../../Api/Hooks/UseVehicleEntry";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -40,53 +40,45 @@ export default function UploadImages({
   setPhotos,
   onUploadSuccess,
 }: UploadImagesProps) {
-  const { uploadAttachments, uploadingAttachments } = useVehicleEntry();
+  const { uploadAttachments, uploadingAttachments, fetchAttachments } =
+    useVehicleEntry();
 
+  useVehicleEntry();
   const [photoModalVisible, setPhotoModalVisible] = React.useState(false);
+  const [loadingExisting, setLoadingExisting] = React.useState(false);
+  const [existingAttachments, setExistingAttachments] = React.useState<
+    Attachment[]
+  >([]);
   const slideAnim = React.useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
-  // request permissions for camera and library
+  // Permissions
   const requestCameraPermission = async () => {
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      return status === "granted";
-    } catch (err) {
-      console.warn("Camera permission request failed", err);
-      return false;
-    }
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    return status === "granted";
   };
 
   const requestMediaLibraryPermission = async () => {
-    try {
-      // On web/expo-managed older versions this can differ; use requestMediaLibraryPermissionsAsync
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      return status === "granted";
-    } catch (err) {
-      console.warn("Media library permission request failed", err);
-      return false;
-    }
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    return status === "granted";
   };
 
-  // Compress image to avoid 413
-  const compressImage = async (uri: string, fileName?: string): Promise<Photo> => {
+  // Compress Image
+  const compressImage = async (
+    uri: string,
+    fileName?: string
+  ): Promise<Photo> => {
     try {
       const manipResult = await ImageManipulator.manipulateAsync(
         uri,
-        [{ resize: { width: 1200 } }], // Max 1200px width
-        {
-          compress: 0.7, // 70% quality
-          format: ImageManipulator.SaveFormat.JPEG,
-          base64: false,
-        }
+        [{ resize: { width: 1200 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
       );
-
       return {
         uri: manipResult.uri,
         name: fileName || `photo_${Date.now()}.jpg`,
         type: "image/jpeg",
       };
-    } catch (err) {
-      console.warn("Compression failed, using original", err);
+    } catch {
       return {
         uri,
         name: fileName || `photo_${Date.now()}.jpg`,
@@ -113,219 +105,250 @@ export default function UploadImages({
   };
 
   const takePhoto = async () => {
-    try {
-      const hasPermission = await requestCameraPermission();
-      if (!hasPermission) {
-        Alert.alert("Permission required", "Camera access is required to take a photo.");
-        return;
-      }
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) {
+      Alert.alert("Permission Denied", "Camera access is required.");
+      return;
+    }
 
-      const result = await ImagePicker.launchCameraAsync({
-        quality: 1,
-        allowsEditing: false,
-        exif: false,
-      });
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 1,
+      allowsEditing: false,
+    });
 
-      if (!result.canceled && result.assets?.[0]) {
-        const asset = result.assets[0];
-        // Some platforms may not provide fileName; build fallback
-        const fallbackName =
-          (asset.fileName && asset.fileName.length > 0 && asset.fileName) || `cam_${Date.now()}.jpg`;
-        const compressed = await compressImage(asset.uri, fallbackName);
-        setPhotos(prev => [...prev, compressed]);
-        closeModal();
-      }
-    } catch (err) {
-      console.error("takePhoto error:", err);
-      Alert.alert("Error", "Unable to take photo. Try again.");
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      const name = asset.fileName || `photo_${Date.now()}.jpg`;
+      const compressed = await compressImage(asset.uri, name);
+      setPhotos((prev) => [...prev, compressed]);
+      closeModal();
     }
   };
 
   const pickFromGallery = async () => {
-    try {
-      const hasPermission = await requestMediaLibraryPermission();
-      if (!hasPermission) {
-        Alert.alert("Permission required", "Media library access is required to pick a photo.");
-        return;
-      }
+    const hasPermission = await requestMediaLibraryPermission();
+    if (!hasPermission) {
+      Alert.alert("Permission Denied", "Gallery access is required.");
+      return;
+    }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 1,
-        allowsMultipleSelection: false,
-      });
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+      allowsMultipleSelection: false,
+    });
 
-      if (!result.canceled && result.assets?.[0]) {
-        const asset = result.assets[0];
-        const fallbackName =
-          (asset.fileName && asset.fileName.length > 0 && asset.fileName) || `gal_${Date.now()}.jpg`;
-        const compressed = await compressImage(asset.uri, fallbackName);
-        setPhotos(prev => [...prev, compressed]);
-        closeModal();
-      }
-    } catch (err) {
-      console.error("pickFromGallery error:", err);
-      Alert.alert("Error", "Unable to pick image. Try again.");
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      const name = asset.fileName || `gallery_${Date.now()}.jpg`;
+      const compressed = await compressImage(asset.uri, name);
+      setPhotos((prev) => [...prev, compressed]);
+      closeModal();
     }
   };
 
   const deletePhoto = (uri: string) => {
-    setPhotos(prev => prev.filter(p => p.uri !== uri));
+    setPhotos((prev) => prev.filter((p) => p.uri !== uri));
   };
 
   const handleUpload = async () => {
-    if (!vehicleEntryId) {
-      Alert.alert("Error", "Save vehicle entry first.");
-      return;
+    if (!vehicleEntryId || photos.length === 0) return;
+
+    try {
+      const result = await uploadAttachments(vehicleEntryId, photos);
+
+      if (result && (Array.isArray(result) ? result.length >= 0 : true)) {
+        Alert.alert("Success", `${photos.length} photo(s) uploaded!`);
+        setPhotos([]);
+        await refreshExisting();
+        onUploadSuccess?.();
+      }
+    } catch (err: any) {
+      const msg = err?.message?.includes("413")
+        ? "Image too large! Try smaller photos."
+        : "Upload failed. Please try again.";
+      Alert.alert("Upload Failed", msg);
     }
-
-    if (photos.length === 0) {
-      Alert.alert("No Photos", "Add at least one photo.");
-      return;
-    }
-
-    Alert.alert("Upload Photos", `Upload ${photos.length} photo(s)?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Upload",
-        onPress: async () => {
-          try {
-            // uploadAttachments is expected to handle FormData or whatever API shape your hook expects
-            const result = await uploadAttachments(vehicleEntryId!, photos);
-
-            if (result && Array.isArray(result) && result.length > 0) {
-              Alert.alert("Success", `${photos.length} photo(s) uploaded successfully!`);
-              setPhotos([]);
-              onUploadSuccess?.();
-            } else {
-              // sometimes API returns single object or status — adapt as needed in useVehicleEntry
-              if (result && (result as any).success) {
-                Alert.alert("Success", `${photos.length} photo(s) uploaded successfully!`);
-                setPhotos([]);
-                onUploadSuccess?.();
-              } else {
-                throw new Error("Empty or invalid response");
-              }
-            }
-          } catch (err: any) {
-            console.error("Upload error:", err);
-            const message =
-              typeof err === "string"
-                ? err
-                : err?.message ||
-                  (err?.toString && err.toString()) ||
-                  "Upload failed. Try again.";
-
-            const msg =
-              message.includes("413") || message.includes("Payload")
-                ? "Image too large! Please try with smaller photos."
-                : message;
-
-            Alert.alert("Upload Failed", msg);
-          }
-        },
-      },
-    ]);
   };
+
+  const refreshExisting = async () => {
+    if (!vehicleEntryId) return;
+    setLoadingExisting(true);
+    try {
+      const fetched = await fetchAttachments(vehicleEntryId);
+      if (fetched) setExistingAttachments(fetched);
+    } catch (err) {
+      console.error("Failed to refresh attachments", err);
+    } finally {
+      setLoadingExisting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (vehicleEntryId) {
+      refreshExisting();
+    } else {
+      setExistingAttachments([]);
+    }
+  }, [vehicleEntryId]);
+
+  const openAttachment = async (url: string) => {
+    if (!url) {
+      Alert.alert("Error", "No URL available.");
+      return;
+    }
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+      Linking.openURL(url);
+    } else {
+      Alert.alert("Cannot open", "Device cannot open this file.");
+    }
+  };
+
+  const hasNewPhotos = photos.length > 0;
+  const hasExistingPhotos = existingAttachments.length > 0;
 
   return (
     <>
-      <View style={styles.photosSection}>
-        <View style={styles.photosHeader}>
-          <View style={styles.titleContainer}>
-            <Text style={styles.sectionTitle}>Photos</Text>
-            <View style={styles.photoCountBadge}>
-              <Text style={styles.photoCountText}>{photos.length}</Text>
-            </View>
-          </View>
+      <View style={styles.container}>
+        {vehicleEntryId && (
+          <View style={styles.actionButtons}>
+            {hasNewPhotos && (
+              <TouchableOpacity
+                style={[
+                  styles.uploadBtn,
+                  uploadingAttachments && styles.disabledButton,
+                ]}
+                onPress={handleUpload}
+                disabled={uploadingAttachments}
+              >
+                {uploadingAttachments ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="cloud-upload-outline"
+                      size={20}
+                      color="#fff"
+                    />
+                    <Text style={styles.btnText}>Upload ({photos.length})</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
 
-          <View style={styles.headerButtonsContainer}>
-            <TouchableOpacity
-              style={[
-                styles.uploadBtn,
-                (!vehicleEntryId || photos.length === 0 || uploadingAttachments) && styles.disabledButton,
-              ]}
-              onPress={handleUpload}
-              disabled={!vehicleEntryId || photos.length === 0 || uploadingAttachments}
-            >
-              {uploadingAttachments ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload-outline" size={20} color="#fff" />
-                  <Text style={styles.buttonText}>Upload</Text>
-                </>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.addPhotoBtn} onPress={openModal}>
+            <TouchableOpacity style={styles.addBtn} onPress={openModal}>
               <Ionicons name="add" size={20} color="#fff" />
-              <Text style={styles.buttonText}>Add Photo</Text>
+              <Text style={styles.btnText}>Add Photo</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        )}
 
-        <FlatList
-          horizontal
-          data={photos}
-          keyExtractor={item => item.uri}
-          showsHorizontalScrollIndicator={false}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Ionicons name="images-outline" size={48} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>No photos yet</Text>
-              <Text style={styles.emptySubtitle}>Tap "Add Photo" to begin</Text>
-            </View>
-          }
-          renderItem={({ item, index }) => (
-            <View style={styles.photoItem}>
-              <View style={styles.photoContainer}>
-                <Image source={{ uri: item.uri }} style={styles.photo} resizeMode="cover" />
-                <View style={styles.photoNumber}>
-                  <Text style={styles.photoNumberText}>{index + 1}</Text>
-                </View>
-              </View>
-              <View style={styles.photoInfo}>
-                <Text style={styles.photoName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <TouchableOpacity style={styles.deleteBtn} onPress={() => deletePhoto(item.uri)}>
-                  <Ionicons name="trash-outline" size={16} color="#fff" />
+        {/* Existing Photos from Server */}
+        {loadingExisting ? (
+          <ActivityIndicator style={{ marginVertical: 20 }} />
+        ) : hasExistingPhotos ? (
+          <View style={styles.listContainer}>
+            <Text style={styles.listLabel}>
+              Uploaded Photos ({existingAttachments.length})
+            </Text>
+            <FlatList
+              horizontal
+              data={existingAttachments}
+              keyExtractor={(item) => item.id}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.fileItem}
+                  onPress={() => openAttachment(item.url)}
+                >
+                  <Ionicons name="document-outline" size={32} color="#6366F1" />
+                  <Text style={styles.fileName} numberOfLines={2}>
+                    {item.fileName}
+                  </Text>
                 </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        />
+              )}
+            />
+          </View>
+        ) : null}
+
+        {/* New Photos (Pending Upload) */}
+        {hasNewPhotos ? (
+          <View style={styles.listContainer}>
+            <Text style={styles.listLabel}>
+              Ready to Upload ({photos.length})
+            </Text>
+            <FlatList
+              horizontal
+              data={photos}
+              keyExtractor={(item) => item.uri}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <View style={styles.fileItemSimple}>
+                  <Ionicons name="image-outline" size={32} color="#6366F1" />
+                  <Text style={styles.fileNameSimple} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.deleteIconSimple}
+                    onPress={() => deletePhoto(item.uri)}
+                  >
+                    <Ionicons name="close-circle" size={22} color="#EF4444" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            />
+          </View>
+        ) : vehicleEntryId ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="images-outline" size={60} color="#D1D5DB" />
+            <Text style={styles.emptyText}>No photos added yet</Text>
+            <Text style={styles.emptySubText}>
+              Tap "Add Photo" to get started
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.savePrompt}>
+              Save the entry first to add photos
+            </Text>
+          </View>
+        )}
       </View>
 
-      {/* Bottom Sheet */}
-      <Modal animationType="none" transparent visible={photoModalVisible} onRequestClose={closeModal}>
+      {/* Bottom Sheet Modal */}
+      <Modal
+        transparent
+        visible={photoModalVisible}
+        animationType="none"
+        onRequestClose={closeModal}
+      >
         <View style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={closeModal} />
-          <Animated.View style={[styles.bottomSheetContent, { transform: [{ translateY: slideAnim }] }]}>
-            <View style={styles.dragHandle} />
-            <Text style={styles.modalTitle}>Add Photo</Text>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={closeModal}
+          />
+          <Animated.View
+            style={[styles.sheet, { transform: [{ translateY: slideAnim }] }]}
+          >
+            <View style={styles.handle} />
+            <Text style={styles.sheetTitle}>Add Photo</Text>
 
-            <View style={styles.modalOptions}>
-              <TouchableOpacity style={styles.modalOption} onPress={takePhoto}>
-                <View style={[styles.optionIcon, { backgroundColor: "#E0E7FF" }]}>
-                  <Ionicons name="camera" size={28} color="#6366F1" />
-                </View>
-                <Text style={styles.modalOptionText}>Take Photo</Text>
-                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-              </TouchableOpacity>
+            <TouchableOpacity style={styles.option} onPress={takePhoto}>
+              <Ionicons name="camera-outline" size={28} color="#6366F1" />
+              <Text style={styles.optionText}>Take Photo</Text>
+              <Ionicons name="chevron-forward" size={24} color="#ccc" />
+            </TouchableOpacity>
 
-              <TouchableOpacity style={styles.modalOption} onPress={pickFromGallery}>
-                <View style={[styles.optionIcon, { backgroundColor: "#F3E8FF" }]}>
-                  <Ionicons name="image" size={28} color="#8B5CF6" />
-                </View>
-                <Text style={styles.modalOptionText}>Choose from Gallery</Text>
-                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.option} onPress={pickFromGallery}>
+              <Ionicons name="image-outline" size={28} color="#8B5CF6" />
+              <Text style={styles.optionText}>Choose from Gallery</Text>
+              <Ionicons name="chevron-forward" size={24} color="#ccc" />
+            </TouchableOpacity>
 
-            <TouchableOpacity style={styles.modalCancel} onPress={closeModal}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
+            <TouchableOpacity style={styles.cancelBtn} onPress={closeModal}>
+              <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -334,61 +357,179 @@ export default function UploadImages({
   );
 }
 
-// Keep all your beautiful styles here (unchanged)
 const styles = StyleSheet.create({
-  photosSection: {
+  container: {
     marginTop: 24,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-    backgroundColor: "#FFFFFF",
+    padding: 20,
+    backgroundColor: "#fff",
     borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3.84,
-    elevation: 2,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  photosHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  titleContainer: { flexDirection: "row", alignItems: "center" },
-  sectionTitle: { fontSize: 20, fontWeight: "700", color: "#1F2937" },
-  photoCountBadge: { backgroundColor: "#6366F1", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, minWidth: 24, alignItems: "center" },
-  photoCountText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600" },
-  headerButtonsContainer: { flexDirection: "row" },
+  actionButtons: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginBottom: 16,
+    gap: 12,
+  },
   uploadBtn: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
     backgroundColor: "#6366F1",
-    marginRight: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
-  addPhotoBtn: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12, backgroundColor: "#10B981" },
-  disabledButton: { backgroundColor: "#D1D5DB", opacity: 0.6 },
-  buttonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600", marginLeft: 8 },
-  emptyState: { alignItems: "center", justifyContent: "center", padding: 40, width: 300 },
-  emptyTitle: { fontSize: 16, fontWeight: "600", color: "#6B7280", marginTop: 12 },
-  emptySubtitle: { fontSize: 14, color: "#9CA3AF", marginTop: 4, textAlign: "center" },
-  photoItem: { marginRight: 16, borderRadius: 12, overflow: "hidden", backgroundColor: "#F8FAFC", width: 160 },
-  photoContainer: { position: "relative" },
-  photo: { width: 160, height: 120 },
-  photoNumber: { position: "absolute", top: 8, left: 8, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 10, width: 20, height: 20, alignItems: "center", justifyContent: "center" },
-  photoNumberText: { color: "#FFFFFF", fontSize: 10, fontWeight: "600" },
-  photoInfo: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 12, backgroundColor: "#fff" },
-  photoName: { flex: 1, fontSize: 12, color: "#4B5563", marginRight: 8 },
-  deleteBtn: { backgroundColor: "#EF4444", padding: 6, borderRadius: 6 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
-  modalBackdrop: { flex: 1 },
-  bottomSheetContent: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 34 },
-  dragHandle: { width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, alignSelf: "center", marginBottom: 16 },
-  modalTitle: { fontSize: 22, fontWeight: "700", color: "#1F2937", textAlign: "center", marginBottom: 20 },
-  modalOptions: { marginBottom: 20 },
-  modalOption: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderRadius: 16, backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#F1F5F9" },
-  optionIcon: { width: 50, height: 50, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  modalOptionText: { fontSize: 16, color: "#1F2937", fontWeight: "600", flex: 1, marginLeft: 16 },
-  modalCancel: { padding: 16, alignItems: "center", borderRadius: 12, backgroundColor: "#F3F4F6" },
-  modalCancelText: { fontSize: 16, color: "#374151", fontWeight: "600" },
+  addBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#10B981",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  btnText: {
+    color: "#fff",
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+  listContainer: {
+    marginBottom: 20,
+  },
+  listLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 10,
+  },
+  fileItem: {
+    width: 120,
+    alignItems: "center",
+    marginRight: 16,
+    position: "relative",
+  },
+  thumbnail: {
+    width: 120,
+    height: 90,
+    borderRadius: 10,
+    backgroundColor: "#f0f0f0",
+  },
+  fileName: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#4B5563",
+    textAlign: "center",
+    paddingHorizontal: 4,
+  },
+  deleteIcon: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#6B7280",
+    marginTop: 12,
+    fontWeight: "600",
+  },
+  emptySubText: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    marginTop: 6,
+  },
+  savePrompt: {
+    fontSize: 15,
+    color: "#EF4444",
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 40,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: "#E5E7EB",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 24,
+    color: "#1F2937",
+  },
+  option: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 18,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  optionText: {
+    flex: 1,
+    fontSize: 17,
+    marginLeft: 16,
+    color: "#1F2937",
+    fontWeight: "500",
+  },
+  cancelBtn: {
+    padding: 16,
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  cancelText: {
+    fontSize: 17,
+    color: "#374151",
+    fontWeight: "600",
+  },
+
+  fileItemSimple: {
+    width: 120,
+    alignItems: "center",
+    marginRight: 16,
+    position: "relative",
+    paddingTop: 8,
+  },
+  fileNameSimple: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#4B5563",
+    textAlign: "center",
+    paddingHorizontal: 4,
+  },
+  deleteIconSimple: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    backgroundColor: "#fff",
+    borderRadius: 11,
+  },
 });

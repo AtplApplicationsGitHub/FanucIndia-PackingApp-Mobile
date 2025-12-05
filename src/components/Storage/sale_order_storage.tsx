@@ -1,4 +1,3 @@
-// src/Storage/sale_order_storage.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const KEY = (so: string) => `order:${so}`;
@@ -15,8 +14,8 @@ export type StoredMaterialItem = {
   requiredQty: number;
   issuedQty: number;
   packedQty: number;
-  issuedAt?: string;   // e.g., "2025-10-30T08:35:10.000Z"
-  packedAt?: string;   // e.g., "2025-10-30T09:00:00.000Z"
+  issuedAt?: string; // e.g., "2025-10-30T08:35:10.000Z"
+  packedAt?: string; // e.g., "2025-10-30T09:00:00.000Z"
 };
 
 export type StoredOrder = {
@@ -76,20 +75,104 @@ export async function deleteOrderDetails(saleOrderNumber: string): Promise<void>
   await AsyncStorage.removeItem(KEY(saleOrderNumber));
 }
 
-// Update issued with timestamp
+function buildInstanceId(item: StoredMaterialItem, index: number) {
+  return `${String(item.batchNo ?? "")}::${String(item.soDonorBatch ?? "")}::idx${index}`;
+}
+
+function findTargetIndexForMaterial(
+  orderDetails: StoredMaterialItem[],
+  materialCode: string,
+  instanceIdentifier?: string | number,
+  preferIssuedIncomplete = true, 
+): number | null {
+  if (!orderDetails || orderDetails.length === 0) return null;
+
+  // numeric index provided
+  if (typeof instanceIdentifier === "number") {
+    const idx = instanceIdentifier;
+    if (idx >= 0 && idx < orderDetails.length) {
+      if (String(orderDetails[idx].materialCode) === String(materialCode)) {
+        return idx;
+      } else {
+        console.warn(
+          `update: provided index ${idx} has different materialCode (${orderDetails[idx].materialCode}) than requested (${materialCode}). Falling back.`
+        );
+      }
+    } else {
+      console.warn(`update: provided index ${idx} out of bounds. Falling back.`);
+    }
+  }
+
+  if (typeof instanceIdentifier === "string" && instanceIdentifier.trim() !== "") {
+    const id = instanceIdentifier.trim();
+
+    for (let i = 0; i < orderDetails.length; i++) {
+      const it = orderDetails[i];
+      if (String(it.materialCode) !== String(materialCode)) continue;
+      const rowInstance = buildInstanceId(it, i);
+      if (rowInstance === id) return i;
+    }
+    for (let i = 0; i < orderDetails.length; i++) {
+      const it = orderDetails[i];
+      if (String(it.materialCode) !== String(materialCode)) continue;
+      if (String(it.batchNo) === id || String(it.soDonorBatch) === id) return i;
+    }
+
+    for (let i = 0; i < orderDetails.length; i++) {
+      const it = orderDetails[i];
+      if (String(it.materialCode) !== String(materialCode)) continue;
+      const bn = String(it.batchNo ?? "");
+      const sb = String(it.soDonorBatch ?? "");
+      if ((bn && bn.includes(id)) || (sb && sb.includes(id))) return i;
+    }
+    const numericId = id.replace(/\D/g, "");
+    if (numericId) {
+      for (let i = 0; i < orderDetails.length; i++) {
+        const it = orderDetails[i];
+        if (String(it.materialCode) !== String(materialCode)) continue;
+        const bnNum = String(it.batchNo ?? "").replace(/\D/g, "");
+        const sbNum = String(it.soDonorBatch ?? "").replace(/\D/g, "");
+        if (bnNum === numericId || sbNum === numericId) return i;
+      }
+    }
+    console.warn(`update: instanceIdentifier="${instanceIdentifier}" didn't match exact instanceId; falling back to safer selection.`);
+  }
+  let fallbackIndex: number | null = null;
+  for (let i = 0; i < orderDetails.length; i++) {
+    const it = orderDetails[i];
+    if (String(it.materialCode) !== String(materialCode)) continue;
+    const issuedIncomplete = (it.issuedQty ?? 0) < (it.requiredQty ?? 0);
+    const packedIncomplete = (it.packedQty ?? 0) < (it.requiredQty ?? 0);
+
+    if (preferIssuedIncomplete ? issuedIncomplete : packedIncomplete) {
+      return i;
+    }
+    if (fallbackIndex === null) fallbackIndex = i;
+  }
+  return fallbackIndex;
+}
+
+
 export async function updateIssuedQty(
   saleOrderNumber: string,
   materialCode: string,
   action: "inc" | "dec" | "set" = "inc",
-  valueOrStep = 1
+  valueOrStep: number | string = 1,
+  instanceIdentifier?: string | number
 ): Promise<StoredOrder | null> {
   const current = await getOrderDetails(saleOrderNumber);
   if (!current) return null;
 
   const now = new Date().toISOString(); // UTC ISO string
 
-  const items = current.orderDetails.map((it) => {
-    if (it.materialCode !== materialCode) return it;
+  const targetIndex = findTargetIndexForMaterial(current.orderDetails, materialCode, instanceIdentifier, true);
+  if (targetIndex === null) {
+    console.warn(`updateIssuedQty: no rows found with materialCode="${materialCode}"`);
+    return null;
+  }
+
+  const items = current.orderDetails.map((it, idx) => {
+    if (idx !== targetIndex) return it;
 
     const clamp = (n: number) => Math.max(0, Math.min(n, it.requiredQty));
     let newQty = it.issuedQty ?? 0;
@@ -102,7 +185,6 @@ export async function updateIssuedQty(
       newQty = clamp(newQty + Number(valueOrStep || 1));
     }
 
-    // Set timestamp only when issuedQty reaches requiredQty for the first time
     const wasComplete = (it.issuedQty ?? 0) >= it.requiredQty;
     const isComplete = newQty >= it.requiredQty;
 
@@ -117,20 +199,26 @@ export async function updateIssuedQty(
   return { saleOrderNumber, orderDetails: items };
 }
 
-// Update packed with timestamp
 export async function updatePackedQty(
   saleOrderNumber: string,
   materialCode: string,
   action: "inc" | "dec" | "set" = "inc",
-  valueOrStep = 1
+  valueOrStep: number | string = 1,
+  instanceIdentifier?: string | number
 ): Promise<StoredOrder | null> {
   const current = await getOrderDetails(saleOrderNumber);
   if (!current) return null;
 
   const now = new Date().toISOString();
 
-  const items = current.orderDetails.map((it) => {
-    if (it.materialCode !== materialCode) return it;
+  const targetIndex = findTargetIndexForMaterial(current.orderDetails, materialCode, instanceIdentifier, false);
+  if (targetIndex === null) {
+    console.warn(`updatePackedQty: no rows found with materialCode="${materialCode}"`);
+    return null;
+  }
+
+  const items = current.orderDetails.map((it, idx) => {
+    if (idx !== targetIndex) return it;
 
     const clamp = (n: number) => Math.max(0, Math.min(n, it.requiredQty));
     let newQty = it.packedQty ?? 0;

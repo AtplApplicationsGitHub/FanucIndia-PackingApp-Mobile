@@ -1,4 +1,3 @@
-// src/screens/pick_and_pack/SO_OrderDetailsScreen/OrderDetails.tsx
 import React, {
   useEffect,
   useMemo,
@@ -102,14 +101,20 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   const [hasPrintedIssue, setHasPrintedIssue] = useState(false);
   const [hasPrintedPacking, setHasPrintedPacking] = useState(false);
 
-  // This is the NEW key state: packing stage only becomes visible AFTER user confirms issue print
+  // packing stage becomes visible AFTER user confirms issue print
   const [packingStageUnlocked, setPackingStageUnlocked] = useState(false);
 
   const [initialIssuedComplete, setInitialIssuedComplete] = useState(false);
   const [initialPackedComplete, setInitialPackedComplete] = useState(false);
 
+  // Track scanning progress for each material code (optional)
+  const [scanProgress, setScanProgress] = useState<Record<string, number>>({});
+
   // Modals
-  const [descModal, setDescModal] = useState<{ visible: boolean; data?: DescModalData }>({
+  const [descModal, setDescModal] = useState<{
+    visible: boolean;
+    data?: DescModalData;
+  }>({
     visible: false,
   });
 
@@ -120,8 +125,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     emphasis?: "normal" | "danger";
   }>({ visible: false });
 
-  const openDialog = (title: string, message: string, emphasis: "normal" | "danger" = "normal") =>
-    setDialog({ visible: true, title, message, emphasis });
+  const openDialog = (
+    title: string,
+    message: string,
+    emphasis: "normal" | "danger" = "normal"
+  ) => setDialog({ visible: true, title, message, emphasis });
 
   const closeDialog = () => {
     setDialog((d) => ({ ...d, visible: false }));
@@ -149,13 +157,18 @@ const OrderDetailsScreen: React.FC<Props> = () => {
       setLoading(true);
       const data = await getOrderDetails(saleOrderNumber);
       if (data && Array.isArray(data.orderDetails)) {
-        const sorted = [...data.orderDetails].sort((a, b) =>
-          String(a.materialCode ?? "").localeCompare(String(b.materialCode ?? ""), undefined, {
-            numeric: true,
-            sensitivity: "base",
-          })
-        );
-        setMaterials(sorted);
+        // preserve original order
+        setMaterials(data.orderDetails);
+
+        // Initialize scan progress tracking
+        const progress: Record<string, number> = {};
+        data.orderDetails.forEach((item) => {
+          const codeKey = String(item.materialCode ?? "").toLowerCase();
+          if (!progress[codeKey]) {
+            progress[codeKey] = 0;
+          }
+        });
+        setScanProgress(progress);
 
         const issuedDone = isOrderIssuedComplete(data);
         const packedDone = isOrderPackedComplete(data);
@@ -163,7 +176,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         setInitialIssuedComplete(issuedDone);
         setInitialPackedComplete(packedDone);
 
-        // If order was already issued before, unlock packing stage accordingly
         if (issuedDone) {
           setHasPrintedIssue(true);
           setPackingStageUnlocked(true); // already passed issue stage
@@ -188,7 +200,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
 
   /* -------------------------- KEYBOARD FOCUS -------------------------- */
   useEffect(() => {
-    const sub = Keyboard.addListener("keyboardDidHide", () => inputRef.current?.focus());
+    const sub = Keyboard.addListener("keyboardDidHide", () =>
+      inputRef.current?.focus()
+    );
     return () => sub.remove();
   }, []);
 
@@ -230,69 +244,156 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   const incrementForCode = async (materialCodeInput: string) => {
     const codeTrim = materialCodeInput.trim();
     if (!codeTrim) {
-      openDialog("Invalid Input", "Please scan or type a material code.", "danger");
+      openDialog(
+        "Invalid Input",
+        "Please scan or type a material code.",
+        "danger"
+      );
       setCode("");
       return;
     }
 
-    const idx = materials.findIndex(
-      (m) => String(m.materialCode).toLowerCase() === codeTrim.toLowerCase()
-    );
+    const codeLower = codeTrim.toLowerCase();
 
-    if (idx === -1) {
-      openDialog("Invalid Material Code", `Code "${codeTrim}" not found in order.`, "danger");
+    // Find matching entries in the current array order (do not resort)
+    const matching = materials
+      .map((m, idx) => ({
+        index: idx,
+        material: m,
+        required: Number(m.requiredQty) || 0,
+        issued: Number(m.issuedQty) || 0,
+        packed: Number(m.packedQty) || 0,
+      }))
+      .filter(
+        (e) => String(e.material.materialCode).toLowerCase() === codeLower
+      );
+
+    if (matching.length === 0) {
+      openDialog(
+        "Invalid Material Code",
+        `Code "${codeTrim}" not found in order.`,
+        "danger"
+      );
       setCode("");
       return;
     }
 
-    const row = materials[idx];
+    // Pick the first incomplete match based on stage (preserve order)
+    let targetIndex = -1;
+    if (packingStageUnlocked) {
+      for (const m of matching) {
+        if (m.packed < m.required) {
+          targetIndex = m.index;
+          break;
+        }
+      }
+      if (targetIndex === -1) {
+        openDialog(
+          "Already Complete",
+          "All items with this code are already packed.",
+          "danger"
+        );
+        setCode("");
+        return;
+      }
+    } else {
+      for (const m of matching) {
+        if (m.issued < m.required) {
+          targetIndex = m.index;
+          break;
+        }
+      }
+      if (targetIndex === -1) {
+        openDialog(
+          "Already Complete",
+          "All items with this code are already issued.",
+          "danger"
+        );
+        setCode("");
+        return;
+      }
+    }
+
+    const row = materials[targetIndex];
     const req = Number(row.requiredQty) || 0;
 
     try {
+      // PASS numeric index (explicit row) — storage will update only this row
       if (packingStageUnlocked) {
-        // Packing stage
         const curPacked = Number(row.packedQty) || 0;
         if (curPacked >= req) {
-          openDialog("Already Complete", "This item is already packed.", "danger");
+          openDialog(
+            "Already Complete",
+            "This item is already packed.",
+            "danger"
+          );
           setCode("");
           return;
         }
-        await updatePackedQty(saleOrderNumber, row.materialCode, "inc", 1);
+        await updatePackedQty(
+          saleOrderNumber,
+          row.materialCode,
+          "inc",
+          1,
+          targetIndex // numeric index
+        );
       } else {
-        // Issuance stage
         const curIssued = Number(row.issuedQty) || 0;
         if (curIssued >= req) {
-          openDialog("Already Complete", "This item is already issued.", "danger");
+          openDialog(
+            "Already Complete",
+            "This item is already issued.",
+            "danger"
+          );
           setCode("");
           return;
         }
-        await updateIssuedQty(saleOrderNumber, row.materialCode, "inc", 1);
+        await updateIssuedQty(
+          saleOrderNumber,
+          row.materialCode,
+          "inc",
+          1,
+          targetIndex // numeric index
+        );
       }
 
       const updated = await getOrderDetails(saleOrderNumber);
-      if (updated) setMaterials(updated.orderDetails);
+      if (updated) {
+        // Preserve the returned order exactly
+        setMaterials(updated.orderDetails);
+      }
+
+      // update scan progress (optional)
+      setScanProgress((prev) => {
+        const next = { ...prev };
+        next[codeLower] = (next[codeLower] || 0) + 1;
+        return next;
+      });
+
       setCode("");
     } catch (err: any) {
-      openDialog("Error", err.message || "Failed to update quantity.", "danger");
+      openDialog(
+        "Error",
+        err?.message || "Failed to update quantity.",
+        "danger"
+      );
       setCode("");
     }
   };
 
   const onSubmit = () => incrementForCode(code);
 
-  /* -------------------------- PRINT LOGIC (NOW CONTROLS STAGE TRANSITION) -------------------------- */
+  /* -------------------------- PRINT LOGIC -------------------------- */
   const onPrint = () => {
     if (!isOrderIssuedCompleteLocal) return;
 
     if (!hasPrintedIssue) {
-      // First time completing issue stage
       openDialog(
         "Print Successful",
         "Issue stage print completed successfully.",
         "normal"
       );
       setHasPrintedIssue(true);
-      // Do NOT unlock packing yet — wait for user to press OK
     } else if (isOrderPackedCompleteLocal && !hasPrintedPacking) {
       openDialog(
         "Print Successful",
@@ -306,7 +407,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   // Unlock packing stage ONLY when user confirms the issue print dialog
   useEffect(() => {
     if (dialog.visible === false && hasPrintedIssue && !packingStageUnlocked) {
-      const wasIssuePrintDialog = dialog.message?.includes("Issue stage print completed");
+      const wasIssuePrintDialog = dialog.message?.includes(
+        "Issue stage print completed"
+      );
       if (wasIssuePrintDialog) {
         setPackingStageUnlocked(true);
       }
@@ -318,7 +421,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        openDialog("Permission Required", "Camera access is needed to scan codes.", "danger");
+        openDialog(
+          "Permission Required",
+          "Camera access is needed to scan codes.",
+          "danger"
+        );
         return;
       }
     }
@@ -350,7 +457,10 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   /* ----------------------- QUANTITY EDITORS -------------------------- */
   const validateNumberInput = (raw: string) => {
     const digits = raw.replace(/[^\d]/g, "");
-    return { isValid: digits === "" || !isNaN(Number(digits)), value: Number(digits) || 0 };
+    return {
+      isValid: digits === "" || !isNaN(Number(digits)),
+      value: Number(digits) || 0,
+    };
   };
 
   const setIssuedQtyAt = async (index: number, raw: string) => {
@@ -364,11 +474,17 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     const clamped = Math.max(0, Math.min(value, req));
 
     try {
-      await updateIssuedQty(saleOrderNumber, row.materialCode, "set", clamped);
+      await updateIssuedQty(
+        saleOrderNumber,
+        row.materialCode,
+        "set",
+        clamped,
+        index // numeric index
+      );
       const updated = await getOrderDetails(saleOrderNumber);
       if (updated) setMaterials(updated.orderDetails);
     } catch (err: any) {
-      openDialog("Error", err.message || "Failed to update.", "danger");
+      openDialog("Error", err?.message || "Failed to update.", "danger");
     }
   };
 
@@ -383,11 +499,17 @@ const OrderDetailsScreen: React.FC<Props> = () => {
     const clamped = Math.max(0, Math.min(value, req));
 
     try {
-      await updatePackedQty(saleOrderNumber, row.materialCode, "set", clamped);
+      await updatePackedQty(
+        saleOrderNumber,
+        row.materialCode,
+        "set",
+        clamped,
+        index // numeric index
+      );
       const updated = await getOrderDetails(saleOrderNumber);
       if (updated) setMaterials(updated.orderDetails);
     } catch (err: any) {
-      openDialog("Error", err.message || "Failed to update.", "danger");
+      openDialog("Error", err?.message || "Failed to update.", "danger");
     }
   };
 
@@ -416,14 +538,17 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           <View style={styles.chipsRow}>
             <View style={styles.chip}>
               <Text style={styles.chipTitle}>Completed Items</Text>
-              <Text style={styles.chipValue}>{completedItems}/{totalItems}</Text>
+              <Text style={styles.chipValue}>
+                {completedItems}/{totalItems}
+              </Text>
             </View>
             <View style={styles.chip}>
               <Text style={styles.chipTitle}>
                 {packingStageUnlocked ? "Packed" : "Issued"}
               </Text>
               <Text style={styles.chipValue}>
-                {packingStageUnlocked ? totalPacked : totalIssued}/{totalRequired}
+                {packingStageUnlocked ? totalPacked : totalIssued}/
+                {totalRequired}
               </Text>
             </View>
           </View>
@@ -444,7 +569,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                 autoFocus
               />
               <Pressable onPress={openScanner} style={styles.inputIconBtn}>
-                <MaterialCommunityIcons name="qrcode-scan" size={20} color={C.icon} />
+                <MaterialCommunityIcons
+                  name="qrcode-scan"
+                  size={20}
+                  color={C.icon}
+                />
               </Pressable>
             </View>
 
@@ -452,7 +581,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
               <Text style={styles.primaryBtnText}>Submit</Text>
             </Pressable>
 
-            {/* Print Button */}
             {showPrintButton && (
               <Pressable style={styles.primaryBtn} onPress={onPrint}>
                 <MaterialCommunityIcons name="printer" size={22} color="#fff" />
@@ -487,7 +615,11 @@ const OrderDetailsScreen: React.FC<Props> = () => {
         {/* List */}
         <FlatList
           data={materials}
-          keyExtractor={(item, i) => `${item.materialCode}-${i}`}
+          keyExtractor={(item, i) =>
+            `${item.materialCode}-${i}-${item.batchNo ?? ""}-${
+              item.soDonorBatch ?? ""
+            }`
+          }
           contentContainerStyle={styles.bodyListContent}
           style={styles.list}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
@@ -496,8 +628,16 @@ const OrderDetailsScreen: React.FC<Props> = () => {
             const req = Number(item.requiredQty ?? 0);
             const isIssued = Number(item.issuedQty ?? 0) >= req;
             const isPacked = Number(item.packedQty ?? 0) >= req;
-            const rowBg = isPacked ? C.greenBg : isIssued ? C.yellowBg : undefined;
-            const issuedColor = isPacked ? C.greenText : isIssued ? C.yellowText : C.headerText;
+            const rowBg = isPacked
+              ? C.greenBg
+              : isIssued
+              ? C.yellowBg
+              : undefined;
+            const issuedColor = isPacked
+              ? C.greenText
+              : isIssued
+              ? C.yellowText
+              : C.headerText;
             const truncatedDesc =
               item.description && String(item.description).length > 30
                 ? String(item.description).substring(0, 30) + "..."
@@ -531,7 +671,10 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                     <Text
                       style={[
                         styles.metricText,
-                        (isIssued || isPacked) && { color: issuedColor, fontWeight: "700" },
+                        (isIssued || isPacked) && {
+                          color: issuedColor,
+                          fontWeight: "700",
+                        },
                       ]}
                       numberOfLines={1}
                     >
@@ -555,40 +698,40 @@ const OrderDetailsScreen: React.FC<Props> = () => {
                     <Text
                       style={[
                         styles.metricText,
-                        (isIssued || isPacked) && { color: issuedColor, fontWeight: "700" },
+                        (isIssued || isPacked) && {
+                          color: issuedColor,
+                          fontWeight: "700",
+                        },
                       ]}
                     >
                       {req}
                     </Text>
                   </View>
 
-                  <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                  <View
+                    style={[styles.cell, styles.flex14, styles.centerAlign]}
+                  >
                     <TextInput
                       value={String(item.issuedQty ?? 0)}
                       onChangeText={(t) => setIssuedQtyAt(index, t)}
                       keyboardType="number-pad"
                       inputMode="numeric"
                       maxLength={4}
-                      style={[
-                        styles.issueInput,
-                        isIssued && { },
-                      ]}
+                      style={[styles.issueInput, isIssued && {}]}
                     />
                   </View>
 
-                  {/* Packing column only shown after unlock */}
                   {packingStageUnlocked && (
-                    <View style={[styles.cell, styles.flex14, styles.centerAlign]}>
+                    <View
+                      style={[styles.cell, styles.flex14, styles.centerAlign]}
+                    >
                       <TextInput
                         value={String(item.packedQty ?? 0)}
                         onChangeText={(t) => setPackedQtyAt(index, t)}
                         keyboardType="number-pad"
                         inputMode="numeric"
                         maxLength={4}
-                        style={[
-                          styles.issueInput,
-                          isPacked && {  },
-                        ]}
+                        style={[styles.issueInput, isPacked && {}]}
                       />
                     </View>
                   )}
@@ -596,7 +739,9 @@ const OrderDetailsScreen: React.FC<Props> = () => {
               </View>
             );
           }}
-          ListEmptyComponent={<Text style={styles.subText}>No materials found.</Text>}
+          ListEmptyComponent={
+            <Text style={styles.subText}>No materials found.</Text>
+          }
           ListFooterComponent={<View style={{ height: 20 }} />}
         />
 
@@ -614,20 +759,36 @@ const OrderDetailsScreen: React.FC<Props> = () => {
           onClose={() => setDescModal({ visible: false })}
         />
 
-        <Modal visible={dialog.visible} transparent animationType="fade" onRequestClose={closeDialog}>
+        <Modal
+          visible={dialog.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={closeDialog}
+        >
           <View style={styles.appDialogOverlay}>
             <View style={styles.appDialogCard}>
               <View style={styles.appDialogHeader}>
                 <Ionicons
-                  name={dialog.emphasis === "danger" ? "alert-circle" : "checkmark-circle"}
+                  name={
+                    dialog.emphasis === "danger"
+                      ? "alert-circle"
+                      : "checkmark-circle"
+                  }
                   size={24}
                   color={dialog.emphasis === "danger" ? C.danger : "#166534"}
                 />
-                <Text style={[styles.appDialogTitle, dialog.emphasis === "danger" && { color: C.danger }]}>
+                <Text
+                  style={[
+                    styles.appDialogTitle,
+                    dialog.emphasis === "danger" && { color: C.danger },
+                  ]}
+                >
                   {dialog.title || "Success"}
                 </Text>
               </View>
-              {dialog.message && <Text style={styles.appDialogMessage}>{dialog.message}</Text>}
+              {dialog.message && (
+                <Text style={styles.appDialogMessage}>{dialog.message}</Text>
+              )}
               <View style={styles.appDialogFooter}>
                 <Pressable style={styles.appDialogBtn} onPress={closeDialog}>
                   <Text style={styles.appDialogBtnText}>OK</Text>
@@ -641,7 +802,6 @@ const OrderDetailsScreen: React.FC<Props> = () => {
   );
 };
 
-/* Styles unchanged - same as before */
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.pageBg },
   content: { flex: 1 },
@@ -659,8 +819,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   chipTitle: { color: C.subText, fontSize: 12, fontWeight: "600" },
-  chipValue: { color: C.headerText, fontSize: 18, fontWeight: "700", marginTop: 2 },
-  inputRow: { flexDirection: "row", gap: 8, alignItems: "center", marginBottom: 10 },
+  chipValue: {
+    color: C.headerText,
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  inputRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    marginBottom: 10,
+  },
   inputWrap: { flex: 1, position: "relative" },
   input: {
     backgroundColor: C.card,
@@ -690,7 +860,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   primaryBtnText: { color: C.primaryBtnText, fontWeight: "700" },
-  card: { backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, overflow: "hidden" },
+  card: {
+    backgroundColor: C.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    overflow: "hidden",
+  },
   tableHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -701,7 +877,12 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   headText: { color: C.subText, fontWeight: "600", fontSize: 12 },
-  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 12 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
   cell: { justifyContent: "center" },
   left: { alignItems: "flex-start" },
   right: { alignItems: "flex-end" },
@@ -712,7 +893,12 @@ const styles = StyleSheet.create({
   flex14: { flex: 1.4 },
   metricText: { fontSize: 14, fontWeight: "500", color: C.headerText },
   sep: { height: 1, backgroundColor: C.border },
-  subText: { color: C.subText, fontSize: 12, textAlign: "center", marginTop: 20 },
+  subText: {
+    color: C.subText,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 20,
+  },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
   muted: { color: C.subText },
   issueInput: {
@@ -739,9 +925,24 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     padding: 20,
   },
-  appDialogHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
-  appDialogTitle: { fontSize: 17, fontWeight: "800", color: C.headerText, flex: 1 },
-  appDialogMessage: { color: C.headerText, lineHeight: 22, marginBottom: 16, fontSize: 15 },
+  appDialogHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  appDialogTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: C.headerText,
+    flex: 1,
+  },
+  appDialogMessage: {
+    color: C.headerText,
+    lineHeight: 22,
+    marginBottom: 16,
+    fontSize: 15,
+  },
   appDialogFooter: { alignItems: "flex-end" },
   appDialogBtn: {
     backgroundColor: C.primaryBtn,
@@ -751,7 +952,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  appDialogBtnText: { color: C.primaryBtnText, fontWeight: "700", fontSize: 15 },
+  appDialogBtnText: {
+    color: C.primaryBtnText,
+    fontWeight: "700",
+    fontSize: 15,
+  },
 });
 
 export default OrderDetailsScreen;
