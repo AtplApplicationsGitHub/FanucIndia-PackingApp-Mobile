@@ -16,11 +16,12 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Modal,
+  Pressable,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
-
 import {
   uploadAttachments,
   fetchExistingAttachments,
@@ -43,12 +44,23 @@ interface FileItem {
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_FILE_SIZE_MB = 10;
 const BUTTON_WIDTH = 140;
-const DEBOUNCE_DELAY = 800; // ms
+const DEBOUNCE_DELAY = 800;
 
 export default function AttachmentScreen() {
   const route = useRoute();
   const navigation = useNavigation();
   const { saleOrderNumber } = route.params as { saleOrderNumber: string };
+
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<AttachmentItem[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalType, setModalType] = useState<"success" | "error">("success");
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const debounceTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -56,53 +68,37 @@ export default function AttachmentScreen() {
     });
   }, [navigation, saleOrderNumber]);
 
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [existingAttachments, setExistingAttachments] = useState<AttachmentItem[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [modalTitle, setModalTitle] = useState("");
-  const [modalMessage, setModalMessage] = useState("");
-  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
-
-  const debounceTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
-
   useEffect(() => {
-    const loadExisting = async () => {
-      try {
-        const ex = await fetchExistingAttachments(saleOrderNumber);
-        setExistingAttachments(ex);
-      } catch (e: any) {
-        console.error("Failed to load existing attachments:", e);
-        Alert.alert(
-          "Error",
-          "Failed to load existing attachments. Proceeding without them."
-        );
-      }
-    };
-    loadExisting();
+    loadExistingAttachments();
   }, [saleOrderNumber]);
+
+  const loadExistingAttachments = async () => {
+    try {
+      const ex = await fetchExistingAttachments(saleOrderNumber);
+      setExistingAttachments(ex);
+    } catch (e: any) {
+      console.error("Failed to load existing attachments:", e);
+      showModal("Error", "Failed to load existing attachments.", "error");
+    }
+  };
 
   const existingFiles: FileItem[] = useMemo(
     () =>
-      existingAttachments.map((att) => {
-        const uniqueId = att.id || att.uri;
-        return {
-          id: uniqueId,
-          dbId: att.id,
-          name: att.name,
-          description: att.description || "",
-          status: "Uploaded" as const,
-          uri: att.uri,
-          mimeType: att.type,
-          timestamp: 0,
-        };
-      }),
+      existingAttachments.map((att) => ({
+        id: att.id || att.uri,
+        dbId: att.id,
+        name: att.name,
+        description: att.description || "",
+        status: "Uploaded" as const,
+        uri: att.uri,
+        mimeType: att.type,
+        timestamp: 0,
+      })),
     [existingAttachments]
   );
 
   const displayFiles = useMemo(
-    () =>
-      [...existingFiles, ...files].sort((a, b) => b.timestamp - a.timestamp),
+    () => [...existingFiles, ...files].sort((a, b) => b.timestamp - a.timestamp),
     [existingFiles, files]
   );
 
@@ -112,109 +108,124 @@ export default function AttachmentScreen() {
     while (displayFiles.some((f) => f.name === name)) {
       const extIndex = baseName.lastIndexOf(".");
       const ext = extIndex > -1 ? baseName.slice(extIndex) : "";
-      const nameWithoutExt =
-        extIndex > -1 ? baseName.slice(0, extIndex) : baseName;
+      const nameWithoutExt = extIndex > -1 ? baseName.slice(0, extIndex) : baseName;
       name = `${nameWithoutExt}-${counter}${ext}`;
       counter++;
     }
     return name;
   };
 
-  const pickFile = async () => {
+  const showModal = (title: string, message: string, type: "success" | "error" = "success") => {
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalType(type);
+    setModalVisible(true);
+  };
+
+  const pickFromGallery = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Required", "Please allow access to your photo library.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets) {
+      handlePickedFiles(result.assets.map(asset => ({
+        uri: asset.uri,
+        name: asset.fileName || `Image-${Date.now()}.jpg`,
+        mimeType: asset.mimeType || "image/jpeg",
+        size: asset.fileSize,
+      })));
+    }
+    setActionSheetVisible(false);
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Required", "Please allow camera access to take photos.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: false,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const asset = result.assets[0];
+      handlePickedFiles([{
+        uri: asset.uri,
+        name: asset.fileName || `Photo-${Date.now()}.jpg`,
+        mimeType: asset.mimeType || "image/jpeg",
+        size: asset.fileSize,
+      }]);
+    }
+    setActionSheetVisible(false);
+  };
+
+  const pickDocument = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ["image/*", "*/*"],
+        type: "*/*",
         copyToCacheDirectory: true,
         multiple: true,
       });
 
-      if (result.canceled || !result.assets) {
-        return;
+      if (!result.canceled && result.assets) {
+        handlePickedFiles(result.assets);
       }
-
-      const assets = result.assets;
-
-      // Filter valid and large files safely (size can be null/undefined)
-      const validFiles = assets.filter(
-        (file) => file.size == null || file.size <= MAX_FILE_SIZE
-      );
-
-      const largeFiles = assets.filter(
-        (file) => file.size != null && file.size > MAX_FILE_SIZE
-      );
-
-      if (largeFiles.length > 0) {
-        const largeFileNames = largeFiles
-          .map(
-            (f) =>
-              `• ${f.name} (${(f.size! / (1024 * 1024)).toFixed(1)} MB)`
-          )
-          .join("\n");
-
-        Alert.alert(
-          `File Too Large (> ${MAX_FILE_SIZE_MB} MB)`,
-          `The following files were skipped:\n\n${largeFileNames}`,
-          [{ text: "OK" }]
-        );
-      }
-
-      if (validFiles.length === 0) {
-        if (largeFiles.length === 0) {
-          Alert.alert("No Files Selected", "No valid files were picked.");
-        }
-        return;
-      }
-
-      const newFiles: FileItem[] = validFiles.map((file, index) => {
-        const safeName = file.name || `File-${Date.now()}-${index}`;
-        const uniqueName = getUniqueName(safeName);
-
-        return {
-          id: `${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
-          name: uniqueName,
-          description: "",
-          status: "Pending",
-          uri: file.uri,
-          mimeType: file.mimeType ?? "application/octet-stream",
-          timestamp: Date.now() + index,
-        };
-      });
-
-      setFiles((prev) => [...prev, ...newFiles]);
-    } catch (error: any) {
-      console.error("Document picker error:", error);
-      Alert.alert("Error", error.message || "Unable to pick file(s)");
+    } catch (err) {
+      console.error("Document picker error:", err);
     }
+    setActionSheetVisible(false);
   };
 
-  const loadExistingAttachments = async () => {
-    try {
-      const ex = await fetchExistingAttachments(saleOrderNumber);
-      setExistingAttachments(ex);
-    } catch (e: any) {
-      console.error("Failed to reload existing attachments:", e);
+  const handlePickedFiles = (assets: any[]) => {
+    const validFiles = assets.filter(f => !f.size || f.size <= MAX_FILE_SIZE);
+    const largeFiles = assets.filter(f => f.size && f.size > MAX_FILE_SIZE);
+
+    if (largeFiles.length > 0) {
+      const names = largeFiles.map(f => `• ${f.name} (${(f.size / (1024 * 1024)).toFixed(1)} MB)`).join("\n");
+      Alert.alert(`File Too Large (> ${MAX_FILE_SIZE_MB} MB)`, `Skipped:\n\n${names}`);
     }
+
+    if (validFiles.length === 0) return;
+
+    const newFiles: FileItem[] = validFiles.map((file, i) => {
+      const safeName = file.name || `File-${Date.now()}-${i}`;
+      return {
+        id: `${Date.now()}-${i}-${Math.random().toString(36).substr(2, 9)}`,
+        name: getUniqueName(safeName),
+        description: "",
+        status: "Pending",
+        uri: file.uri,
+        mimeType: file.mimeType || "application/octet-stream",
+        timestamp: Date.now() + i,
+      };
+    });
+
+    setFiles(prev => [...prev, ...newFiles]);
   };
 
   const uploadFiles = async () => {
-    const pendingFiles = files.filter((f) => f.status === "Pending");
+    const pendingFiles = files.filter(f => f.status === "Pending");
     if (pendingFiles.length === 0) {
-      Alert.alert("No new files", "Please add at least one new file to upload.");
+      Alert.alert("No Files", "Add at least one file to upload.");
       return;
     }
 
-    if (uploading) return;
-
     setUploading(true);
+    setFiles(prev => prev.map(f => f.status === "Pending" ? { ...f, status: "Uploading" } : f));
 
     try {
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.status === "Pending" ? { ...f, status: "Uploading" } : f
-        )
-      );
-
-      const attachments: AttachmentItem[] = pendingFiles.map((file) => ({
+      const attachments: AttachmentItem[] = pendingFiles.map(file => ({
         uri: file.uri,
         name: file.name,
         type: file.mimeType || "application/octet-stream",
@@ -224,151 +235,84 @@ export default function AttachmentScreen() {
       await uploadAttachments(saleOrderNumber, attachments);
       await loadExistingAttachments();
       setFiles([]);
-      setModalTitle("Upload Successful");
-      setModalMessage(`${pendingFiles.length} file(s) uploaded successfully!`);
-      setModalVisible(true);
+      showModal("Upload Successful!", `${pendingFiles.length} file(s) uploaded successfully.`, "success");
     } catch (e: any) {
-      console.error("Upload error:", e);
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.status === "Uploading" ? { ...f, status: "Failed" } : f
-        )
-      );
-
-      let errorMessage = e?.message ?? "Upload failed. Please try again.";
-      if (errorMessage.includes("413")) {
-        errorMessage =
-          "Server rejected the upload (file too large or too many files). Try uploading fewer or smaller files.";
-      }
-
-      setModalTitle("Upload Failed");
-      setModalMessage(errorMessage);
-      setModalVisible(true);
+      setFiles(prev => prev.map(f => f.status === "Uploading" ? { ...f, status: "Failed" } : f));
+      const msg = e?.message?.includes("413")
+        ? "Upload rejected: Files too large or too many at once."
+        : e?.message || "Upload failed. Try again.";
+      showModal("Upload Failed", msg, "error");
     } finally {
       setUploading(false);
     }
   };
 
   const removeFile = (id: string) => {
-    setFiles((prev) => prev.filter((f) => f.id !== id));
+    setFiles(prev => prev.filter(f => f.id !== id));
   };
 
-  const updateFileDescription = (id: string, newDescription: string) => {
-    const isNewFile = files.some((f) => f.id === id);
-
-    if (isNewFile) {
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === id
-            ? { ...f, description: newDescription, timestamp: Date.now() }
-            : f
-        )
-      );
+  const updateFileDescription = (id: string, text: string) => {
+    const isNew = files.some(f => f.id === id);
+    if (isNew) {
+      setFiles(prev => prev.map(f => f.id === id ? { ...f, description: text, timestamp: Date.now() } : f));
     } else {
-      setExistingAttachments((prev) =>
-        prev.map((att) => {
-          const uniqueId = att.id || att.uri;
-          if (uniqueId === id) {
-            return { ...att, description: newDescription };
-          }
-          return att;
-        })
-      );
+      setExistingAttachments(prev => prev.map(att => {
+        if ((att.id || att.uri) === id) return { ...att, description: text };
+        return att;
+      }));
     }
   };
 
   const saveDescription = async (dbId: string, description: string, itemId: string) => {
     if (savingIds.has(itemId)) return;
-
-    setSavingIds((prev) => new Set(prev).add(itemId));
+    setSavingIds(s => new Set(s).add(itemId));
 
     try {
       await updateAttachmentDescription(dbId, description.trim());
-    } catch (error: any) {
-      console.error("Failed to update description:", error);
+    } catch (err) {
       await loadExistingAttachments();
-      setModalTitle("Save Failed");
-      setModalMessage("Could not save description. Changes reverted.");
-      setModalVisible(true);
+      showModal("Save Failed", "Could not save description.", "error");
     } finally {
-      setSavingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(itemId);
-        return next;
-      });
+      setSavingIds(s => { const n = new Set(s); n.delete(itemId); return n; });
     }
   };
 
   const handleDescriptionChange = (item: FileItem, text: string) => {
     updateFileDescription(item.id, text);
-
     if (item.status === "Uploaded" && item.dbId) {
-      if (debounceTimerRef.current[item.id]) {
-        clearTimeout(debounceTimerRef.current[item.id]);
-      }
-
+      clearTimeout(debounceTimerRef.current[item.id]);
       debounceTimerRef.current[item.id] = setTimeout(() => {
         saveDescription(item.dbId!, text, item.id);
       }, DEBOUNCE_DELAY);
     }
   };
 
-  const getStatusColor = (status: FileItem["status"]) => {
-    switch (status) {
-      case "Uploaded": return "#4CAF50";
-      case "Failed": return "#F44336";
-      case "Uploading": return "#2196F3";
-      default: return "#FF9800";
-    }
-  };
-
-  const getStatusText = (status: FileItem["status"]) => {
-    switch (status) {
-      case "Uploaded": return "Uploaded";
-      case "Failed": return "Failed";
-      case "Uploading": return "Uploading...";
-      default: return "Pending";
-    }
-  };
-
-  const pendingCount = files.filter((f) => f.status === "Pending").length;
+  const pendingCount = files.filter(f => f.status === "Pending").length;
 
   const renderItem = ({ item, index }: { item: FileItem; index: number }) => {
     const isSaving = savingIds.has(item.id);
-
     return (
       <View style={styles.row}>
         <Text style={styles.cellSNo}>{index + 1}</Text>
-        <Text style={styles.cellName} numberOfLines={1} ellipsizeMode="tail">
-          {item.name}
-        </Text>
+        <Text style={styles.cellName} numberOfLines={1}>{item.name}</Text>
         <View style={styles.descriptionContainer}>
           <TextInput
-            style={[styles.cellDescription, styles.input]}
-            placeholder="Enter description (optional)"
+            style={styles.input}
+            placeholder="Add description..."
             value={item.description}
-            onChangeText={(text) => handleDescriptionChange(item, text)}
-            editable={!uploading && (item.status === "Pending" || item.status === "Uploaded")}
-            returnKeyType="done"
-            blurOnSubmit={true}
+            onChangeText={(t) => handleDescriptionChange(item, t)}
+            editable={!uploading && (item.status !== "Uploading")}
           />
-          {isSaving && (
-            <ActivityIndicator size={14} color="#2196F3" style={styles.savingIndicator} />
-          )}
+          {isSaving && <ActivityIndicator size={12} color="#2196F3" style={{ marginLeft: 6 }} />}
         </View>
         <View style={styles.statusCell}>
-          <Text style={{ color: getStatusColor(item.status), fontSize: 12 }}>
-            {getStatusText(item.status)}
+          <Text style={{ color: item.status === "Uploaded" ? "#4CAF50" : item.status === "Failed" ? "#F44336" : "#FF9800", fontSize: 11 }}>
+            {item.status === "Uploading" ? "Uploading..." : item.status}
           </Text>
           {item.status === "Pending" && (
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => removeFile(item.id)}
-              disabled={uploading}
-            >
-              <Ionicons name="close-circle" size={18} color="#F44336" />
-            </TouchableOpacity
-            >
+            <TouchableOpacity onPress={() => removeFile(item.id)} disabled={uploading}>
+              <Ionicons name="close-circle" size={20} color="#F44336" />
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -380,85 +324,91 @@ export default function AttachmentScreen() {
       {/* Header Buttons */}
       <View style={styles.header}>
         <TouchableOpacity
-          style={[styles.fixedButton, styles.addButton, uploading && { opacity: 0.7 }]}
-          onPress={pickFile}
+          style={[styles.fixedButton, styles.addButton]}
+          onPress={() => setActionSheetVisible(true)}
           disabled={uploading}
         >
-          <Ionicons name="add-circle-outline" size={20} color="#2196F3" />
-          <Text style={styles.fixedButtonText}>New Files</Text>
+          <Ionicons name="add-circle-outline" size={22} color="#2196F3" />
+          <Text style={styles.addButtonText}>Add Files</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[
-            styles.fixedButton,
-            styles.uploadButton,
-            (uploading || pendingCount === 0) && { opacity: 0.7 },
-          ]}
+          style={[styles.fixedButton, styles.uploadButton, (uploading || pendingCount === 0) && styles.disabledBtn]}
           onPress={uploadFiles}
           disabled={uploading || pendingCount === 0}
         >
           {uploading ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator color="#fff" />
           ) : (
             <>
-              <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
-              <Text style={styles.fixedButtonText}>
-                Upload ({pendingCount})
-              </Text>
+              <Ionicons name="cloud-upload-outline" size={20} color="#fff" />
+              <Text style={styles.uploadButtonText}>Upload ({pendingCount})</Text>
             </>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* File List or Empty State */}
+      {/* Empty State or List */}
       {displayFiles.length === 0 ? (
         <View style={styles.emptyState}>
-          <Ionicons name="folder-outline" size={48} color="#B0BEC5" />
+          <Ionicons name="documents-outline" size={64} color="#CFD8DC" />
           <Text style={styles.emptyText}>No attachments yet</Text>
-          <Text style={styles.emptySubText}>
-            Tap "New Files" to add attachments
-          </Text>
+          <Text style={styles.emptySubText}>Tap "Add Files" to get started</Text>
         </View>
       ) : (
         <>
           <View style={styles.tableHeader}>
-            <Text style={styles.headerCellSNo}>S/No</Text>
+            <Text style={styles.headerCellSNo}>#</Text>
             <Text style={styles.headerCellName}>File Name</Text>
             <Text style={styles.headerCellDescription}>Description</Text>
             <Text style={styles.headerCellStatus}>Status</Text>
           </View>
-
           <FlatList
             data={displayFiles}
             renderItem={renderItem}
-            keyExtractor={(item) => item.id}
-            style={styles.fileList}
-            contentContainerStyle={styles.listContent}
+            keyExtractor={item => item.id}
+            style={{ flex: 1 }}
           />
         </>
       )}
 
-      {/* Modal */}
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
+      {/* Beautiful Action Sheet */}
+      <Modal visible={actionSheetVisible} transparent animationType="fade">
+        <Pressable style={styles.overlay} onPress={() => setActionSheetVisible(false)}>
+          <View style={styles.actionSheet}>
+            <Text style={styles.actionSheetTitle}>Add Attachment</Text>
+            <TouchableOpacity style={styles.actionItem} onPress={takePhoto}>
+              <Ionicons name="camera-outline" size={24} color="#2196F3" />
+              <Text style={styles.actionText}>Take Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionItem} onPress={pickFromGallery}>
+              <Ionicons name="images-outline" size={24} color="#4CAF50" />
+              <Text style={styles.actionText}>Choose from Gallery</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionItem} onPress={pickDocument}>
+              <Ionicons name="document-outline" size={24} color="#FF9800" />
+              <Text style={styles.actionText}>Choose File</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionItem, styles.cancelItem]} onPress={() => setActionSheetVisible(false)}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Success/Error Modal */}
+      <Modal visible={modalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
             <Ionicons
-              name={modalTitle.includes("Success") || modalTitle.includes("Successful") ? "checkmark-circle" : "alert-circle"}
-              size={40}
-              color={modalTitle.includes("Success") || modalTitle.includes("Successful") ? "#4CAF50" : "#F44336"}
+              name={modalType === "success" ? "checkmark-circle" : "alert-circle"}
+              size={56}
+              color={modalType === "success" ? "#4CAF50" : "#F44336"}
             />
             <Text style={styles.modalTitle}>{modalTitle}</Text>
             <Text style={styles.modalMessage}>{modalMessage}</Text>
-            <TouchableOpacity
-              style={styles.modalButton}
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={styles.modalButtonText}>OK</Text>
+            <TouchableOpacity style={styles.modalOkBtn} onPress={() => setModalVisible(false)}>
+              <Text style={styles.modalOkText}>OK</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -469,77 +419,43 @@ export default function AttachmentScreen() {
 
 /* ==================== STYLES ==================== */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
-
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 16,
-    marginTop: 8,
-  },
-  fixedButton: {
-    width: BUTTON_WIDTH,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  fixedButtonText: { marginLeft: 6, fontWeight: "500", fontSize: 14, color: "#da1010ff" },
-  addButton: { borderWidth: 1, borderStyle: "dashed", borderColor: "#B0BEC5", backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: "#f8f9fa" },
+  header: { flexDirection: "row", justifyContent: "space-between", padding: 16, paddingBottom: 8 },
+  fixedButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, width: BUTTON_WIDTH },
+  addButton: { backgroundColor: "#E3F2FD", borderWidth: 1.5, borderColor: "#2196F3" },
+  addButtonText: { marginLeft: 8, fontWeight: "600", color: "#1976D2", fontSize: 15 },
   uploadButton: { backgroundColor: "#2196F3" },
-
-  tableHeader: {
-    flexDirection: "row",
-    backgroundColor: "#F5F5F5",
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E0E0E0",
-  },
-  headerCellSNo: { flex: 1, fontWeight: "bold", textAlign: "center", fontSize: 12, color: "#757575" },
-  headerCellName: { flex: 3, fontWeight: "bold", fontSize: 12, paddingLeft: 8, color: "#757575" },
-  headerCellDescription: { flex: 4, fontWeight: "bold", fontSize: 12, paddingLeft: 8, color: "#757575" },
-  headerCellStatus: { flex: 2, fontWeight: "bold", textAlign: "center", fontSize: 12, color: "#757575" },
-
-  row: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E0E0E0",
-    paddingVertical: 12,
-    alignItems: "center",
-    minHeight: 50,
-  },
-  cellSNo: { flex: 1, textAlign: "center", fontSize: 12, color: "#424242" },
-  cellName: { flex: 3, fontSize: 12, paddingLeft: 8, color: "#424242" },
-  descriptionContainer: { flex: 4, flexDirection: "row", alignItems: "center", paddingLeft: 8 },
-  cellDescription: { flex: 1 },
-  input: { fontSize: 12, paddingHorizontal: 8, height: 40 },
-  savingIndicator: { marginLeft: 6 },
+  uploadButtonText: { marginLeft: 8, fontWeight: "600", color: "#fff", fontSize: 15 },
+  disabledBtn: { opacity: 0.6 },
+  tableHeader: { flexDirection: "row", backgroundColor: "#ECEFF1", paddingVertical: 12, paddingHorizontal: 8 },
+  headerCellSNo: { flex: 0.8, fontWeight: "bold", fontSize: 12, color: "#546E7A", textAlign: "center" },
+  headerCellName: { flex: 3, fontWeight: "bold", fontSize: 12, color: "#546E7A", paddingLeft: 8 },
+  headerCellDescription: { flex: 4, fontWeight: "bold", fontSize: 12, color: "#546E7A", paddingLeft: 8 },
+  headerCellStatus: { flex: 2, fontWeight: "bold", fontSize: 12, color: "#546E7A", textAlign: "center" },
+  row: { flexDirection: "row", backgroundColor: "#fff", paddingVertical: 14, paddingHorizontal: 8, borderBottomWidth: 1, borderColor: "#eee" },
+  cellSNo: { flex: 0.8, textAlign: "center", fontSize: 13, color: "#455A64" },
+  cellName: { flex: 3, fontSize: 13, color: "#263238", paddingLeft: 8 },
+  descriptionContainer: { flex: 4, flexDirection: "row", alignItems: "center" },
+  input: { flex: 1, fontSize: 13, backgroundColor: "#F5F5F5", borderRadius: 8, paddingHorizontal: 10, height: 40 },
   statusCell: { flex: 2, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingRight: 8 },
-  removeButton: { paddingLeft: 8 },
+  emptyState: { flex: 1, justifyContent: "center", alignItems: "center" },
+  emptyText: { fontSize: 18, fontWeight: "600", color: "#455A64", marginTop: 16 },
+  emptySubText: { fontSize: 14, color: "#78909C", marginTop: 8 },
 
-  fileList: { flex: 1 },
-  listContent: { flexGrow: 1 },
+  // Action Sheet
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  actionSheet: { backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40, paddingTop: 20 },
+  actionSheetTitle: { fontSize: 18, fontWeight: "bold", textAlign: "center", color: "#263238", marginBottom: 20 },
+  actionItem: { flexDirection: "row", alignItems: "center", paddingVertical: 16, paddingHorizontal: 24 },
+  actionText: { marginLeft: 16, fontSize: 17, color: "#263238" },
+  cancelItem: { marginTop: 10, borderTopWidth: 1, borderColor: "#eee", paddingTop: 16 },
+  cancelText: { textAlign: "center", fontSize: 18, color: "#F44336", fontWeight: "600" },
 
-  emptyState: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 40,
-    borderWidth: 2,
-    borderStyle: "dashed",
-    borderColor: "#B0BEC5",
-    borderRadius: 12,
-    marginTop: 20,
-  },
-  emptyText: { fontSize: 16, fontWeight: "600", marginTop: 12, color: "#424242" },
-  emptySubText: { fontSize: 13, color: "#78909C", textAlign: "center", marginTop: 6 },
-
-  modalContainer: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" },
-  modalContent: { backgroundColor: "#fff", padding: 24, borderRadius: 12, alignItems: "center", width: "85%", maxWidth: 400 },
-  modalTitle: { fontSize: 20, fontWeight: "bold", marginTop: 12, marginBottom: 8 },
-  modalMessage: { fontSize: 14, textAlign: "center", color: "#555", lineHeight: 20, marginBottom: 20 },
-  modalButton: { backgroundColor: "#2196F3", paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8 },
-  modalButtonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center" },
+  modalBox: { backgroundColor: "#fff", padding: 30, borderRadius: 20, alignItems: "center", width: "88%", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 10, elevation: 10 },
+  modalTitle: { fontSize: 22, fontWeight: "bold", marginTop: 16, color: "#263238" },
+  modalMessage: { fontSize: 15, color: "#546E7A", textAlign: "center", marginVertical: 12, lineHeight: 22 },
+  modalOkBtn: { backgroundColor: "#2196F3", paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12, marginTop: 10 },
+  modalOkText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
 });

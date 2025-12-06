@@ -7,7 +7,6 @@ import React, {
   useCallback,
 } from "react";
 import {
-  Alert,
   Animated,
   Easing,
   LayoutAnimation,
@@ -21,9 +20,7 @@ import {
   Modal,
   StatusBar,
   ActivityIndicator,
-  ScrollView,
 } from "react-native";
-import * as DocumentPicker from "expo-document-picker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   CameraView,
@@ -35,24 +32,23 @@ import {
   updateDispatchHeader,
   linkSalesOrder,
   deleteSalesOrderLink,
-  uploadAttachments,
   getAttachments,
   type CreateDispatchHeaderRequest,
   type UpdateDispatchHeaderRequest,
   type LinkDispatchSORequest,
-  type ApiResult,
   type DispatchAttachment,
 } from "../../Api/Hooks/Usematerial_dispatch";
+
 import {
   loadDispatchData,
   saveDispatchData,
   clearDispatchData,
 } from "../../Storage/material_dispatch_storage";
+
 import { useFocusEffect } from "@react-navigation/native";
+import UploadModal from "./Upload";
 
 type DispatchForm = {
-  customer: string;
-  address: string;
   transporter: string;
   vehicleNo: string;
 };
@@ -61,12 +57,6 @@ type SOEntry = {
   soId: string;
   linkId: number;
   createdAt: number;
-};
-
-type FileAttachment = {
-  id?: string | number;
-  fileName: string;
-  uploadedAt?: string | number | Date | null;
 };
 
 const C = {
@@ -96,15 +86,12 @@ const C_sales = {
 
 const MaterialDispatchScreen: React.FC = () => {
   const [form, setForm] = useState<DispatchForm>({
-    customer: "",
-    address: "",
     transporter: "",
     vehicleNo: "",
   });
   const [dispatchId, setDispatchId] = useState<string | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<
-    DocumentPicker.DocumentPickerAsset[]
-  >([]);
+
+  // now we only track attachments that are already uploaded on server
   const [uploadedAttachments, setUploadedAttachments] = useState<
     DispatchAttachment[]
   >([]);
@@ -114,35 +101,29 @@ const MaterialDispatchScreen: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [showNewFormModal, setShowNewFormModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [savingHeader, setSavingHeader] = useState(false);
 
   const animatedHeight = useState(new Animated.Value(1))[0];
   const salesOpacity = useState(new Animated.Value(0))[0];
-  const formHeight = 380;
+  const formHeight = 260; // reduced height because fewer fields
 
-  const customerRef = useRef<TextInput>(null);
+  const transporterRef = useRef<TextInput>(null);
   const soRef = useRef<TextInput>(null);
 
   const onChange = (k: keyof DispatchForm, v: string) =>
     setForm((prev) => ({ ...prev, [k]: v }));
 
   const isFormValid = useMemo(() => {
-    const { customer, address, transporter, vehicleNo } = form;
-    return (
-      !!customer?.trim() &&
-      !!address?.trim() &&
-      !!transporter?.trim() &&
-      !!vehicleNo?.trim()
-    );
+    const { transporter, vehicleNo } = form;
+    return !!transporter?.trim() && !!vehicleNo?.trim();
   }, [form]);
 
-  const totalAttachments = selectedFiles.length + uploadedAttachments.length;
+  // ✅ total attachments from server only
+  const totalAttachments = uploadedAttachments.length;
 
   const handleClear = () => {
-    setForm({ customer: "", address: "", transporter: "", vehicleNo: "" });
+    setForm({ transporter: "", vehicleNo: "" });
     setDispatchId(null);
-    setSelectedFiles([]);
     setUploadedAttachments([]);
     setItems([]);
     setValue("");
@@ -157,7 +138,7 @@ const MaterialDispatchScreen: React.FC = () => {
     handleClear();
     if (!expanded) toggleExpand();
     setShowNewFormModal(false);
-    setTimeout(() => customerRef.current?.focus(), 100);
+    setTimeout(() => transporterRef.current?.focus(), 100);
   };
 
   const toggleExpand = () => {
@@ -197,11 +178,9 @@ const MaterialDispatchScreen: React.FC = () => {
 
     setSavingHeader(true);
     const payload: CreateDispatchHeaderRequest = {
-      customerName: form.customer.trim(),
       transporterName: form.transporter.trim(),
-      address: form.address.trim(),
       vehicleNumber: form.vehicleNo.trim(),
-    };
+    } as any;
 
     try {
       const result = await createDispatchHeader(payload);
@@ -223,33 +202,32 @@ const MaterialDispatchScreen: React.FC = () => {
   };
 
   const handleUpdateHeader = async () => {
-  if (!isFormValid || savingHeader || !dispatchId) return;
+    if (!isFormValid || savingHeader || !dispatchId) return;
 
-  setSavingHeader(true);
-  const payload: UpdateDispatchHeaderRequest = {
-    customerName: form.customer.trim(),
-    transporterName: form.transporter.trim(),
-    address: form.address.trim(),
-    vehicleNumber: form.vehicleNo.trim(),
+    setSavingHeader(true);
+    const payload: UpdateDispatchHeaderRequest = {
+      transporterName: form.transporter.trim(),
+      vehicleNumber: form.vehicleNo.trim(),
+    } as any;
+
+    try {
+      const result = await updateDispatchHeader(dispatchId, payload);
+      if (result.ok) {
+        showToast("Updated successfully!", "success");
+        focusSOInput();
+      } else {
+        setErrorMessage(result.error || "Failed to update.");
+        setShowError(true);
+      }
+    } catch {
+      setErrorMessage("Network error. Please try again.");
+      setShowError(true);
+    } finally {
+      setSavingHeader(false);
+    }
   };
 
-  try {
-    const result = await updateDispatchHeader(dispatchId, payload);
-    if (result.ok) {
-      showToast("Updated successfully!", "success"); // This line
-      focusSOInput();
-    } else {
-      setErrorMessage(result.error || "Failed to update.");
-      setShowError(true);
-    }
-  } catch {
-    setErrorMessage("Network error. Please try again.");
-    setShowError(true);
-  } finally {
-    setSavingHeader(false);
-  }
-};
-  /* ------------------- FILE PICKER ------------------- */
+  /* ------------------- FILE PICKER MODAL TRIGGER ------------------- */
   const openFilePicker = () => {
     if (!dispatchId) {
       setErrorMessage("Save header first.");
@@ -257,47 +235,6 @@ const MaterialDispatchScreen: React.FC = () => {
       return;
     }
     setShowFileModal(true);
-  };
-
-  const handleFileSelect = async () => {
-    const res = await DocumentPicker.getDocumentAsync({
-      multiple: true,
-      copyToCacheDirectory: true,
-    });
-    if (res.canceled || !res.assets?.length) return;
-    setSelectedFiles((prev) => [...prev, ...res.assets]);
-  };
-
-  const handleFileUpload = async () => {
-    if (selectedFiles.length === 0) {
-      setErrorMessage("Please select files first.");
-      setShowError(true);
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const result = await uploadAttachments(dispatchId!, selectedFiles);
-      if (result.ok) {
-        showToast(`${selectedFiles.length} file(s) uploaded!`, "success");
-        setSelectedFiles([]);
-        setShowFileModal(false);
-        await loadAttachments();
-        focusSOInput();
-      } else {
-        setErrorMessage(result.error || "Upload failed.");
-        setShowError(true);
-      }
-    } catch {
-      setErrorMessage("Upload failed. Check connection.");
-      setShowError(true);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const removeSelectedFile = (index: number) => {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const loadAttachments = async () => {
@@ -355,7 +292,7 @@ const MaterialDispatchScreen: React.FC = () => {
       return;
     }
 
-    const payload: LinkDispatchSORequest = { saleOrderNumber: so };
+    const payload: LinkDispatchSORequest = { saleOrderNumber: so } as any;
 
     try {
       const result = await linkSalesOrder(dispatchId, payload);
@@ -363,7 +300,11 @@ const MaterialDispatchScreen: React.FC = () => {
         const link = result.data;
         setItems((prev) => [
           ...prev,
-          { soId: so, linkId: link.id, createdAt: new Date(link.createdAt).getTime() },
+          {
+            soId: so,
+            linkId: link.id,
+            createdAt: new Date(link.createdAt).getTime(),
+          },
         ]);
         clearAndFocusSO();
       } else {
@@ -435,7 +376,6 @@ const MaterialDispatchScreen: React.FC = () => {
     if (scanLocked) return;
     setScanLocked(true);
     await addSO(result.data ?? "");
-    // Auto-close after successful scan
     setTimeout(() => {
       closeScanner();
     }, 600);
@@ -448,10 +388,14 @@ const MaterialDispatchScreen: React.FC = () => {
     const load = async () => {
       const data = await loadDispatchData();
       if (data) {
-        setForm(data.form);
+        const loadedForm: DispatchForm = {
+          transporter: data.form?.transporter ?? "",
+          // Normalize stored vehicle number: remove spaces + uppercase
+          vehicleNo: (data.form?.vehicleNo ?? "").replace(/\s+/g, "").toUpperCase(),
+        };
+        setForm(loadedForm);
         setDispatchId(data.dispatchId);
         setItems(data.items || []);
-        setSelectedFiles(data.selectedFiles || []);
         if (data.dispatchId) {
           setExpanded(false);
           animatedHeight.setValue(0);
@@ -469,7 +413,7 @@ const MaterialDispatchScreen: React.FC = () => {
         if (dispatchId && !expanded) {
           soRef.current?.focus();
         } else {
-          customerRef.current?.focus();
+          transporterRef.current?.focus();
         }
       }, 200);
       return () => clearTimeout(timeoutId);
@@ -478,16 +422,15 @@ const MaterialDispatchScreen: React.FC = () => {
 
   useEffect(() => {
     if (!expanded && dispatchId) focusSOInput();
-  }, [expanded, dispatchId]);
+  }, [expanded, dispatchId, focusSOInput]);
 
   useEffect(() => {
     saveDispatchData({
       form,
       dispatchId,
       items,
-      selectedFiles,
     });
-  }, [form, dispatchId, items, selectedFiles]);
+  }, [form, dispatchId, items]);
 
   useEffect(() => {
     if (dispatchId) loadAttachments();
@@ -513,7 +456,10 @@ const MaterialDispatchScreen: React.FC = () => {
               <Text style={styles.addNewText}>Add New</Text>
             </TouchableOpacity>
             {dispatchId && (
-              <TouchableOpacity onPress={openFilePicker} style={styles.attachBtn}>
+              <TouchableOpacity
+                onPress={openFilePicker}
+                style={styles.attachBtn}
+              >
                 <Ionicons name="attach" size={22} color={C.blue} />
                 {totalAttachments > 0 && (
                   <View style={styles.attachmentBadge}>
@@ -537,24 +483,9 @@ const MaterialDispatchScreen: React.FC = () => {
           }}
         >
           <View style={styles.card}>
-            <TextInput
-              ref={customerRef}
-              style={styles.input}
-              placeholder="Customer"
-              placeholderTextColor={C.hint}
-              value={form.customer}
-              onChangeText={(t) => onChange("customer", t)}
-            />
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Address"
-              placeholderTextColor={C.hint}
-              multiline
-              value={form.address}
-              onChangeText={(t) => onChange("address", t)}
-            />
             <View style={styles.row2}>
               <TextInput
+                ref={transporterRef}
                 style={[styles.input, styles.half]}
                 placeholder="Transporter"
                 placeholderTextColor={C.hint}
@@ -567,7 +498,11 @@ const MaterialDispatchScreen: React.FC = () => {
                 placeholderTextColor={C.hint}
                 autoCapitalize="characters"
                 value={form.vehicleNo}
-                onChangeText={(t) => onChange("vehicleNo", t)}
+                onChangeText={(t) => {
+                  // No spaces allowed, always uppercase
+                  const cleaned = t.replace(/\s+/g, "").toUpperCase();
+                  onChange("vehicleNo", cleaned);
+                }}
               />
             </View>
 
@@ -607,7 +542,11 @@ const MaterialDispatchScreen: React.FC = () => {
                 autoCorrect={false}
               />
               <Pressable onPress={openScanner} style={styles_sales.scanBtn}>
-                <MaterialCommunityIcons name="qrcode-scan" size={20} color={C.accent} />
+                <MaterialCommunityIcons
+                  name="qrcode-scan"
+                  size={20}
+                  color={C.accent}
+                />
               </Pressable>
             </View>
             <TouchableOpacity
@@ -624,7 +563,9 @@ const MaterialDispatchScreen: React.FC = () => {
 
           <View style={styles_sales.totalPill}>
             <Text style={styles_sales.totalText}>
-              Total SOs: <Text style={styles_sales.totalNum}>{total}</Text> | Attachments: <Text style={styles_sales.totalNum}>{totalAttachments}</Text>
+              Total SOs: <Text style={styles_sales.totalNum}>{total}</Text> |
+              Attachments:{" "}
+              <Text style={styles_sales.totalNum}>{totalAttachments}</Text>
             </Text>
           </View>
 
@@ -634,19 +575,38 @@ const MaterialDispatchScreen: React.FC = () => {
               <Text style={[styles_sales.th, { width: 40 }]}>S/No</Text>
               <Text style={[styles_sales.th, { flex: 1 }]}>SO Number</Text>
               <Text style={[styles_sales.th, { width: 80 }]}>Time</Text>
-              <Text style={[styles_sales.th, { width: 72, textAlign: "right" }]}>Action</Text>
+              <Text
+                style={[styles_sales.th, { width: 72, textAlign: "right" }]}
+              >
+                Action
+              </Text>
             </View>
             <FlatList
               data={items}
               keyExtractor={(it) => it.linkId.toString()}
-              contentContainerStyle={items.length === 0 && { paddingVertical: 24 }}
-              ItemSeparatorComponent={() => <View style={styles_sales.divider} />}
+              contentContainerStyle={
+                items.length === 0 && { paddingVertical: 24 }
+              }
+              ItemSeparatorComponent={() => (
+                <View style={styles_sales.divider} />
+              )}
               renderItem={({ item, index }) => (
                 <View style={styles_sales.row}>
-                  <Text style={[styles_sales.td, { width: 40 }]}>{index + 1}</Text>
-                  <Text style={[styles_sales.td, { flex: 1 }]}>{item.soId}</Text>
-                  <Text style={[styles_sales.td, { width: 80 }]}>{formatTime(item.createdAt)}</Text>
-                  <View style={[styles_sales.td, { width: 72, alignItems: "flex-end" }]}>
+                  <Text style={[styles_sales.td, { width: 40 }]}>
+                    {index + 1}
+                  </Text>
+                  <Text style={[styles_sales.td, { flex: 1 }]}>
+                    {item.soId}
+                  </Text>
+                  <Text style={[styles_sales.td, { width: 80 }]}>
+                    {formatTime(item.createdAt)}
+                  </Text>
+                  <View
+                    style={[
+                      styles_sales.td,
+                      { width: 72, alignItems: "flex-end" },
+                    ]}
+                  >
                     <Pressable
                       onPress={() => removeSO(item.linkId)}
                       style={({ pressed }) => [
@@ -654,7 +614,11 @@ const MaterialDispatchScreen: React.FC = () => {
                         pressed && { backgroundColor: C_sales.hover },
                       ]}
                     >
-                      <Ionicons name="trash-outline" size={18} color={C_sales.danger} />
+                      <Ionicons
+                        name="trash-outline"
+                        size={18}
+                        color={C_sales.danger}
+                      />
                     </Pressable>
                   </View>
                 </View>
@@ -669,7 +633,9 @@ const MaterialDispatchScreen: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.confirmationModal}>
             <Text style={styles.confirmationTitle}>Start New Form</Text>
-            <Text style={styles.confirmationMessage}>This will clear all current data.</Text>
+            <Text style={styles.confirmationMessage}>
+              This will clear all current data.
+            </Text>
             <View style={styles.confirmationButtons}>
               <TouchableOpacity
                 onPress={() => setShowNewFormModal(false)}
@@ -700,7 +666,10 @@ const MaterialDispatchScreen: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.errorModal}>
             <Text style={styles.modalTitle}>{errorMessage}</Text>
-            <TouchableOpacity onPress={() => setShowError(false)} style={styles.modalButton}>
+            <TouchableOpacity
+              onPress={() => setShowError(false)}
+              style={styles.modalButton}
+            >
               <Text style={styles.modalButtonText}>OK</Text>
             </TouchableOpacity>
           </View>
@@ -708,127 +677,24 @@ const MaterialDispatchScreen: React.FC = () => {
       </Modal>
 
       {/* ---------- FILE MODAL ---------- */}
-      <Modal visible={showFileModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.fileModal}>
-            <View style={styles.fileModalHeader}>
-              <Text style={styles.fileModalTitle}>Upload Attachments</Text>
-              <TouchableOpacity onPress={() => setShowFileModal(false)} style={styles.fileModalCloseBtn}>
-                <Ionicons name="close" size={22} color={C.text} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Selected Files */}
-            <View style={styles.selectedFilesSection}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Selected Files</Text>
-                <Text style={styles.fileCount}>({selectedFiles.length} files)</Text>
-              </View>
-
-              {selectedFiles.length > 0 ? (
-                <View style={styles.selectedFilesContainer}>
-                  <ScrollView style={styles.selectedFilesList} showsVerticalScrollIndicator={false}>
-                    {selectedFiles.map((file, i) => (
-                      <View key={i} style={styles.selectedFileItem}>
-                        <View style={styles.fileInfo}>
-                          <Ionicons name="document-outline" size={18} color={C.blue} />
-                          <View style={styles.fileDetails}>
-                            <Text style={styles.selectedFileName} numberOfLines={1}>
-                              {file.name}
-                            </Text>
-                            <Text style={styles.fileSize}>
-                              {file.size ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : "Size unknown"}
-                            </Text>
-                          </View>
-                        </View>
-                        <Pressable onPress={() => removeSelectedFile(i)} style={styles.removeFileBtn}>
-                          <Ionicons name="close-circle" size={20} color={C.red} />
-                        </Pressable>
-                      </View>
-                    ))}
-                  </ScrollView>
-                </View>
-              ) : (
-                <View style={styles.emptyState}>
-                  <Ionicons name="document-outline" size={40} color={C.hint} />
-                  <Text style={styles.emptyStateText}>No files selected</Text>
-                  <Text style={styles.emptyStateSubtext}>Choose files to upload</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Uploaded Files */}
-            {uploadedAttachments?.length > 0 && (
-  <View style={styles.uploadedFilesSection}>
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>Uploaded Files</Text>
-      <Text style={styles.fileCount}>({uploadedAttachments.length} files)</Text>
-    </View>
-
-    <View style={styles.uploadedFilesContainer}>
-      <ScrollView style={styles.uploadedFilesList} showsVerticalScrollIndicator={false}>
-        {uploadedAttachments.map((file: FileAttachment, index: number) => {
-          // ensure we always pass a string key
-          const key = file.id !== undefined && file.id !== null ? String(file.id) : `file-${index}`;
-
-          // guard uploadedAt and format safely
-          let uploadedDateText = "Uploaded —";
-          if (file.uploadedAt) {
-            const d = new Date(file.uploadedAt);
-            uploadedDateText = isNaN(d.getTime()) ? "Uploaded —" : `Uploaded ${d.toLocaleDateString()}`;
-          }
-
-          return (
-            <View key={key} style={styles.uploadedFileItem}>
-              <View style={styles.fileInfo}>
-                <Ionicons name="checkmark-circle" size={18} color={C.green} />
-                <View style={styles.fileDetails}>
-                  <Text style={styles.uploadedFileName} numberOfLines={1}>
-                    {file.fileName ?? "Unnamed file"}
-                  </Text>
-                  <Text style={styles.fileUploadDate}>{uploadedDateText}</Text>
-                </View>
-              </View>
-            </View>
-          );
-        })}
-      </ScrollView>
-    </View>
-  </View>
-)}
-
-            {/* Buttons */}
-            <View style={styles.fileModalActions}>
-              <TouchableOpacity onPress={handleFileSelect} style={[styles.fileModalBtn, styles.fileSelectBtn]}>
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={styles.fileSelectText}>Choose Files</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={handleFileUpload}
-                disabled={selectedFiles.length === 0 || uploading}
-                style={[
-                  styles.fileModalBtn,
-                  styles.uploadBtn,
-                  (selectedFiles.length === 0 || uploading) && styles.disabledBtn,
-                ]}
-              >
-                {uploading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="cloud-upload" size={18} color="#FFFFFF" />
-                    <Text style={styles.uploadBtnText}>Upload ({selectedFiles.length})</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <UploadModal
+        visible={showFileModal}
+        dispatchId={dispatchId!} // guarded by openFilePicker
+        onClose={() => {
+          setShowFileModal(false);
+          loadAttachments(); // Refresh badge count
+        }}
+        onUploadSuccess={() => {
+          loadAttachments(); // Refresh list + badge
+        }}
+      />
 
       {/* ---------- SCANNER MODAL ---------- */}
-      <Modal visible={scanVisible} animationType="slide" presentationStyle="fullScreen">
+      <Modal
+        visible={scanVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
         <StatusBar hidden />
         <View style={styles_scan.fullscreenCameraWrap}>
           <CameraView
@@ -841,7 +707,10 @@ const MaterialDispatchScreen: React.FC = () => {
           />
           <View style={styles_scan.fullscreenTopBar}>
             <Text style={styles_scan.fullscreenTitle}>Scan a code</Text>
-            <Pressable onPress={closeScanner} style={styles_scan.fullscreenCloseBtn}>
+            <Pressable
+              onPress={closeScanner}
+              style={styles_scan.fullscreenCloseBtn}
+            >
               <Ionicons name="close" size={22} color="#fff" />
             </Pressable>
           </View>
@@ -859,11 +728,26 @@ export default MaterialDispatchScreen;
 /* ------------------------------------------------- STYLES ------------------------------------------------- */
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  container: { flex: 1, paddingHorizontal: 14, paddingTop: 10, backgroundColor: C.bg },
-  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, justifyContent: "space-between" },
+  container: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    backgroundColor: C.bg,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    justifyContent: "space-between",
+  },
   arrowBtn: { padding: 6 },
   headerActions: { flexDirection: "row", gap: 10, alignItems: "center" },
-  addNewBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: C.grayBtn },
+  addNewBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: C.grayBtn,
+  },
   addNewText: { color: C.text, fontWeight: "600" },
   attachBtn: { padding: 8, position: "relative" },
   attachmentBadge: {
@@ -879,62 +763,103 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   attachmentBadgeText: { color: "#fff", fontSize: 10, fontWeight: "bold" },
-  card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10 },
-  input: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: C.text, marginBottom: 10, backgroundColor: "#fff" },
+  card: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    padding: 10,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: C.text,
+    marginBottom: 10,
+    backgroundColor: "#fff",
+  },
   textArea: { minHeight: 90, textAlignVertical: "top" },
   row2: { flexDirection: "row", gap: 10, marginBottom: 10 },
   half: { flex: 1, marginBottom: 0 },
-  saveBtn: { backgroundColor: C.blue, borderRadius: 10, paddingVertical: 14, alignItems: "center" },
+  saveBtn: {
+    backgroundColor: C.blue,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
   disabledBtn: { opacity: 0.6 },
   saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-
-  /* Modals */
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
-
-  /* File Modal */
-  fileModal: { backgroundColor: "#fff", borderRadius: 16, padding: 0, width: "90%", maxWidth: 400, maxHeight: "80%", overflow: "hidden" },
-  fileModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: C.border },
-  fileModalTitle: { fontSize: 18, fontWeight: "700", color: C.text },
-  fileModalCloseBtn: { padding: 4 },
-  selectedFilesSection: { padding: 20, borderBottomWidth: 1, borderBottomColor: C.border },
-  uploadedFilesSection: { padding: 20, borderBottomWidth: 1, borderBottomColor: C.border },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  sectionTitle: { fontSize: 16, fontWeight: "600", color: C.text },
-  fileCount: { fontSize: 14, color: C.hint },
-  selectedFilesContainer: { maxHeight: 150 },
-  uploadedFilesContainer: { maxHeight: 120 },
-  selectedFilesList: { flexGrow: 0 },
-  uploadedFilesList: { flexGrow: 0 },
-  selectedFileItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, paddingHorizontal: 12, backgroundColor: "#F8FAFC", borderRadius: 8, marginBottom: 8 },
-  uploadedFileItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, paddingHorizontal: 12, backgroundColor: "#F0F9FF", borderRadius: 8, marginBottom: 8 },
-  fileInfo: { flexDirection: "row", alignItems: "center", flex: 1 },
-  fileDetails: { marginLeft: 12, flex: 1 },
-  selectedFileName: { fontSize: 14, fontWeight: "500", color: C.text, marginBottom: 2 },
-  uploadedFileName: { fontSize: 14, fontWeight: "500", color: C.text, marginBottom: 2 },
-  fileSize: { fontSize: 12, color: C.hint },
-  fileUploadDate: { fontSize: 12, color: C.hint },
-  removeFileBtn: { padding: 4 },
-  emptyState: { alignItems: "center", paddingVertical: 30 },
-  emptyStateText: { fontSize: 16, color: C.hint, marginTop: 8, fontWeight: "500" },
-  emptyStateSubtext: { fontSize: 14, color: C.hint, marginTop: 4 },
-  fileModalActions: { flexDirection: "row", padding: 20, gap: 12 },
-  fileModalBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, borderRadius: 10, gap: 8 },
-  fileSelectBtn: { backgroundColor: C.grayBtn, borderWidth: 1, borderColor: C.border },
-  uploadBtn: { backgroundColor: C.green },
-  fileSelectText: { color: C.text, fontWeight: "600", fontSize: 14 },
-  uploadBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-
-  successModal: { backgroundColor: "#fff", borderRadius: 16, padding: 24, alignItems: "center", width: "80%" },
-  errorModal: { backgroundColor: "#fff", borderRadius: 16, padding: 24, alignItems: "center", width: "80%" },
-  modalTitle: { fontSize: 16, fontWeight: "600", color: C.text, textAlign: "center", marginBottom: 20 },
-  modalButton: { backgroundColor: C.blue, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  successModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    width: "80%",
+  },
+  errorModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    width: "80%",
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: C.text,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  modalButton: {
+    backgroundColor: C.blue,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
   modalButtonText: { color: "#fff", fontWeight: "600" },
-  confirmationModal: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, alignItems: "center" },
-  confirmationTitle: { fontSize: 20, fontWeight: "700", color: "#111827", marginBottom: 12 },
-  confirmationMessage: { fontSize: 15, color: "#6B7280", textAlign: "center", lineHeight: 20, marginBottom: 24 },
+  confirmationModal: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    alignItems: "center",
+  },
+  confirmationTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 12,
+  },
+  confirmationMessage: {
+    fontSize: 15,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 24,
+  },
   confirmationButtons: { flexDirection: "row", gap: 12, width: "100%" },
-  confirmationButton: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center" },
-  cancelButton: { backgroundColor: "#F3F4F6", borderWidth: 1, borderColor: "#E5E7EB" },
+  confirmationButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  cancelButton: {
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
   confirmButton: { backgroundColor: "#2151F5" },
   cancelButtonText: { color: "#374151", fontWeight: "600", fontSize: 15 },
   confirmButtonText: { color: "#fff", fontWeight: "600", fontSize: 15 },
@@ -943,33 +868,108 @@ const styles = StyleSheet.create({
 const styles_sales = StyleSheet.create({
   inputRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   inputWrap: { position: "relative", flex: 1 },
-  input: { backgroundColor: C_sales.card, borderColor: C_sales.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C_sales.text },
-  scanBtn: { position: "absolute", right: 6, top: 0, bottom: 0, justifyContent: "center", width: 36 },
-  submitBtnOuter: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: C_sales.pill, borderWidth: 1, borderColor: C_sales.border },
+  input: {
+    backgroundColor: C_sales.card,
+    borderColor: C_sales.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: C_sales.text,
+  },
+  scanBtn: {
+    position: "absolute",
+    right: 6,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    width: 36,
+  },
+  submitBtnOuter: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: C_sales.pill,
+    borderWidth: 1,
+    borderColor: C_sales.border,
+  },
   submitTextOuter: { color: C_sales.blue, fontWeight: "700", fontSize: 14 },
-  totalPill: { marginTop: 10, backgroundColor: C_sales.pill, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: C_sales.border },
+  totalPill: {
+    marginTop: 10,
+    backgroundColor: C_sales.pill,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: C_sales.border,
+  },
   totalText: { color: C_sales.sub, fontSize: 13 },
   totalNum: { fontWeight: "700", color: C_sales.text },
-  tableCard: { marginTop: 12, backgroundColor: C_sales.card, borderRadius: 12, borderWidth: 1, borderColor: C_sales.border, overflow: "hidden" },
-  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 12 },
-  headerRow: { backgroundColor: "#F8FAFC", borderBottomWidth: 1, borderBottomColor: C_sales.border },
+  tableCard: {
+    marginTop: 12,
+    backgroundColor: C_sales.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C_sales.border,
+    overflow: "hidden",
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  headerRow: {
+    backgroundColor: "#F8FAFC",
+    borderBottomWidth: 1,
+    borderBottomColor: C_sales.border,
+  },
   th: { fontSize: 13, fontWeight: "700", color: C_sales.text },
   td: { fontSize: 14, color: C_sales.text },
   divider: { height: 1, backgroundColor: C_sales.border },
-  iconBtn: { height: 30, width: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  iconBtn: {
+    height: 30,
+    width: 30,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
 
 const styles_scan = StyleSheet.create({
   fullscreenCameraWrap: { flex: 1, backgroundColor: "#000" },
   fullscreenCamera: { flex: 1 },
-  fullscreenTopBar: { position: "absolute", top: 44, left: 16, right: 16, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.55)", flexDirection: "row", alignItems: "center", paddingHorizontal: 12 },
+  fullscreenTopBar: {
+    position: "absolute",
+    top: 44,
+    left: 16,
+    right: 16,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
   fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 14, flex: 1 },
-  fullscreenCloseBtn: { height: 28, width: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center" },
-  fullscreenBottomBar: { position: "absolute", bottom: 24, left: 16, right: 16, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.55)", paddingVertical: 10, alignItems: "center" },
+  fullscreenCloseBtn: {
+    height: 28,
+    width: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fullscreenBottomBar: {
+    position: "absolute",
+    bottom: 24,
+    left: 16,
+    right: 16,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingVertical: 10,
+    alignItems: "center",
+  },
   fullscreenHint: { color: "#fff", fontSize: 12 },
-
-  /* Scan-again button (new) */
-  scanAgainBtn: { position: "absolute", bottom: 80, left: 16, right: 16, alignItems: "center" },
-  scanAgainInner: { flexDirection: "row", backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center", gap: 8 },
-  scanAgainText: { color: "#fff", fontWeight: "600", fontSize: 14 },
 });

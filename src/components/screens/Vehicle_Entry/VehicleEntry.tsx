@@ -1,4 +1,3 @@
-// src/screens/VehicleEntry.tsx
 import React, {
   useEffect,
   useState,
