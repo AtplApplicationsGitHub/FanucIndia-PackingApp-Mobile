@@ -13,9 +13,6 @@ type RawScanResult = {
 
 let lastConnectedAddress: string | null = null;
 
-/**
- * Ensure the native module is loaded.
- */
 function ensureBluetoothManager() {
   if (!BluetoothManager) {
     throw new Error(
@@ -24,9 +21,7 @@ function ensureBluetoothManager() {
   }
 }
 
-/**
- * Ask for all required Android permissions.
- */
+
 async function requestAndroidBluetoothPermissions() {
   if (Platform.OS !== "android") return;
 
@@ -47,7 +42,6 @@ async function requestAndroidBluetoothPermissions() {
 
   const granted = await PermissionsAndroid.requestMultiple(permissions);
 
-  // ✅ FIX: compare against PermissionsAndroid.RESULTS.GRANTED
   const allGranted = Object.values(granted).every(
     (status) => status === PermissionsAndroid.RESULTS.GRANTED
   );
@@ -59,9 +53,7 @@ async function requestAndroidBluetoothPermissions() {
   }
 }
 
-/**
- * Connect to the first paired / found Bluetooth printer.
- */
+
 export async function connectToFirstPairedPrinter(): Promise<BluetoothPrinterDevice> {
   if (Platform.OS !== "android") {
     throw new Error(
@@ -71,7 +63,6 @@ export async function connectToFirstPairedPrinter(): Promise<BluetoothPrinterDev
 
   ensureBluetoothManager();
 
-  // 1. Permissions
   await requestAndroidBluetoothPermissions();
 
   // 2. Ensure Bluetooth is enabled
@@ -80,7 +71,6 @@ export async function connectToFirstPairedPrinter(): Promise<BluetoothPrinterDev
     await BluetoothManager.enableBluetooth();
   }
 
-  // 3. Scan devices
   const devicesStruct = (await BluetoothManager.scanDevices()) as RawScanResult;
 
   let allDevices: BluetoothPrinterDevice[] = [];

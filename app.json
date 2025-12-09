@@ -29,7 +29,16 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-build-properties"
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "useAndroidX": true,
+            "enableJetifier": true
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
