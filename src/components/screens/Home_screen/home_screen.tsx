@@ -7,6 +7,8 @@ import {
   FlatList,
   Platform,
   Switch,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import {
   useSafeAreaInsets,
@@ -18,6 +20,13 @@ import * as SecureStore from "expo-secure-store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useKeyboardDisabled } from "../../utils/keyboard";
+
+// 👉 NEW: import Bluetooth helpers
+import {
+  BluetoothPrinterDevice,
+  connectToFirstPairedPrinter,
+  disconnectPrinter,
+} from "../../services/bluetoothPrinter";
 
 type MenuItem = {
   id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle";
@@ -66,7 +75,6 @@ const MENU: MenuItem[] = [
     subtitle: "Ready for shipment",
     iconName: "truck-outline",
   },
-  
 ];
 
 function pickBestName(input?: {
@@ -96,6 +104,11 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
   // Global keyboard toggle
   const [keyboardDisabled, setKeyboardDisabled] = useKeyboardDisabled();
+
+  // 👉 NEW: Printer state
+  const [printerDevice, setPrinterDevice] =
+    useState<BluetoothPrinterDevice | null>(null);
+  const [printerLoading, setPrinterLoading] = useState(false);
 
   // Update greeting every minute
   useEffect(() => {
@@ -190,6 +203,43 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     return name;
   }, [displayName]);
 
+  // 👉 NEW: handle print icon click – connect / disconnect
+  const handlePrinterPress = async () => {
+    if (printerLoading) return;
+
+    try {
+      setPrinterLoading(true);
+
+      if (printerDevice) {
+        // Already connected → disconnect
+        await disconnectPrinter();
+        setPrinterDevice(null);
+        Alert.alert("Printer", "Disconnected from printer");
+      } else {
+        // Not connected → connect
+        const device = await connectToFirstPairedPrinter();
+        setPrinterDevice(device);
+        Alert.alert(
+          "Printer Connected",
+          `Connected to: ${device.name}\n${device.address}`
+        );
+      }
+    } catch (error: any) {
+      console.warn("Bluetooth error:", error);
+      Alert.alert(
+        "Bluetooth Error",
+        error?.message ||
+          "Something went wrong while connecting to the printer"
+      );
+    } finally {
+      setPrinterLoading(false);
+    }
+  };
+
+  const printerStatusText = printerDevice
+    ? `Connected: ${printerDevice.name}`
+    : "Printer: Not connected";
+
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
       {/* Header */}
@@ -199,7 +249,11 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             <View style={styles.logoBadge}>
               <Ionicons name="flash" size={18} color={HEADER_TEXT} />
             </View>
-            <Text style={styles.brandText} numberOfLines={1} adjustsFontSizeToFit>
+            <Text
+              style={styles.brandText}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
               <Text style={{ fontWeight: "700" }}>Scan Pack</Text>
               <Text style={{ fontWeight: "700" }}> · FANUC India</Text>
             </Text>
@@ -218,26 +272,55 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
       {/* Main Content */}
       <View style={styles.content}>
-        {/* Greeting + Keyboard Toggle */}
+        {/* Greeting + Printer Icon */}
         <View style={styles.greetingContainer}>
           <Text style={styles.greeting}>
             {greeting},{" "}
             <Text style={{ fontWeight: "700" }}>{username}</Text>
           </Text>
 
-          {/* <View style={styles.toggleRow}>
-            <Text style={styles.toggleLabel}>
-              {keyboardDisabled ? "Scan Only" : "Keyboard"}
-            </Text>
-            <Switch
-              value={!keyboardDisabled}
-              onValueChange={(val) => setKeyboardDisabled(!val)}
-              trackColor={{ false: "#DC2626", true: PRIMARY }}
-              thumbColor={keyboardDisabled ? "#991B1B" : "#FFFFFF"}
-              ios_backgroundColor="#3e3e3e"
-            />
-          </View> */}
+          {/* 👉 NEW: Print icon on right (connect / disconnect) */}
+          <TouchableOpacity
+            style={styles.printIconButton}
+            onPress={handlePrinterPress}
+            activeOpacity={0.8}
+          >
+            {printerLoading ? (
+              <ActivityIndicator size="small" />
+            ) : (
+              <MaterialCommunityIcons
+                name="printer"
+                size={24}
+                color={printerDevice ? "#16A34A" : MUTED} // green if connected
+              />
+            )}
+          </TouchableOpacity>
         </View>
+
+        {/* 👉 NEW: Printer status below greeting */}
+        <Text
+          style={[
+            styles.printerStatus,
+            { color: printerDevice ? "#16A34A" : MUTED },
+          ]}
+        >
+          {printerStatusText}
+        </Text>
+
+        {/* If you want keyboard toggle back, you can reuse here
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>
+            {keyboardDisabled ? "Scan Only" : "Keyboard"}
+          </Text>
+          <Switch
+            value={!keyboardDisabled}
+            onValueChange={(val) => setKeyboardDisabled(!val)}
+            trackColor={{ false: "#DC2626", true: PRIMARY }}
+            thumbColor={keyboardDisabled ? "#991B1B" : "#FFFFFF"}
+            ios_backgroundColor="#3e3e3e"
+          />
+        </View>
+        */}
 
         <FlatList
           data={MENU}
@@ -333,9 +416,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 4,
   },
   greeting: { fontSize: 18, color: BODY_TEXT },
+  // 👉 NEW styles
+  printIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  printerStatus: {
+    fontSize: 13,
+    marginBottom: 12,
+  },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
