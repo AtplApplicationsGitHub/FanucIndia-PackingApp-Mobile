@@ -79,6 +79,8 @@ function normalizeForUpload(item: StoredMaterialItem) {
     null;
 
   return {
+    // IMPORTANT: send the line ID back to API
+    ID: toStr(it.id ?? it.ID, ""),
     Material_Code: toStr(it.materialCode, ""),
     Material_Description: toStr(it.description, ""),
     Batch_No: toStr(it.batchNo, ""),
@@ -93,14 +95,13 @@ function normalizeForUpload(item: StoredMaterialItem) {
   };
 }
 
-
 // ---------------- API: GET list ----------------
 export async function fetchOrdersSummary(
   token?: string
 ): Promise<OrdersSummaryItem[]> {
   const authToken =
     token || (await SecureStore.getItemAsync("authToken")) || undefined;
- 
+
   const headers: Record<string, string> = { Accept: "application/json" };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
@@ -118,7 +119,7 @@ export async function fetchOrdersSummary(
     saleOrderNumber: r.saleOrderNumber?.toString() || "-",
     priority: (r.priority as 1 | 2 | 3 | null) ?? null,
     status: r.status ?? "-",
-    totalMaterials: Number.isFinite(r.totalMaterials) ? r. totalMaterials : 0,
+    totalMaterials: Number.isFinite(r.totalMaterials) ? r.totalMaterials : 0,
     totalItems: Number.isFinite(r.totalItems) ? r.totalItems : 0,
   }));
 }
@@ -144,20 +145,23 @@ export async function downloadOrderDetails(
   const json = (await res.json()) as any[];
 
   const compact: StoredMaterialItem[] = (Array.isArray(json) ? json : []).map(
-    (row) => ({
-      materialCode: toStr(row?.Material_Code, ""),
-      description: toStr(row?.Material_Description, ""),
-      batchNo: toStr(row?.Batch_No, ""),
-      soDonorBatch: toStr(row?.SO_Donor_Batch, ""),
-      certNo: toStr(row?.Cert_No, ""),
-      binNo: toStr(row?.Bin_No, ""),
-      adf: toStr(row?.A_D_F, ""),
-      requiredQty: toNum(row?.Required_Qty, 0),
-      packedQty: toNum(row?.Packing_stage, 0),
-      issuedQty: toNum(row?.Issue_stage, 0),
-      issuedAt: row?.UpdatedDate ? String(row.UpdatedDate) : undefined,
-      packedAt: row?.UpdatedDate ? String(row.UpdatedDate) : undefined,
-    })
+    (row) =>
+      ({
+        // IMPORTANT: store line ID from API
+        id: row?.ID ? String(row.ID) : undefined,
+        materialCode: toStr(row?.Material_Code, ""),
+        description: toStr(row?.Material_Description, ""),
+        batchNo: toStr(row?.Batch_No, ""),
+        soDonorBatch: toStr(row?.SO_Donor_Batch, ""),
+        certNo: toStr(row?.Cert_No, ""),
+        binNo: toStr(row?.Bin_No, ""),
+        adf: toStr(row?.A_D_F, ""),
+        requiredQty: toNum(row?.Required_Qty, 0),
+        packedQty: toNum(row?.Packing_stage, 0),
+        issuedQty: toNum(row?.Issue_stage, 0),
+        issuedAt: row?.UpdatedDate ? String(row.UpdatedDate) : undefined,
+        packedAt: row?.UpdatedDate ? String(row.UpdatedDate) : undefined,
+      } as any)
   ) as any;
 
   await saveOrderDetails(saleOrderNumber, compact);
@@ -218,7 +222,6 @@ export async function uploadIssueData(
   }
 }
 
-// ... (uploadAttachments, fetchExistingAttachments, updateAttachmentDescription remain unchanged)
 // ---------------- API: Upload Attachments ----------------
 export async function uploadAttachments(
   saleOrderNumber: string,
@@ -327,7 +330,6 @@ export async function fetchExistingAttachments(
   const json = await res.json();
   console.log("Existing attachments raw response:", json);
   return (Array.isArray(json) ? json : []).map((item: any) => ({
-    // id: toStr(item.id, ""),
     id: item.ID ? String(item.ID) : null,
     uri: (item.sftpPath || "") as string,
     name: (item.fileName || "Unknown File") as string,
@@ -380,4 +382,3 @@ export async function updateAttachmentDescription(
     );
   }
 }
- 

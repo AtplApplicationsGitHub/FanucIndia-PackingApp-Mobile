@@ -3,10 +3,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export let BASE_URL = "";
 
-/**
- * Set the base URL from user input.
- * Trims spaces and trailing slashes.
- */
 export const setBaseUrl = (url: string) => {
   const trimmed = url.trim().replace(/\/+$/, "");
   BASE_URL = trimmed;
@@ -15,10 +11,6 @@ export const setBaseUrl = (url: string) => {
 /** Get current base URL (empty string if not set) */
 export const getBaseUrl = (): string => BASE_URL;
 
-/**
- * Load BASE_URL from AsyncStorage ("apiBaseUrl").
- * Call this once at app start / auth bootstrap.
- */
 export const loadBaseUrlFromStorage = async () => {
   try {
     const stored = await AsyncStorage.getItem("apiBaseUrl");
@@ -26,7 +18,6 @@ export const loadBaseUrlFromStorage = async () => {
       setBaseUrl(stored);
     }
   } catch {
-    // ignore
   }
 };
 

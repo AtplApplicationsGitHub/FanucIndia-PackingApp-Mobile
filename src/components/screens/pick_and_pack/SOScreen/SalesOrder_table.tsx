@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
   centerCell: { alignItems: "center" },
   actionCell: { alignItems: "flex-end" },
   soPressable: { paddingVertical: 2 },
-  soText: { color: "#111827", fontSize: 14, fontWeight: "700" },
+  soText: { color: "#111827", fontSize: 10, fontWeight: "700" },
   statusText: { color: "#111827", fontSize: 13, fontWeight: "600", lineHeight: 16 },
   metricText: { color: "#111827", fontSize: 13, fontWeight: "500" },
   actionBar: {

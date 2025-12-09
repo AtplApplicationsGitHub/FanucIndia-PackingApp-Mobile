@@ -18,7 +18,6 @@ import type { JSX } from "react";
 import { useVerifySO, usePrintLabels } from "../../Api/Hooks/UselabelPrint";
 import {
   labelPrintStorage,
-  StoredLabelPrintData,
 } from "../../Storage/label_Print_Storage";
 import ScannerModal from "../../Scanner/ScannerModal";
 
