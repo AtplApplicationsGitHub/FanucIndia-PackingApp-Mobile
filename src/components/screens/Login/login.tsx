@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Animated,
   Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -18,6 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { loginApiWithEmail } from "../../Api/Hooks/Auth";
+import { getBaseUrl, setBaseUrl } from "../../Api/Endpoints";
 
 type NavProps = NativeStackScreenProps<RootStackParamList, "Login">;
 
@@ -41,6 +41,10 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
     message: "",
   });
 
+  // Settings modal for API URL
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [apiUrl, setApiUrl] = useState<string>("");
+
   const canSubmit = useMemo(() => Boolean(email && pwd && !loading), [email, pwd, loading]);
 
   const showModal = (title: string, message: string) =>
@@ -48,11 +52,56 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
 
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
+  // On first time, force user to enter API URL (no default)
+  useEffect(() => {
+    const initApiUrl = async () => {
+      try {
+        const stored = await AsyncStorage.getItem("apiBaseUrl");
+        if (stored) {
+          setApiUrl(stored);
+          setBaseUrl(stored);
+        } else {
+          // First time: open settings modal and require URL
+          setApiUrl("");
+          setSettingsVisible(true);
+        }
+      } catch {
+        setApiUrl("");
+        setSettingsVisible(true);
+      }
+    };
+    initApiUrl();
+  }, []);
+
+  const handleSaveApiUrl = async () => {
+    const trimmed = apiUrl.trim().replace(/\/+$/, "");
+    if (!trimmed) {
+      showModal("Invalid URL", "Please enter a valid API base URL.");
+      return;
+    }
+
+    try {
+      setBaseUrl(trimmed);
+      await AsyncStorage.setItem("apiBaseUrl", trimmed);
+      setSettingsVisible(false);
+    } catch (err) {
+      showModal("Error", "Failed to save API URL. Please try again.");
+    }
+  };
+
   const handleLogin = async () => {
     if (!canSubmit) {
       showModal("Missing fields", "Please enter your email/username and password.");
       return;
     }
+
+    const base = getBaseUrl();
+    if (!base) {
+      showModal("API URL Required", "Please set the API Base URL from the settings icon before logging in.");
+      setSettingsVisible(true);
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -80,10 +129,17 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
     }
   };
 
-
-
   return (
     <SafeAreaView style={styles.safe}>
+      {/* Top-right Settings icon */}
+      <TouchableOpacity
+        style={styles.settingsButton}
+        activeOpacity={0.7}
+        onPress={() => setSettingsVisible(true)}
+      >
+        <Ionicons name="settings-outline" size={24} color={ACCENT} />
+      </TouchableOpacity>
+
       <KeyboardAvoidingView
         behavior={Platform.select({ ios: "padding", android: undefined })}
         style={styles.kav}
@@ -146,15 +202,12 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
         </View>
       </KeyboardAvoidingView>
 
-                  {/* Version Control Button */}
-            <TouchableOpacity 
-              activeOpacity={0.7}
-              style={styles.versionButton}
-            >
-              <Text style={styles.versionText}>{currentVersion}</Text>
-            </TouchableOpacity>
+      {/* Version Control Button */}
+      <TouchableOpacity activeOpacity={0.7} style={styles.versionButton}>
+        <Text style={styles.versionText}>{currentVersion}</Text>
+      </TouchableOpacity>
 
-      {/* ---------- Modal Popup ---------- */}
+      {/* ---------- Error Modal Popup ---------- */}
       <Modal animationType="fade" transparent visible={modal.visible} onRequestClose={closeModal}>
         <View style={mstyles.backdrop}>
           <View style={mstyles.sheet}>
@@ -173,17 +226,54 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
         </View>
       </Modal>
       {/* --------------------------------- */}
+
+      {/* ---------- Settings Modal (API URL) ---------- */}
+      <Modal
+        animationType="fade"
+        transparent
+        visible={settingsVisible}
+        onRequestClose={() => setSettingsVisible(false)}
+      >
+        <View style={mstyles.backdrop}>
+          <View style={mstyles.sheet}>
+            <View style={mstyles.headerRow}>
+              <Ionicons name="settings-outline" size={22} color={ACCENT} />
+              <Text style={mstyles.title}>API Settings</Text>
+            </View>
+            <View style={{ marginTop: 12 }}>
+              <TextInput
+                value={apiUrl}
+                onChangeText={setApiUrl}
+                placeholder="https://your-domain.com/api"
+                placeholderTextColor={MUTED}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.apiInput}
+              />
+            </View>
+
+            <View style={mstyles.actions}>
+              <TouchableOpacity
+                style={[mstyles.primaryBtn, styles.cancelBtn]}
+                onPress={() => setSettingsVisible(false)}
+              >
+                <Text style={[mstyles.primaryBtnText, styles.cancelBtnText]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={mstyles.primaryBtn} onPress={handleSaveApiUrl}>
+                <Text style={mstyles.primaryBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* --------------------------------- */}
     </SafeAreaView>
   );
 };
 
 export default LoginScreen;
 
-/* ----------------------- INPUT (placeholder only) ----------------------- */
-/** 
- * Shows the label as a native placeholder that disappears as the user types.
- * No floating animation. Keeps left/right icons and your styling.
- */
 type InputProps = React.ComponentProps<typeof TextInput> & {
   label: string;
   icon?: React.ReactNode;
@@ -280,6 +370,7 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.6 },
   ctaText: { color: ACCENT, fontWeight: "800", fontSize: 16, letterSpacing: 0.3 },
+
   // Version Button Styles
   versionButton: {
     alignItems: "center",
@@ -291,6 +382,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: MUTED,
     fontWeight: "500",
+  },
+
+  // Settings button (top-right)
+  settingsButton: {
+    position: "absolute",
+    top: 40,
+    right: 16,
+    zIndex: 10,
+    padding: 6,
+  },
+
+  // API settings input styles
+  apiLabel: {
+    fontSize: 13,
+    marginBottom: 4,
+    color: ACCENT,
+    fontWeight: "600",
+  },
+  apiInput: {
+    borderWidth: 1.5,
+    borderColor: FIELD_BORDER,
+    backgroundColor: FIELD_BG,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: ACCENT,
+  },
+
+  cancelBtn: {
+    backgroundColor: "#E5E7EB",
+    marginRight: 8,
+  },
+  cancelBtnText: {
+    color: ACCENT,
   },
 });
 

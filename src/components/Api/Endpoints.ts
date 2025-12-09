@@ -1,46 +1,109 @@
-export const BASE_URL = "https://fanuc.goval.app:444/api";
+// Endpoints.ts
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+export let BASE_URL = "";
+
+/**
+ * Set the base URL from user input.
+ * Trims spaces and trailing slashes.
+ */
+export const setBaseUrl = (url: string) => {
+  const trimmed = url.trim().replace(/\/+$/, "");
+  BASE_URL = trimmed;
+};
+
+/** Get current base URL (empty string if not set) */
+export const getBaseUrl = (): string => BASE_URL;
+
+/**
+ * Load BASE_URL from AsyncStorage ("apiBaseUrl").
+ * Call this once at app start / auth bootstrap.
+ */
+export const loadBaseUrlFromStorage = async () => {
+  try {
+    const stored = await AsyncStorage.getItem("apiBaseUrl");
+    if (stored) {
+      setBaseUrl(stored);
+    }
+  } catch {
+    // ignore
+  }
+};
 
 export const API_ENDPOINTS = {
   AUTH: {
-    MOBILE_LOGIN: `${BASE_URL}/auth/mobile-login`,
+    get MOBILE_LOGIN() {
+      return `${BASE_URL}/auth/mobile-login`;
+    },
   },
 
   SALES_ORDER: {
-    SUMMARY: `${BASE_URL}/user-dashboard/orders-summary`,
-    DETAILS: (soNumber: string) =>
-      `${BASE_URL}/user-dashboard/orders/son/${soNumber}/download-details`,
-    UPLOAD_DATA: (soNumber: string) =>
-      `${BASE_URL}/user-dashboard/orders/son/${soNumber}/data`,
-    ATTACHMENTS_UPLOAD: `${BASE_URL}/v1/erp-material-files/upload-with-descriptions`,
-    EXISTING_ATTACHMENTS: (soNumber: string) =>
-      `${BASE_URL}/v1/erp-material-files/by-sale-order/${soNumber}`,
-    UPDATE_ATTACHMENT_DESC: (fileId: string) =>
-      `${BASE_URL}/v1/erp-material-files/${fileId}`,
+    get SUMMARY() {
+      return `${BASE_URL}/user-dashboard/orders-summary`;
+    },
+    DETAILS(soNumber: string) {
+      return `${BASE_URL}/user-dashboard/orders/son/${soNumber}/download-details`;
+    },
+    UPLOAD_DATA(soNumber: string) {
+      return `${BASE_URL}/user-dashboard/orders/son/${soNumber}/data`;
+    },
+    get ATTACHMENTS_UPLOAD() {
+      return `${BASE_URL}/v1/erp-material-files/upload-with-descriptions`;
+    },
+    EXISTING_ATTACHMENTS(soNumber: string) {
+      return `${BASE_URL}/v1/erp-material-files/by-sale-order/${soNumber}`;
+    },
+    UPDATE_ATTACHMENT_DESC(fileId: string) {
+      return `${BASE_URL}/v1/erp-material-files/${fileId}`;
+    },
   },
+
   MATERIAL_FG: {
-    ASSIGN_LOCATION: `${BASE_URL}/fg-storage/assign-location`,
-  },
-  MATERIAL_DISPATCH: {
-    HEADER: `${BASE_URL}/dispatch/mobile/header`,
-    SO_LINK: (dispatchId: string) =>
-      `${BASE_URL}/dispatch/mobile/${dispatchId}/so`,
-    ATTACHMENTS: (dispatchId: string) =>
-      `${BASE_URL}/dispatch/mobile/${dispatchId}/attachments`,
-    SO_DELETE: (soId: number) => `${BASE_URL}/dispatch/so/${soId}`,
+    get ASSIGN_LOCATION() {
+      return `${BASE_URL}/fg-storage/assign-location`;
+    },
   },
 
   LABEL_PRINT: {
-    VERIFY_SO: (soNumber: string) =>
-      `${BASE_URL}/sales-crud/verify-so/${soNumber}`,
-    PRINT: `${BASE_URL}/sales-crud/label-print`,
+    VERIFY_SO(soNumber: string) {
+      return `${BASE_URL}/sales-crud/verify-so/${soNumber}`;
+    },
+    get PRINT() {
+      return `${BASE_URL}/sales-crud/label-print`;
+    },
   },
 
   VEHICLE_ENTRY: {
-    FETCH_CUSTOMERS: `${BASE_URL}/lookup/customers`,
-    SAVE_VEHICLE_ENTRY: `${BASE_URL}/vehicle-entry`,
-    UPLOAD_ATTACHMENTS: (id: string | number) =>
-      `${BASE_URL}/vehicle-entry/${id}/attachments`,
-    GET_ATTACHMENTS: (id: string | number) =>
-      `${BASE_URL}/vehicle-entry/${id}/attachments`, // ← NEW
+    get FETCH_CUSTOMERS() {
+      return `${BASE_URL}/lookup/customers`;
+    },
+    get SAVE_VEHICLE_ENTRY() {
+      return `${BASE_URL}/vehicle-entry`;
+    },
+    UPLOAD_ATTACHMENTS(id: string | number) {
+      return `${BASE_URL}/vehicle-entry/${id}/attachments`;
+    },
+    GET_ATTACHMENTS(id: string | number) {
+      return `${BASE_URL}/vehicle-entry/${id}/attachments`;
+    },
+  },
+
+  // 🔹 NEW: Dispatch-related endpoints used by Usematerial_dispatch.tsx
+  DISPATCH: {
+    get HEADER() {
+      return `${BASE_URL}/dispatch/mobile/header`;
+    },
+    SO(dispatchId: string) {
+      return `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
+    },
+    ATTACHMENTS(dispatchId: string | number) {
+      return `${BASE_URL}/dispatch/${dispatchId}/attachments`;
+    },
+    SO_DELETE(soId: number | string) {
+      return `${BASE_URL}/dispatch/so/${soId}`;
+    },
+    UPDATE(dispatchId: string | number) {
+      return `${BASE_URL}/dispatch/mobile/${dispatchId}`;
+    },
   },
 };

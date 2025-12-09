@@ -1,17 +1,14 @@
-// material_dispatch_server.tsx
+// Usematerial_dispatch.tsx
 import * as SecureStore from "expo-secure-store";
-import * as DocumentPicker from "expo-document-picker"; 
+import * as DocumentPicker from "expo-document-picker";
+import { API_ENDPOINTS } from "../Endpoints";
+
 let AsyncStorage: any = null;
 try {
   AsyncStorage = require("@react-native-async-storage/async-storage").default;
 } catch {}
 
-export const BASE_URL = "https://fanuc.goval.app:444/api";
-const DISPATCH_HEADER_URL = `${BASE_URL}/dispatch/mobile/header`;
-const DISPATCH_SO_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
-const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/${dispatchId}/attachments`; // Updated
-const DISPATCH_SO_DELETE_URL = (soId: number) => `${BASE_URL}/dispatch/so/${soId}`;
-const DISPATCH_UPDATE_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}`;
+// ---- Types ----
 
 export type CreateDispatchHeaderRequest = {
   // customerName and address are now optional for create
@@ -41,7 +38,7 @@ export type DispatchSOLink = {
   createdAt: string;
 };
 
-// New: Attachment type from API
+// Attachment type from API
 export type DispatchAttachment = {
   fileName: string;
   path: string;
@@ -63,6 +60,8 @@ export type ApiErr = {
 };
 
 export type ApiResult<T = any> = ApiOk<T> | ApiErr;
+
+// ---- Token / fetch helpers ----
 
 const TIMEOUT_MS = 15000;
 const TOKEN_KEYS = ["accessToken", "authToken", "token"] as const;
@@ -149,6 +148,8 @@ function maybeExtractToken(val: string | null): string | null {
   return val;
 }
 
+// ---- API functions ----
+
 // CREATE HEADER
 export async function createDispatchHeader(
   payload: CreateDispatchHeaderRequest,
@@ -163,8 +164,9 @@ export async function createDispatchHeader(
   }
 
   try {
+    const url = API_ENDPOINTS.DISPATCH.HEADER;
     const res = await withTimeout(
-      fetch(DISPATCH_HEADER_URL, {
+      fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -183,7 +185,11 @@ export async function createDispatchHeader(
     const data = await res.json();
     return { ok: true, status: res.status, data: { id: data.id } };
   } catch (e: any) {
-    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+    return {
+      ok: false,
+      status: 0,
+      error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error",
+    };
   }
 }
 
@@ -202,7 +208,7 @@ export async function updateDispatchHeader(
   }
 
   try {
-    const url = DISPATCH_UPDATE_URL(dispatchId);
+    const url = API_ENDPOINTS.DISPATCH.UPDATE(dispatchId);
     const res = await withTimeout(
       fetch(url, {
         method: "PATCH",
@@ -223,7 +229,11 @@ export async function updateDispatchHeader(
     const data = await res.json().catch(() => ({}));
     return { ok: true, status: res.status, data };
   } catch (e: any) {
-    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+    return {
+      ok: false,
+      status: 0,
+      error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error",
+    };
   }
 }
 
@@ -240,7 +250,7 @@ export async function linkSalesOrder(
   if (!normalizedSO) return { ok: false, status: 0, error: "SO number required." };
 
   try {
-    const url = DISPATCH_SO_URL(dispatchId);
+    const url = API_ENDPOINTS.DISPATCH.SO(dispatchId);
     const res = await withTimeout(
       fetch(url, {
         method: "POST",
@@ -261,7 +271,11 @@ export async function linkSalesOrder(
     const data = await res.json();
     return { ok: true, status: res.status, data };
   } catch (e: any) {
-    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+    return {
+      ok: false,
+      status: 0,
+      error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error",
+    };
   }
 }
 
@@ -274,7 +288,7 @@ export async function deleteSalesOrderLink(
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
   try {
-    const url = DISPATCH_SO_DELETE_URL(soLinkId);
+    const url = API_ENDPOINTS.DISPATCH.SO_DELETE(soLinkId);
     const res = await withTimeout(
       fetch(url, {
         method: "DELETE",
@@ -292,7 +306,11 @@ export async function deleteSalesOrderLink(
 
     return { ok: true, status: res.status, data: { message: "Removed" } };
   } catch (e: any) {
-    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+    return {
+      ok: false,
+      status: 0,
+      error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error",
+    };
   }
 }
 
@@ -317,7 +335,7 @@ export async function uploadAttachments(
   });
 
   try {
-    const url = DISPATCH_ATTACHMENTS_URL(dispatchId);
+    const url = API_ENDPOINTS.DISPATCH.ATTACHMENTS(dispatchId);
     const res = await withTimeout(
       fetch(url, {
         method: "POST",
@@ -337,11 +355,15 @@ export async function uploadAttachments(
     const data = await res.json().catch(() => ({}));
     return { ok: true, status: res.status, data };
   } catch (e: any) {
-    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+    return {
+      ok: false,
+      status: 0,
+      error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error",
+    };
   }
 }
 
-// GET ATTACHMENTS (NEW)
+// GET ATTACHMENTS
 export async function getAttachments(
   dispatchId: string,
   opts?: { token?: string }
@@ -350,7 +372,7 @@ export async function getAttachments(
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
   try {
-    const url = DISPATCH_ATTACHMENTS_URL(dispatchId);
+    const url = API_ENDPOINTS.DISPATCH.ATTACHMENTS(dispatchId);
     const res = await withTimeout(
       fetch(url, {
         method: "GET",
@@ -369,6 +391,10 @@ export async function getAttachments(
     const data: DispatchAttachment[] = await res.json();
     return { ok: true, status: res.status, data };
   } catch (e: any) {
-    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+    return {
+      ok: false,
+      status: 0,
+      error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error",
+    };
   }
 }

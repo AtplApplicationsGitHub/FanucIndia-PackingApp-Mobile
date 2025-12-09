@@ -20,9 +20,8 @@ import * as SecureStore from "expo-secure-store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useKeyboardDisabled } from "../../utils/keyboard";
-import { useFocusEffect } from "@react-navigation/native"; // 👉 NEW: Import for focus effect
+import { useFocusEffect } from "@react-navigation/native"; 
 
-// 👉 NEW: import Bluetooth helpers
 import {
   BluetoothPrinterDevice,
   connectToFirstPairedPrinter,

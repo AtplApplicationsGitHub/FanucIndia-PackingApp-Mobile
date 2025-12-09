@@ -13,7 +13,7 @@ export type AssignLocationResponse = {
   fgLocation: string;
 };
 
-/** ------------ Helpers ------------ */
+
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race<T>([
     p,
