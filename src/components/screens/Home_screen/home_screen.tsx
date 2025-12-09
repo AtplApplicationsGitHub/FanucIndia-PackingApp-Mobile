@@ -20,6 +20,7 @@ import * as SecureStore from "expo-secure-store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useKeyboardDisabled } from "../../utils/keyboard";
+import { useFocusEffect } from "@react-navigation/native"; // 👉 NEW: Import for focus effect
 
 // 👉 NEW: import Bluetooth helpers
 import {
@@ -235,6 +236,16 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       setPrinterLoading(false);
     }
   };
+
+  // 👉 NEW: Re-check connection on screen focus (app resume)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (printerDevice) {
+        // Attempt lightweight reconnect to verify
+        handlePrinterPress().catch(() => {}); // Disconnects and reconnects
+      }
+    }, [printerDevice])
+  );
 
   const printerStatusText = printerDevice
     ? `Connected: ${printerDevice.name}`
