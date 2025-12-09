@@ -1,46 +1,77 @@
-// src/services/bluetoothPrinter.ts
-import { Platform, PermissionsAndroid } from "react-native";
+import { Platform, PermissionsAndroid, Permission } from "react-native";
+import { BluetoothManager } from "react-native-bluetooth-escpos-printer";
 
 export type BluetoothPrinterDevice = {
   name: string;
   address: string;
 };
 
+type RawScanResult = {
+  found?: string | BluetoothPrinterDevice[];
+  paired?: string | BluetoothPrinterDevice[];
+};
+
 let lastConnectedAddress: string | null = null;
 
-async function requestAndroidBluetoothPermissions() {
-  if (Platform.OS !== "android") return;
-
-  const permissions = [
-    PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-    PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION, // Added for better location handling
-  ];
-
-  const granted = await PermissionsAndroid.requestMultiple(permissions);
-
-  const allGranted = permissions.every(
-    (perm) => granted[perm] === PermissionsAndroid.RESULTS.GRANTED
-  );
-
-  if (!allGranted) {
-    throw new Error("Bluetooth and location permissions not granted. Please enable them in app settings.");
+/**
+ * Ensure the native module is loaded.
+ */
+function ensureBluetoothManager() {
+  if (!BluetoothManager) {
+    throw new Error(
+      "Bluetooth native module not loaded. Make sure the library is linked and you are running a native build (not Expo Go)."
+    );
   }
 }
 
-export async function connectToFirstPairedPrinter(): Promise<BluetoothPrinterDevice> {
-  // Dynamic import to avoid crashes in wrong environments
-  const mod: any = await import("react-native-bluetooth-escpos-printer");
-  const BluetoothManager = mod?.BluetoothManager;
+/**
+ * Ask for all required Android permissions.
+ */
+async function requestAndroidBluetoothPermissions() {
+  if (Platform.OS !== "android") return;
 
-  if (!BluetoothManager) {
+  const { PERMISSIONS } = PermissionsAndroid;
+
+  const permissions: Permission[] = [];
+
+  if (PERMISSIONS.BLUETOOTH_SCAN)
+    permissions.push(PERMISSIONS.BLUETOOTH_SCAN as Permission);
+  if (PERMISSIONS.BLUETOOTH_CONNECT)
+    permissions.push(PERMISSIONS.BLUETOOTH_CONNECT as Permission);
+  if (PERMISSIONS.ACCESS_FINE_LOCATION)
+    permissions.push(PERMISSIONS.ACCESS_FINE_LOCATION as Permission);
+  if (PERMISSIONS.ACCESS_COARSE_LOCATION)
+    permissions.push(PERMISSIONS.ACCESS_COARSE_LOCATION as Permission);
+
+  if (!permissions.length) return;
+
+  const granted = await PermissionsAndroid.requestMultiple(permissions);
+
+  // ✅ FIX: compare against PermissionsAndroid.RESULTS.GRANTED
+  const allGranted = Object.values(granted).every(
+    (status) => status === PermissionsAndroid.RESULTS.GRANTED
+  );
+
+  if (!allGranted) {
     throw new Error(
-      "Bluetooth native module not loaded. Ensure you're not using Expo Go—use a development build or APK instead. Run 'npx expo prebuild' and test on device."
+      "Bluetooth and location permissions not granted. Please enable them in app settings."
+    );
+  }
+}
+
+/**
+ * Connect to the first paired / found Bluetooth printer.
+ */
+export async function connectToFirstPairedPrinter(): Promise<BluetoothPrinterDevice> {
+  if (Platform.OS !== "android") {
+    throw new Error(
+      "Bluetooth printing is only implemented for Android in this project."
     );
   }
 
-  // 1. Permissions (Android)
+  ensureBluetoothManager();
+
+  // 1. Permissions
   await requestAndroidBluetoothPermissions();
 
   // 2. Ensure Bluetooth is enabled
@@ -50,48 +81,76 @@ export async function connectToFirstPairedPrinter(): Promise<BluetoothPrinterDev
   }
 
   // 3. Scan devices
-  const devicesJson: string = await BluetoothManager.scanDevices();
+  const devicesStruct = (await BluetoothManager.scanDevices()) as RawScanResult;
 
   let allDevices: BluetoothPrinterDevice[] = [];
+
   try {
-    const parsed = JSON.parse(devicesJson);
-    allDevices = [...(parsed.paired || []), ...(parsed.found || [])];
+    const pairedRaw = devicesStruct?.paired ?? "[]";
+    const foundRaw = devicesStruct?.found ?? "[]";
+
+    const paired: BluetoothPrinterDevice[] =
+      typeof pairedRaw === "string" ? JSON.parse(pairedRaw) : pairedRaw || [];
+    const found: BluetoothPrinterDevice[] =
+      typeof foundRaw === "string" ? JSON.parse(foundRaw) : foundRaw || [];
+
+    allDevices = [...paired, ...found];
   } catch (e) {
-    console.warn("Failed to parse Bluetooth devices JSON:", devicesJson, e);
-    throw new Error("Failed to parse scanned devices. Try again or check Bluetooth settings.");
+    console.warn("Failed to parse Bluetooth devices:", e);
+    throw new Error(
+      "Failed to parse scanned devices. Try again or check Bluetooth settings."
+    );
   }
 
-  if (allDevices.length === 0) {
-    throw new Error("No Bluetooth printers found. Please pair your printer in device settings first (Settings > Bluetooth > Pair new device).");
+  if (!allDevices.length) {
+    throw new Error(
+      "No Bluetooth printers found. Please pair your printer in device Bluetooth settings first."
+    );
   }
 
-  // Prefer first paired; fallback to first found (may require manual pairing if connect fails)
   const device = allDevices[0];
 
   // 4. Connect
   try {
     await BluetoothManager.connect(device.address);
     lastConnectedAddress = device.address;
-  } catch (err) {
-    throw new Error(`Failed to connect to ${device.name} (${device.address}). Ensure it's paired and in range. Error: ${err.message}`);
+  } catch (err: any) {
+    console.error("Connect printer error:", err);
+    throw new Error(
+      `Failed to connect to ${device?.name ?? "printer"}. Error: ${
+        err?.message ?? String(err)
+      }`
+    );
   }
 
   return device;
 }
 
 /**
- * Disconnect currently connected printer (if any).
+ * Disconnect / unpair the last connected printer, if possible.
  */
 export async function disconnectPrinter(): Promise<void> {
-  const mod: any = await import("react-native-bluetooth-escpos-printer");
-  const BluetoothManager = mod?.BluetoothManager;
+  if (Platform.OS !== "android") return;
 
-  if (!BluetoothManager) {
-    throw new Error("Bluetooth native module not loaded");
+  ensureBluetoothManager();
+
+  if (!lastConnectedAddress) {
+    console.warn("disconnectPrinter called but no active connection stored.");
+    return;
   }
 
   try {
-    await BluetoothManager.disconnect();
+    const manager: any = BluetoothManager;
+
+    if (typeof manager.disconnect === "function") {
+      await manager.disconnect(lastConnectedAddress);
+    } else if (typeof manager.unpaire === "function") {
+      await manager.unpaire(lastConnectedAddress);
+    } else {
+      console.warn(
+        "BluetoothManager has no disconnect/unpaire method – cannot actively disconnect."
+      );
+    }
   } catch (err) {
     console.warn("Error while disconnecting printer:", err);
   } finally {
