@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Fanuc",
+    "slug": "Fanuc",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.kishore_dev7.Fanuc"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-build-properties"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "186a6f0f-535b-44b6-95cf-a8fbc205c422"
+      }
+    },
+    "owner": "kishore_dev7"
+  }
+}

@@ -1,0 +1,383 @@
+// src/api/SalesOrder_server.tsx
+import * as SecureStore from "expo-secure-store";
+import { File, Paths } from "expo-file-system";
+import {
+  saveOrderDetails,
+  type StoredMaterialItem,
+} from "../../Storage/sale_order_storage";
+import { API_ENDPOINTS } from "../Endpoints";
+
+const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
+  Promise.race([
+    p,
+    new Promise<T>((_, rej) =>
+      setTimeout(() => rej(new Error("Request timed out")), ms)
+    ),
+  ]);
+
+async function parseErrorBody(res: Response) {
+  try {
+    const data = await res.clone().json();
+    return (
+      (data as any)?.message || (data as any)?.error || JSON.stringify(data)
+    );
+  } catch {
+    try {
+      return (await res.clone().text()).slice(0, 400);
+    } catch {
+      return "Unknown server error";
+    }
+  }
+}
+
+// ---------------- Types ----------------
+export type OrdersSummaryItemRaw = {
+  saleOrderNumber: string;
+  priority: 1 | 2 | 3 | null;
+  status: string;
+  totalMaterials: number;
+  totalItems: number;
+};
+
+export type OrdersSummaryItem = {
+  id: string;
+  saleOrderNumber: string;
+  priority: 1 | 2 | 3 | null;
+  status: string;
+  totalMaterials: number;
+  totalItems: number;
+};
+
+export type AttachmentItem = {
+  id?: string | null;
+  uri: string;
+  name: string;
+  type: string;
+  description?: string;
+};
+
+// ---------------- Helpers ----------------
+const toNum = (v: any, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+const toStr = (v: any, d = "-") =>
+  v === null || v === undefined ? d : String(v);
+
+/** Convert local item to server format with timestamps */
+function normalizeForUpload(item: StoredMaterialItem) {
+  const it: any = item;
+  const req = it.requiredQty ?? 0;
+
+  const issuedDone = (it.issuedQty ?? 0) >= req && !!it.issuedAt;
+  const packedDone = (it.packedQty ?? 0) >= req && !!it.packedAt;
+
+  // Prefer packed (later stage) if both are complete
+  const updatedDate =
+    packedDone ? it.packedAt :
+    issuedDone ? it.issuedAt :
+    null;
+
+  return {
+    Material_Code: toStr(it.materialCode, ""),
+    Material_Description: toStr(it.description, ""),
+    Batch_No: toStr(it.batchNo, ""),
+    SO_Donor_Batch: toStr(it.soDonorBatch, ""),
+    Cert_No: toStr(it.certNo, ""),
+    Bin_No: toStr(it.binNo, ""),
+    A_D_F: toStr(it.adf, ""),
+    Required_Qty: toNum(it.requiredQty, 0),
+    Issue_stage: toNum(it.issuedQty, 0),
+    Packing_stage: toNum(it.packedQty, 0),
+    UpdatedDate: updatedDate,
+  };
+}
+
+
+// ---------------- API: GET list ----------------
+export async function fetchOrdersSummary(
+  token?: string
+): Promise<OrdersSummaryItem[]> {
+  const authToken =
+    token || (await SecureStore.getItemAsync("authToken")) || undefined;
+ 
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const res = await withTimeout(
+    fetch(API_ENDPOINTS.SALES_ORDER.SUMMARY, { method: "GET", headers })
+  );
+  if (!res.ok) {
+    const msg = await parseErrorBody(res);
+    throw new Error(`Failed to fetch orders (${res.status}): ${msg}`);
+  }
+
+  const json: OrdersSummaryItemRaw[] = await res.json();
+  return (json || []).map((r) => ({
+    id: r.saleOrderNumber?.toString() || Math.random().toString(36).slice(2),
+    saleOrderNumber: r.saleOrderNumber?.toString() || "-",
+    priority: (r.priority as 1 | 2 | 3 | null) ?? null,
+    status: r.status ?? "-",
+    totalMaterials: Number.isFinite(r.totalMaterials) ? r. totalMaterials : 0,
+    totalItems: Number.isFinite(r.totalItems) ? r.totalItems : 0,
+  }));
+}
+
+// ---------------- API: GET order details + save locally ----------------
+export async function downloadOrderDetails(
+  saleOrderNumber: string,
+  token?: string
+): Promise<StoredMaterialItem[]> {
+  const authToken =
+    token || (await SecureStore.getItemAsync("authToken")) || undefined;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const url = API_ENDPOINTS.SALES_ORDER.DETAILS(saleOrderNumber);
+  const res = await withTimeout(fetch(url, { method: "GET", headers }));
+
+  if (!res.ok) {
+    const msg = await parseErrorBody(res);
+    throw new Error(`Failed to download order details (${res.status}): ${msg}`);
+  }
+
+  const json = (await res.json()) as any[];
+
+  const compact: StoredMaterialItem[] = (Array.isArray(json) ? json : []).map(
+    (row) => ({
+      materialCode: toStr(row?.Material_Code, ""),
+      description: toStr(row?.Material_Description, ""),
+      batchNo: toStr(row?.Batch_No, ""),
+      soDonorBatch: toStr(row?.SO_Donor_Batch, ""),
+      certNo: toStr(row?.Cert_No, ""),
+      binNo: toStr(row?.Bin_No, ""),
+      adf: toStr(row?.A_D_F, ""),
+      requiredQty: toNum(row?.Required_Qty, 0),
+      packedQty: toNum(row?.Packing_stage, 0),
+      issuedQty: toNum(row?.Issue_stage, 0),
+      issuedAt: row?.UpdatedDate ? String(row.UpdatedDate) : undefined,
+      packedAt: row?.UpdatedDate ? String(row.UpdatedDate) : undefined,
+    })
+  ) as any;
+
+  await saveOrderDetails(saleOrderNumber, compact);
+  return compact;
+}
+
+// ---------------- API: POST (JSON file upload) ----------------
+export async function uploadIssueData(
+  saleOrderNumber: string,
+  items: StoredMaterialItem[],
+  token?: string
+): Promise<void> {
+  const authToken =
+    token || (await SecureStore.getItemAsync("authToken")) || undefined;
+  const url = API_ENDPOINTS.SALES_ORDER.UPLOAD_DATA(saleOrderNumber);
+
+  const baseHeaders: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (authToken) baseHeaders.Authorization = `Bearer ${authToken}`;
+
+  const payload = items.map(normalizeForUpload);
+  const jsonPayload = JSON.stringify(payload);
+  console.log("Uploading materials with timestamps:", jsonPayload);
+
+  const file = new File(Paths.cache, "data.json");
+  await file.create();
+  await file.write(jsonPayload);
+
+  const formData = new FormData();
+  formData.append("data", {
+    uri: file.uri,
+    type: "application/json",
+    name: "data.json",
+  } as any);
+
+  const res = await withTimeout(
+    fetch(url, {
+      method: "POST",
+      headers: baseHeaders,
+      body: formData,
+    }),
+    30000
+  );
+
+  await file.delete();
+
+  if (!res.ok) {
+    const lastErr = await parseErrorBody(res);
+    throw new Error(`Upload failed: ${lastErr || "Server rejected upload"}`);
+  }
+
+  try {
+    const result = await res.json();
+    console.log("Upload successful:", result);
+  } catch {
+    console.log("Upload successful (no JSON in response)");
+  }
+}
+
+// ... (uploadAttachments, fetchExistingAttachments, updateAttachmentDescription remain unchanged)
+// ---------------- API: Upload Attachments ----------------
+export async function uploadAttachments(
+  saleOrderNumber: string,
+  attachments: AttachmentItem[],
+  token?: string
+): Promise<void> {
+  if (attachments.length === 0) {
+    throw new Error("No attachments to upload");
+  }
+
+  const authToken =
+    token || (await SecureStore.getItemAsync("authToken")) || undefined;
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  // Upload one by one to avoid 413 error
+  for (const attachment of attachments) {
+    const formData = new FormData();
+
+    // Append saleOrderNumber
+    formData.append("saleOrderNumber", saleOrderNumber);
+
+    // Append the single file
+    formData.append("files", {
+      uri: attachment.uri,
+      type: attachment.type || "application/octet-stream",
+      name: attachment.name,
+    } as any);
+
+    // Create descriptions JSON object for this single file
+    const descriptions: Record<string, string> = {};
+    descriptions[attachment.name] = attachment.description || "";
+
+    // Append descriptions as JSON string
+    const descriptionsJson = JSON.stringify(descriptions);
+    formData.append("descriptions", descriptionsJson);
+
+    console.log("Uploading attachment with details:", {
+      saleOrderNumber,
+      fileName: attachment.name,
+      description: attachment.description || "",
+      descriptionsJson, // Log the JSON string for debugging
+      uri: attachment.uri,
+      type: attachment.type || "application/octet-stream",
+    });
+
+    const res = await withTimeout(
+      fetch(API_ENDPOINTS.SALES_ORDER.ATTACHMENTS_UPLOAD, {
+        method: "POST",
+        headers,
+        body: formData,
+      }),
+      60000
+    );
+
+    if (!res.ok) {
+      const msg = await parseErrorBody(res);
+      console.error("Attachment upload failed for file:", attachment.name, {
+        status: res.status,
+        message: msg,
+      });
+      throw new Error(`Attachment upload failed (${res.status}): ${msg}`);
+    }
+
+    // Success for this file
+    try {
+      const result = await res.json();
+      console.log(
+        "Attachment upload successful for file:",
+        attachment.name,
+        result
+      );
+    } catch {
+      console.log(
+        "Attachment upload successful for file:",
+        attachment.name,
+        "(no JSON in response)"
+      );
+    }
+  }
+}
+
+// ---------------- API: GET Existing Attachments ----------------
+export async function fetchExistingAttachments(
+  saleOrderNumber: string,
+  token?: string
+): Promise<AttachmentItem[]> {
+  const authToken =
+    token || (await SecureStore.getItemAsync("authToken")) || undefined;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const url = API_ENDPOINTS.SALES_ORDER.EXISTING_ATTACHMENTS(saleOrderNumber);
+  const res = await withTimeout(fetch(url, { method: "GET", headers }));
+
+  if (!res.ok) {
+    const msg = await parseErrorBody(res);
+    throw new Error(
+      `Failed to fetch existing attachments (${res.status}): ${msg}`
+    );
+  }
+
+  const json = await res.json();
+  console.log("Existing attachments raw response:", json);
+  return (Array.isArray(json) ? json : []).map((item: any) => ({
+    // id: toStr(item.id, ""),
+    id: item.ID ? String(item.ID) : null,
+    uri: (item.sftpPath || "") as string,
+    name: (item.fileName || "Unknown File") as string,
+    type: (item.mimeType || "application/octet-stream") as string,
+    description: item.description || "",
+  }));
+}
+
+// ---------------- API: Update Attachment Description ----------------
+export async function updateAttachmentDescription(
+  fileId: string,
+  description: string,
+  token?: string
+): Promise<void> {
+  const authToken =
+    token || (await SecureStore.getItemAsync("authToken")) || undefined;
+  const url = API_ENDPOINTS.SALES_ORDER.UPDATE_ATTACHMENT_DESC(fileId);
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const body = JSON.stringify({ description });
+
+  const res = await withTimeout(
+    fetch(url, {
+      method: "PUT",
+      headers,
+      body,
+    }),
+    15000
+  );
+
+  if (!res.ok) {
+    const msg = await parseErrorBody(res);
+    throw new Error(
+      `Failed to update attachment description (${res.status}): ${msg}`
+    );
+  }
+
+  // Success
+  try {
+    const result = await res.json();
+    console.log("Attachment description update successful:", result);
+  } catch {
+    console.log(
+      "Attachment description update successful (no JSON in response)"
+    );
+  }
+}
+ 
