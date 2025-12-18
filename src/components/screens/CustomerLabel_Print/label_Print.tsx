@@ -18,7 +18,6 @@ import type { JSX } from "react";
 import { useVerifySO, usePrintLabels } from "../../Api/Hooks/UselabelPrint";
 import {
   labelPrintStorage,
-  StoredLabelPrintData,
 } from "../../Storage/label_Print_Storage";
 import ScannerModal from "../../Scanner/ScannerModal";
 
@@ -43,7 +42,7 @@ const ErrorModal = ({
   title,
   message,
   onClose,
-  autoDismiss = false,
+  autoDismiss = true,
 }: {
   visible: boolean;
   title: string;
@@ -52,10 +51,13 @@ const ErrorModal = ({
   autoDismiss?: boolean;
 }) => {
   useEffect(() => {
+    let timer: NodeJS.Timeout | undefined;
     if (visible && autoDismiss) {
-      const timer = setTimeout(onClose, 2000);
-      return () => clearTimeout(timer);
+      timer = setTimeout(onClose, 1000); // 1 second
     }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [visible, autoDismiss, onClose]);
 
   return (
@@ -80,24 +82,43 @@ const SuccessModal = ({
   visible,
   message,
   onClose,
+  autoDismiss = true,
 }: {
   visible: boolean;
   message: string;
   onClose: () => void;
-}) => (
-  <Modal transparent visible={visible} animationType="fade">
-    <View style={styles.modalOverlay}>
-      <View style={styles.alertModal}>
-        <Ionicons name="checkmark-circle" size={48} color={COLORS.success} />
-        <Text style={styles.alertTitle}>Success!</Text>
-        <Text style={styles.alertMessage}>{message}</Text>
-        <TouchableOpacity style={[styles.alertBtn, { backgroundColor: COLORS.success }]} onPress={onClose}>
-          <Text style={styles.alertBtnText}>Done</Text>
-        </TouchableOpacity>
+  autoDismiss?: boolean;
+}) => {
+  useEffect(() => {
+    let timer: NodeJS.Timeout | undefined;
+    if (visible && autoDismiss) {
+      timer = setTimeout(onClose, 1000); // 1 second auto-dismiss
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [visible, autoDismiss, onClose]);
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={styles.alertModal}>
+          <Ionicons name="checkmark-circle" size={48} color={COLORS.success} />
+          <Text style={styles.alertTitle}>Success!</Text>
+          <Text style={styles.alertMessage}>{message}</Text>
+          {!autoDismiss && (
+            <TouchableOpacity
+              style={[styles.alertBtn, { backgroundColor: COLORS.success }]}
+              onPress={onClose}
+            >
+              <Text style={styles.alertBtnText}>Done</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
 const ConfirmModal = ({
   visible,
@@ -147,9 +168,12 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [permission, requestPermission] = useCameraPermissions();
   const scanLockRef = useRef(false);
 
+  // Local verifying lock to avoid duplicate calls
+  const verifyingRef = useRef(false);
+
   // Modals
-  const [errorModal, setErrorModal] = useState({ visible: false, title: "", message: "", autoDismiss: false });
-  const [successModal, setSuccessModal] = useState({ visible: false, message: "" });
+  const [errorModal, setErrorModal] = useState({ visible: false, title: "", message: "", autoDismiss: true });
+  const [successModal, setSuccessModal] = useState({ visible: false, message: "", autoDismiss: true });
   const [printConfirmModal, setPrintConfirmModal] = useState(false);
   const [clearConfirmModal, setClearConfirmModal] = useState(false);
 
@@ -189,9 +213,9 @@ export default function CustomerLabelPrint(): JSX.Element {
   // Handle print success → auto clear everything
   useEffect(() => {
     if (printSuccess) {
-      setSuccessModal({ visible: true, message: printSuccess });
+      setSuccessModal({ visible: true, message: printSuccess, autoDismiss: true });
 
-      // Auto-clear after successful print
+      // Auto-clear after successful print (delay small so modal shows)
       const clearAfterPrint = async () => {
         setSos([]);
         setCustomerName(null);
@@ -201,7 +225,6 @@ export default function CustomerLabelPrint(): JSX.Element {
         await labelPrintStorage.clear();
       };
 
-      // Delay clear slightly to allow success modal to show first
       const timer = setTimeout(clearAfterPrint, 800);
       return () => clearTimeout(timer);
     }
@@ -213,8 +236,8 @@ export default function CustomerLabelPrint(): JSX.Element {
       setErrorModal({
         visible: true,
         title: "Print Failed",
-        message: printError,
-        autoDismiss: false,
+        message: typeof printError === "string" ? printError : String(printError),
+        autoDismiss: true,
       });
     }
   }, [printError]);
@@ -266,38 +289,59 @@ export default function CustomerLabelPrint(): JSX.Element {
       return;
     }
 
-    if (verifyLoading) return;
+    // Prevent duplicate verify calls in rapid succession
+    if (verifyingRef.current) {
+      // optionally show a short message
+      showError("Please wait", "Verification in progress...", true);
+      return;
+    }
 
-    const result = await verifySO(soToAdd);
-    if (!result) {
-      showError("Invalid SO", verifyError || "Sales Order not found or invalid.");
+    verifyingRef.current = true;
+
+    try {
+      // Call verifySO and handle errors gracefully
+      const result = await verifySO(soToAdd);
+      if (!result) {
+        // prefer verifyError if provided by the hook, otherwise use a friendly default
+        const errMsg = verifyError ? (typeof verifyError === "string" ? verifyError : String(verifyError)) : "Sales Order not found or invalid.";
+        showError("Invalid SO", errMsg, true);
+        setSoNumber("");
+        focusInput();
+        return;
+      }
+
+      const { customerName: newName, address: newAddress } = result;
+
+      if (sos.length === 0) {
+        setCustomerName(newName);
+        setCustomerAddress(newAddress);
+        setIsCustomerLocked(true);
+      } else if (customerName !== newName) {
+        showError(
+          "Customer Mismatch",
+          `This SO belongs to a different customer.\n\nExpected: ${customerName}\nFound: ${newName}`,
+          true
+        );
+        focusInput();
+        return;
+      }
+
+      const newItem: SOItem = {
+        id: Date.now().toString(),
+        soNumber: soToAdd,
+      };
+      setSos((prev) => [newItem, ...prev]);
       setSoNumber("");
       focusInput();
-      return;
-    }
-
-    const { customerName: newName, address: newAddress } = result;
-
-    if (sos.length === 0) {
-      setCustomerName(newName);
-      setCustomerAddress(newAddress);
-      setIsCustomerLocked(true);
-    } else if (customerName !== newName) {
-      showError(
-        "Customer Mismatch",
-        `This SO belongs to a different customer.\n\nExpected: ${customerName}\nFound: ${newName}`
-      );
+    } catch (err: any) {
+      // If verifySO throws, present friendly error but avoid excessive console spam
+      const msg = err?.message ? err.message : String(err);
+      showError("Invalid SO", msg || "Sales Order not found.", true);
+      setSoNumber("");
       focusInput();
-      return;
+    } finally {
+      verifyingRef.current = false;
     }
-
-    const newItem: SOItem = {
-      id: Date.now().toString(),
-      soNumber: soToAdd,
-    };
-    setSos((prev) => [newItem, ...prev]);
-    setSoNumber("");
-    focusInput();
   };
 
   const removeSO = (id: string) => {
@@ -349,7 +393,8 @@ export default function CustomerLabelPrint(): JSX.Element {
     </View>
   );
 
-  const isLoading = verifyLoading || printLoading;
+  // isLoading now only tracks print activity; verification no longer blocks UI
+  const isLoading = printLoading;
 
   return (
     <View style={styles.container}>
@@ -363,7 +408,7 @@ export default function CustomerLabelPrint(): JSX.Element {
               ref={inputRef}
               value={soNumber}
               onChangeText={setSoNumber}
-              placeholder="Enter or scan SO number"
+              placeholder="Enter or scan"
               placeholderTextColor={COLORS.muted}
               style={styles.input}
               autoCapitalize="characters"
@@ -389,7 +434,8 @@ export default function CustomerLabelPrint(): JSX.Element {
               ]}
             >
               <Text style={styles.saveBtnText}>
-                {verifyLoading ? "Verifying..." : "Add"}
+                {/* we no longer show 'Verifying...' to avoid blocking */}
+                Add
               </Text>
             </TouchableOpacity>
           </View>
@@ -401,10 +447,8 @@ export default function CustomerLabelPrint(): JSX.Element {
               styles.printBtnRight,
               (isLoading || sos.length === 0) && styles.btnDisabled,
             ]}
-          > 
-              <>
-                <Ionicons name="print" size={20} color="#fff" />
-              </>
+          >
+            <Ionicons name="print" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -472,8 +516,9 @@ export default function CustomerLabelPrint(): JSX.Element {
       <SuccessModal
         visible={successModal.visible}
         message={successModal.message}
+        autoDismiss={successModal.autoDismiss}
         onClose={() => {
-          setSuccessModal({ visible: false, message: "" });
+          setSuccessModal({ visible: false, message: "", autoDismiss: true });
           focusInput();
         }}
       />

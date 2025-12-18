@@ -36,12 +36,12 @@ const CARD_BG = "#FFFFFF";
 const SOFT_YELLOW = "#FFF7CC";
 
 const MENU: MenuItem[] = [
-  {
-    id: "pick",
-    title: "Pick and Pack",
-    subtitle: "Process materials",
-    iconName: "cube-outline",
-  },
+  // {
+  //   id: "pick",
+  //   title: "Pick and Pack",
+  //   subtitle: "Process materials",
+  //   iconName: "cube-outline",
+  // },
   {
     id: "customer",
     title: "Customer Label Print",
@@ -152,7 +152,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const onPressItem = (item: MenuItem) => () => {
     switch (item.id) {
       case "pick":
-        navigation.navigate("PickAndPack");
+        // navigation.navigate("PickAndPack");
         break;
       case "transfer":
         navigation.navigate("MaterialFG");
