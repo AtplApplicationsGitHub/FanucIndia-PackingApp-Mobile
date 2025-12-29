@@ -287,7 +287,7 @@ export default function VehicleEntryScreen() {
           onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ''))}
         />
         {!isDriverValid(driverNumber) && driverNumber.length > 0 && (
-          <Text style={styles.errorText}>Enter exactly 10 digits</Text>
+          <Text style={styles.errorText}>Enter 10 digits</Text>
         )}
 
         {/* Transporter Name */}
