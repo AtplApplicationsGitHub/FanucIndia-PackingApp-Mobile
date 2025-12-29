@@ -1,23 +1,18 @@
 // material_dispatch_server.tsx
 import * as SecureStore from "expo-secure-store";
-import * as DocumentPicker from "expo-document-picker"; 
+import * as DocumentPicker from "expo-document-picker";
+import { API_ENDPOINTS } from "../Endpoints"; // Adjust path if needed
+
 let AsyncStorage: any = null;
 try {
   AsyncStorage = require("@react-native-async-storage/async-storage").default;
 } catch {}
 
-export const BASE_URL = "https://fanuc.goval.app:444/api";
-const DISPATCH_HEADER_URL = `${BASE_URL}/dispatch/mobile/header`;
-const DISPATCH_SO_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
-const DISPATCH_ATTACHMENTS_URL = (dispatchId: string) => `${BASE_URL}/dispatch/${dispatchId}/attachments`; // Updated
-const DISPATCH_SO_DELETE_URL = (soId: number) => `${BASE_URL}/dispatch/so/${soId}`;
-const DISPATCH_UPDATE_URL = (dispatchId: string) => `${BASE_URL}/dispatch/mobile/${dispatchId}`;
-
 export type CreateDispatchHeaderRequest = {
-  customerName: string;
-  transporterName: string;
-  address: string;
-  vehicleNumber: string;
+  customerName?: string;
+  transporterName: string;     // Required
+  address?: string;
+  vehicleNumber: string;       // Required
 };
 
 export type UpdateDispatchHeaderRequest = {
@@ -25,8 +20,8 @@ export type UpdateDispatchHeaderRequest = {
   customerName?: string;
   address?: string;
   transporterId?: string;
-  transporterName?: string;
-  vehicleNumber?: string;
+  transporterName?: string;    // Optional in update (but required if updating header meaningfully)
+  vehicleNumber?: string;      // Optional in update
 };
 
 export type LinkDispatchSORequest = {
@@ -40,7 +35,6 @@ export type DispatchSOLink = {
   createdAt: string;
 };
 
-// New: Attachment type from API
 export type DispatchAttachment = {
   fileName: string;
   path: string;
@@ -156,13 +150,13 @@ export async function createDispatchHeader(
   const token = opts?.token ?? (await getToken());
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
-  if (!payload.customerName?.trim() || !payload.transporterName?.trim() || !payload.address?.trim() || !payload.vehicleNumber?.trim()) {
-    return { ok: false, status: 0, error: "All fields are required." };
+  if (!payload.transporterName?.trim() || !payload.vehicleNumber?.trim()) {
+    return { ok: false, status: 0, error: "Transporter name and vehicle number are required." };
   }
 
   try {
     const res = await withTimeout(
-      fetch(DISPATCH_HEADER_URL, {
+      fetch(API_ENDPOINTS.DISPATCH.HEADER, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -194,16 +188,15 @@ export async function updateDispatchHeader(
   const token = opts?.token ?? (await getToken());
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
-  const hasCustomer = payload.customerName;
-  const hasTransporter = payload.transporterName;
-  if (!hasCustomer || !hasTransporter) {
-    return { ok: false, status: 0, error: "Customer and transporter names are required." };
+  // Only enforce if the fields are provided in the payload
+  if ((payload.transporterName !== undefined && !payload.transporterName.trim()) ||
+      (payload.vehicleNumber !== undefined && !payload.vehicleNumber.trim())) {
+    return { ok: false, status: 0, error: "Transporter name and vehicle number cannot be empty." };
   }
 
   try {
-    const url = DISPATCH_UPDATE_URL(dispatchId);
     const res = await withTimeout(
-      fetch(url, {
+      fetch(API_ENDPOINTS.DISPATCH.UPDATE(dispatchId), {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -239,9 +232,8 @@ export async function linkSalesOrder(
   if (!normalizedSO) return { ok: false, status: 0, error: "SO number required." };
 
   try {
-    const url = DISPATCH_SO_URL(dispatchId);
     const res = await withTimeout(
-      fetch(url, {
+      fetch(API_ENDPOINTS.DISPATCH.SO(dispatchId), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -273,9 +265,8 @@ export async function deleteSalesOrderLink(
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
   try {
-    const url = DISPATCH_SO_DELETE_URL(soLinkId);
     const res = await withTimeout(
-      fetch(url, {
+      fetch(API_ENDPOINTS.DISPATCH.SO_DELETE(soLinkId), {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -316,9 +307,8 @@ export async function uploadAttachments(
   });
 
   try {
-    const url = DISPATCH_ATTACHMENTS_URL(dispatchId);
     const res = await withTimeout(
-      fetch(url, {
+      fetch(API_ENDPOINTS.DISPATCH.ATTACHMENTS(dispatchId), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -340,7 +330,7 @@ export async function uploadAttachments(
   }
 }
 
-// GET ATTACHMENTS (NEW)
+// GET ATTACHMENTS
 export async function getAttachments(
   dispatchId: string,
   opts?: { token?: string }
@@ -349,9 +339,8 @@ export async function getAttachments(
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
   try {
-    const url = DISPATCH_ATTACHMENTS_URL(dispatchId);
     const res = await withTimeout(
-      fetch(url, {
+      fetch(API_ENDPOINTS.DISPATCH.ATTACHMENTS(dispatchId), {
         method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,

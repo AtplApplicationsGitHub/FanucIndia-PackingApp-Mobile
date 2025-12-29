@@ -1,5 +1,5 @@
 // src/screens/VehicleEntry.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -7,14 +7,24 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
-  Alert,
   StyleSheet,
   Platform,
+  KeyboardAvoidingView,
+  ScrollView,
+  Modal,
+  Pressable,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useVehicleEntry, Customer } from '../../Api/Hooks/UseVehicleEntry';
-import UploadImages from './upload_Images'; // Make sure path is correct
+import UploadImages from './upload_Images';
+import {
+  saveDraftToStorage,
+  loadDraftFromStorage,
+  clearDraftFromStorage,
+  VehicleDraft,
+} from '../../Storage/VehicleEntry_Storage';
 
 export default function VehicleEntryScreen() {
   const {
@@ -32,11 +42,70 @@ export default function VehicleEntryScreen() {
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [transporterName, setTransporterName] = useState('');
   const [driverNumber, setDriverNumber] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [savedEntryId, setSavedEntryId] = useState<number | null>(null);
   const [entrySaved, setEntrySaved] = useState(false);
-    const [photos, setPhotos] = React.useState([]);
-  const [savedEntryId, setSavedEntryId] = React.useState<number | null>(null);
+  const [allPhotosUploaded, setAllPhotosUploaded] = useState(false);
+  const [saveDisabled, setSaveDisabled] = useState(false); // NEW: Prevent multiple saves
 
-  // Permissions
+  // Modal states
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
+  const [modalType, setModalType] = useState<'success' | 'error' | 'confirm'>('success');
+  const [onConfirm, setOnConfirm] = useState<() => void>(() => {}); // For confirmation modal
+
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const customerInputRef = useRef<TextInput>(null);
+
+  // Load draft on mount
+  useEffect(() => {
+    const loadDraft = async () => {
+      const draft = await loadDraftFromStorage();
+      if (draft) {
+        setCustomerQuery(draft.customerQuery || '');
+        setSelectedCustomer(draft.selectedCustomer || null);
+        setVehicleNumber(draft.vehicleNumber || '');
+        setTransporterName(draft.transporterName || '');
+        setDriverNumber(draft.driverNumber || '');
+        setPhotos(draft.photos || []);
+        setSavedEntryId(draft.savedEntryId || null);
+        setEntrySaved(!!draft.savedEntryId);
+        setAllPhotosUploaded(draft.allPhotosUploaded || false);
+        setSaveDisabled(!!draft.savedEntryId); // Disable save if already saved
+      }
+      setTimeout(() => customerInputRef.current?.focus(), 300);
+    };
+    loadDraft();
+  }, []);
+
+  // Save draft whenever relevant data changes (but only if not fully completed)
+  useEffect(() => {
+    if (!allPhotosUploaded) {
+      const draft: VehicleDraft = {
+        customerQuery,
+        selectedCustomer: selectedCustomer || undefined,
+        vehicleNumber,
+        transporterName,
+        driverNumber,
+        photos,
+        savedEntryId: savedEntryId || undefined,
+        allPhotosUploaded: false,
+      };
+      saveDraftToStorage(draft);
+    }
+  }, [
+    customerQuery,
+    selectedCustomer,
+    vehicleNumber,
+    transporterName,
+    driverNumber,
+    photos,
+    savedEntryId,
+    allPhotosUploaded,
+  ]);
+
+  // Request permissions
   useEffect(() => {
     (async () => {
       if (Platform.OS !== 'web') {
@@ -46,180 +115,281 @@ export default function VehicleEntryScreen() {
     })();
   }, []);
 
-  // Validation
   const formatVehicleNumber = (text: string) => {
-    const cleaned = text.replace(/[^A-Z0-9]/gi, '').toUpperCase();
-    setVehicleNumber(cleaned);
+    const trimmed = text.trim().toUpperCase();
+    setVehicleNumber(trimmed);
   };
 
-  const isVehicleValid = (v: string) => /^[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}$/.test(v);
-  const isDriverValid = (d: string) => /^\d{10}$/.test(d);
+  const isDriverValid = (d: string) => /^\d{10}$/.test(d.trim());
 
   const isFormValid = () =>
     selectedCustomer &&
-    isVehicleValid(vehicleNumber) &&
-    transporterName.trim() &&
+    vehicleNumber.trim().length > 0 &&
+    transporterName.trim().length > 0 &&
     isDriverValid(driverNumber);
+
+  const showModal = (
+    type: 'success' | 'error' | 'confirm',
+    title: string,
+    message: string,
+    onConfirmAction?: () => void
+  ) => {
+    setModalType(type);
+    setModalTitle(title);
+    setModalMessage(message);
+    setOnConfirm(() => onConfirmAction || (() => {}));
+    setModalVisible(true);
+
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const hideModal = () => {
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setModalVisible(false);
+    });
+  };
 
   const handleSave = async () => {
     if (!isFormValid()) {
-      Alert.alert('Invalid Data', 'Please fill all fields correctly.');
+      showModal('error', 'Invalid Data', 'Please fill all required fields correctly.\n\n• Select a customer\n• Enter vehicle number\n• Enter valid 10-digit driver mobile\n• Enter transporter name');
       return;
     }
 
     const result = await saveVehicleEntry({
       customerName: selectedCustomer!.name,
-      vehicleNumber,
-      transporterName,
-      driverNumber,
+      vehicleNumber: vehicleNumber.trim(),
+      transporterName: transporterName.trim(),
+      driverNumber: driverNumber.trim(),
     });
 
     if (result?.id) {
       setSavedEntryId(result.id);
       setEntrySaved(true);
-      Alert.alert('Success!', `Vehicle Entry Saved! ID: ${result.id}`);
+      setAllPhotosUploaded(false);
+      setSaveDisabled(true); // Disable save button after success
+      showModal('success', 'Success!', `Vehicle Entry Saved!`);
     } else {
-      Alert.alert('Error', error || 'Failed to save entry');
+      showModal('error', 'Error', error || 'Failed to save vehicle entry. Please try again.');
     }
   };
 
-  const clearAll = () => {
-    setCustomerQuery('');
-    setSelectedCustomer(null);
-    clearCustomers();
-    setVehicleNumber('');
-    setTransporterName('');
-    setDriverNumber('');
-    setPhotos([]);
-    setEntrySaved(false);
-    setSavedEntryId(null);
+  const confirmClearAll = () => {
+    showModal(
+      'confirm',
+      'Clear All Data?',
+      'Are you sure you want to clear all entered data?',
+      async () => {
+        await clearDraftFromStorage();
+        setCustomerQuery('');
+        setSelectedCustomer(null);
+        clearCustomers();
+        setVehicleNumber('');
+        setTransporterName('');
+        setDriverNumber('');
+        setPhotos([]);
+        setSavedEntryId(null);
+        setEntrySaved(false);
+        setAllPhotosUploaded(false);
+        setSaveDisabled(false);
+        hideModal();
+        customerInputRef.current?.focus();
+      }
+    );
+  };
+
+  const handleUploadComplete = async () => {
+    setAllPhotosUploaded(true);
+    await clearDraftFromStorage();
+    setSaveDisabled(false); // Re-enable for new entry
+    showModal('success', 'All Done!', 'Vehicle entry and photos saved successfully.');
   };
 
   return (
-    <View style={styles.container}>
-      {/* Customer Search */}
-      <TextInput
-        style={styles.input}
-        placeholder="Search Customer Name (min 3 chars) *"
-        value={customerQuery}
-        onChangeText={(text) => {
-          setCustomerQuery(text);
-          setSelectedCustomer(null);
-          setEntrySaved(false);
-          debouncedSearch(text);
-        }}
-      />
-
-      {loadingCustomers && (
-        <ActivityIndicator style={{ marginTop: 8 }} color="#007AFF" />
-      )}
-
-      {customers.length > 0 && !selectedCustomer && (
-        <FlatList
-          style={styles.dropdown}
-          data={customers}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.dropdownItem}
-              onPress={() => {
-                setSelectedCustomer(item);
-                setCustomerQuery(item.name);
-                clearCustomers();
-              }}
-            >
-              <Text style={styles.customerName}>{item.name}</Text>
-              <Text style={styles.customerAddr}>{item.address}</Text>
-            </TouchableOpacity>
-          )}
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView contentContainerStyle={styles.container}>
+        {/* Customer Search */}
+        <TextInput
+          ref={customerInputRef}
+          style={styles.input}
+          placeholder="Search Customer Name (min 3 chars) *"
+          value={customerQuery}
+          onChangeText={(text) => {
+            setCustomerQuery(text);
+            setSelectedCustomer(null);
+            if (text.trim().length >= 3) {
+              debouncedSearch(text);
+            } else {
+              clearCustomers();
+            }
+          }}
         />
-      )}
 
-      {/* Vehicle Number */}
-      <TextInput
-        style={styles.input}
-        placeholder="Vehicle Number (e.g. MH12AB1234) *"
-        value={vehicleNumber}
-        onChangeText={formatVehicleNumber}
-        autoCapitalize="characters"
-      />
-      {!isVehicleValid(vehicleNumber) && vehicleNumber.length > 6 && (
-        <Text style={styles.errorText}>Invalid format. Use: MH12AB1234</Text>
-      )}
+        {loadingCustomers && (
+          <ActivityIndicator style={{ marginTop: 8 }} color="#007AFF" />
+        )}
 
-      {/* Driver Mobile */}
-      <TextInput
-        style={styles.input}
-        placeholder="Driver Mobile (10 digits) *"
-        value={driverNumber}
-        keyboardType="number-pad"
-        maxLength={10}
-        onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ''))}
-      />
-      {!isDriverValid(driverNumber) && driverNumber.length > 0 && (
-        <Text style={styles.errorText}>Enter exactly 10 digits</Text>
-      )}
-
-      {/* Transporter Name */}
-      <TextInput
-        style={styles.input}
-        placeholder="Transporter Name *"
-        value={transporterName}
-        onChangeText={setTransporterName}
-      />
-
-      {/* Buttons */}
-      <View style={styles.buttonRow}>
-        <TouchableOpacity
-          style={[styles.btn, styles.saveBtn, (!isFormValid() || saving) && styles.btnDisabled]}
-          onPress={handleSave}
-          disabled={!isFormValid() || saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="save-outline" size={20} color="#fff" />
-              <Text style={styles.btnText}>Save Entry</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={clearAll}>
-          <Ionicons name="trash-outline" size={20} color="#fff" />
-          <Text style={styles.btnText}>Clear</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Success + Upload Section */}
-      {entrySaved && savedEntryId && (
-        <>
-          <View style={styles.successBox}>
-            <Ionicons name="checkmark-circle" size={24} color="green" />
-            <Text style={styles.successText}>
-              Vehicle Entry saved successfully! (ID: {savedEntryId})
-            </Text>
+        {/* Customer Dropdown List */}
+        {customers.length > 0 && !selectedCustomer && (
+          <View style={styles.dropdownContainer}>
+            <FlatList
+              data={customers}
+              keyExtractor={(item) => item.id.toString()}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedCustomer(item);
+                    setCustomerQuery(item.name);
+                    clearCustomers();
+                  }}
+                >
+                  <Text style={styles.customerName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.customerAddr} numberOfLines={2}>
+                    {item.address}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
           </View>
+        )}
 
-          {/* PASS savedEntryId HERE */}
+        {/* Vehicle Number */}
+        <TextInput
+          style={styles.input}
+          placeholder="Vehicle Number *"
+          value={vehicleNumber}
+          onChangeText={formatVehicleNumber}
+          autoCapitalize="characters"
+        />
+
+        {/* Driver Mobile */}
+        <TextInput
+          style={styles.input}
+          placeholder="Driver Mobile (10 digits) *"
+          value={driverNumber}
+          keyboardType="number-pad"
+          maxLength={10}
+          onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ''))}
+        />
+        {!isDriverValid(driverNumber) && driverNumber.length > 0 && (
+          <Text style={styles.errorText}>Enter exactly 10 digits</Text>
+        )}
+
+        {/* Transporter Name */}
+        <TextInput
+          style={styles.input}
+          placeholder="Transporter Name *"
+          value={transporterName}
+          onChangeText={setTransporterName}
+        />
+
+        {/* Buttons */}
+        <View style={styles.buttonRow}>
+          <TouchableOpacity
+            style={[
+              styles.btn,
+              styles.saveBtn,
+              (!isFormValid() || saving || saveDisabled || entrySaved) && styles.btnDisabled,
+            ]}
+            onPress={handleSave}
+            disabled={!isFormValid() || saving || saveDisabled || entrySaved}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="save-outline" size={20} color="#fff" />
+                <Text style={styles.btnText}>
+                  {entrySaved ? 'Entry Saved' : 'Save Entry'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={confirmClearAll}>
+            <Ionicons name="trash-outline" size={20} color="#fff" />
+            <Text style={styles.btnText}>Clear All</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Upload Section - shown only after entry is saved */}
+        {entrySaved && savedEntryId && (
           <UploadImages
             vehicleEntryId={savedEntryId}
             photos={photos}
             setPhotos={setPhotos}
-            onUploadSuccess={() => {
-              Alert.alert("Uploaded!", "All photos uploaded successfully.");
-            }}
+            onUploadSuccess={handleUploadComplete}
           />
-        </>
-      )}
+        )}
 
-      {error && <Text style={styles.errorText}>{error}</Text>}
-    </View>
+        {error && !modalVisible && <Text style={styles.errorText}>{error}</Text>}
+      </ScrollView>
+
+      {/* Unified Modal */}
+      <Modal transparent visible={modalVisible} animationType="none" onRequestClose={hideModal}>
+        <Pressable style={styles.modalOverlay} onPress={modalType === 'confirm' ? undefined : hideModal}>
+          <Animated.View style={[styles.modalContent, { opacity: fadeAnim }]}>
+            <Pressable>
+              <View style={styles.modalHeader}>
+      
+                <Text style={styles.modalTitle}>{modalTitle}</Text>
+              </View>
+              <Text style={styles.modalMessage}>{modalMessage}</Text>
+
+              <View style={styles.modalButtonRow}>
+                {modalType === 'confirm' && (
+                  <TouchableOpacity style={[styles.modalButton, styles.modalCancelButton]} onPress={hideModal}>
+                    <Text style={styles.modalButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    modalType === 'confirm' ? styles.modalConfirmButton : styles.modalOkButton,
+                  ]}
+                  onPress={() => {
+                    if (modalType === 'confirm') {
+                      onConfirm();
+                    } else {
+                      hideModal();
+                    }
+                  }}
+                >
+                  <Text style={styles.modalButtonText}>
+                    {modalType === 'confirm' ? 'OK' : 'OK'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Animated.View>
+        </Pressable>
+      </Modal>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f8f9fa' },
+  container: {
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    paddingBottom: 40,
+  },
   input: {
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -229,21 +399,38 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 12,
   },
-  dropdown: {
-    maxHeight: 200,
+  dropdownContainer: {
+    maxHeight: 220,
     backgroundColor: '#fff',
-    borderRadius: 8,
+    borderRadius: 10,
     marginTop: 8,
-    elevation: 4,
+    elevation: 6,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    overflow: 'hidden',
   },
-  dropdownItem: { padding: 14, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  customerName: { fontSize: 16, fontWeight: '600' },
-  customerAddr: { fontSize: 13, color: '#666', marginTop: 2 },
-  buttonRow: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  dropdownItem: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  customerName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  customerAddr: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+  },
   btn: {
     flex: 1,
     flexDirection: 'row',
@@ -258,15 +445,60 @@ const styles = StyleSheet.create({
   btnDisabled: { backgroundColor: '#aaa' },
   btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   errorText: { color: '#d32f2f', marginTop: 6, fontSize: 13 },
-  successBox: {
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '85%',
+    maxWidth: 400,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+  },
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#d4edda',
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 20,
-    borderWidth: 1,
-    borderColor: '#c3e6cb',
+    marginBottom: 16,
   },
-  successText: { marginLeft: 10, color: '#155724', fontWeight: '600' },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginLeft: 12,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#555',
+    lineHeight: 24,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+modalButtonRow: {
+  flexDirection: 'row',
+  gap: 12,
+},
+
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalOkButton: { backgroundColor: '#007AFF' },
+  modalConfirmButton: { backgroundColor: '#d32f2f' },
+  modalCancelButton: { backgroundColor: '#aaa' },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '600',
+  },
 });

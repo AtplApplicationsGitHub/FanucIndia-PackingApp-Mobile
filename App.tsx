@@ -11,7 +11,7 @@ import MaterialFGScreen from "./src/components/screens/Material_FG/material_fg";
 import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/material_dispatch";
 import LabelPrint from "./src/components/screens/CustomerLabel_Print/label_Print";
 import VehicleEntry from "./src/components/screens/Vehicle_Entry/VehicleEntry";
-import { RefreshButton } from "./src/components/Storage_Clear/Storage_Clear";
+
 
 export type RootStackParamList = {
   Login: undefined;
@@ -26,7 +26,6 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#F7F7F8" }}>
       <NavigationContainer>
         <StatusBar style="dark" />
 
@@ -86,6 +85,5 @@ export default function App() {
           />
         </Stack.Navigator>
       </NavigationContainer>
-    </SafeAreaView>
   );
 }

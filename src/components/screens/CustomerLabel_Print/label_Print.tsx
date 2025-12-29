@@ -19,7 +19,7 @@ import { useVerifySO, usePrintLabels } from "../../Api/Hooks/UselabelPrint";
 import {
   labelPrintStorage,
 } from "../../Storage/label_Print_Storage";
-import ScannerModal from "../../Scanner/ScannerModal";
+import ScannerModal from "./ScannerModal";
 
 type SOItem = {
   id: string;

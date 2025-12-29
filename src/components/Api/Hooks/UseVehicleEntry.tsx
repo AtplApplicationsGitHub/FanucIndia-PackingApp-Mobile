@@ -10,9 +10,13 @@ export type Customer = {
 };
 
 export type Attachment = {
-  id: number;
-  url: string;
-  filename: string;
+  path: string;          // relative path returned by server
+  size: number;
+  fileName: string;
+  mimeType: string;
+  uploadedAt: string;
+  // Optional: full URL if you want to use it directly in <Image />
+  url?: string;
 };
 
 export type VehicleEntryResponse = {
@@ -45,6 +49,7 @@ const parseResponseBody = async (res: Response) => {
 export const useVehicleEntry = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [loadingAttachments, setLoadingAttachments] = useState(false); // NEW
   const [saving, setSaving] = useState(false);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +58,7 @@ export const useVehicleEntry = () => {
   const searchControllerRef = useRef<AbortController | null>(null);
   const saveControllerRef = useRef<AbortController | null>(null);
   const uploadControllerRef = useRef<AbortController | null>(null);
+  const fetchAttachmentsControllerRef = useRef<AbortController | null>(null); // NEW
 
   const clearError = useCallback(() => setError(null), []);
   const clearCustomers = useCallback(() => setCustomers([]), []);
@@ -72,7 +78,6 @@ export const useVehicleEntry = () => {
         return;
       }
 
-      // Cancel previous search
       if (searchControllerRef.current) {
         searchControllerRef.current.abort();
       }
@@ -115,7 +120,7 @@ export const useVehicleEntry = () => {
         setCustomers(data);
       } catch (err: any) {
         if (err?.name === "AbortError") {
-          // aborted -> ignore
+          // ignored
         } else {
           console.error("searchCustomers error:", err);
           setError(err?.message ?? "Failed to load customers");
@@ -129,7 +134,6 @@ export const useVehicleEntry = () => {
     [getAuthTokenHeader]
   );
 
-  // Debounced search exposed to UI
   const debouncedSearch = useCallback(
     (query: string) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -140,7 +144,6 @@ export const useVehicleEntry = () => {
     [searchCustomers]
   );
 
-  // Save Vehicle Entry
   const saveVehicleEntry = useCallback(
     async (payload: SavePayload): Promise<VehicleEntryResponse | null> => {
       setSaving(true);
@@ -189,10 +192,6 @@ export const useVehicleEntry = () => {
     [getAuthTokenHeader]
   );
 
-  /**
-   * Upload attachments for a saved vehicle entry.
-   * photos: array of { uri: string, name?: string, type?: string }
-   */
   const uploadAttachments = useCallback(
     async (
       vehicleEntryId: number | string,
@@ -213,17 +212,15 @@ export const useVehicleEntry = () => {
 
         const formData = new FormData();
         photos.forEach((photo, index) => {
-          // Provide a fallback filename/type
           const fileName = photo.name ?? `photo_${index + 1}.jpg`;
           const fileType = photo.type ?? "image/jpeg";
 
-          // In Expo/React Native, append a file-like object
-          // @ts-ignore - platform-specific FormData file shape
+          // @ts-ignore - Expo/React Native FormData shape
           formData.append("files", {
             uri: photo.uri,
             name: fileName,
             type: fileType,
-          });
+          } as any);
         });
 
         const uploadUrl = API_ENDPOINTS.VEHICLE_ENTRY.UPLOAD_ATTACHMENTS(vehicleEntryId);
@@ -232,7 +229,6 @@ export const useVehicleEntry = () => {
           method: "POST",
           headers: {
             Authorization: authHeader,
-            // IMPORTANT: do NOT set Content-Type for multipart; let fetch set the boundary.
             Accept: "application/json",
           },
           body: formData as any,
@@ -244,14 +240,11 @@ export const useVehicleEntry = () => {
           throw new Error(body?.message ?? `Upload failed (${res.status})`);
         }
 
-        const data = (await parseResponseBody(res)) as { attachments?: Attachment[] } | Attachment[];
-        // Normalize: server may return array or object containing attachments
+        const data = await parseResponseBody(res);
         if (Array.isArray(data)) return data as Attachment[];
-        return (data && (data as any).attachments) ? (data as any).attachments : [];
+        return (data as any)?.attachments ?? [];
       } catch (err: any) {
-        if (err?.name === "AbortError") {
-          console.debug("uploadAttachments aborted");
-        } else {
+        if (err?.name !== "AbortError") {
           console.error("Upload error:", err);
           setError(err?.message ?? "Failed to upload photos");
         }
@@ -264,28 +257,72 @@ export const useVehicleEntry = () => {
     [getAuthTokenHeader]
   );
 
-  /**
-   * Convenience: save entry then upload photos.
-   * Returns the saved VehicleEntryResponse with attachments property if upload succeeded,
-   * or null on failure.
-   */
+  // NEW: Fetch existing attachments for a vehicle entry
+  const fetchAttachments = useCallback(
+    async (vehicleEntryId: number | string): Promise<Attachment[] | null> => {
+      setLoadingAttachments(true);
+      setError(null);
+
+      if (fetchAttachmentsControllerRef.current) fetchAttachmentsControllerRef.current.abort();
+      const controller = new AbortController();
+      fetchAttachmentsControllerRef.current = controller;
+
+      try {
+        const authHeader = await getAuthTokenHeader();
+        if (!authHeader) throw new Error("Authentication token missing. Please login again.");
+
+        const url = API_ENDPOINTS.VEHICLE_ENTRY.GET_ATTACHMENTS(vehicleEntryId);
+
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            Accept: "application/json",
+          },
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          if (res.status === 404) return []; // no attachments yet
+          const body = await parseResponseBody(res);
+          throw new Error(body?.message ?? `Failed to fetch attachments (${res.status})`);
+        }
+
+        const data = (await parseResponseBody(res)) as Attachment[];
+        if (!Array.isArray(data)) throw new Error("Invalid attachments response format");
+
+        // Optionally prepend base URL if your backend returns relative paths
+        // const base = BASE_URL.endsWith("/") ? BASE_URL.slice(0, -1) : BASE_URL;
+        // return data.map(att => ({ ...att, url: `${base}/${att.path}` }));
+
+        return data;
+      } catch (err: any) {
+        if (err?.name === "AbortError") {
+          return null;
+        }
+        console.error("fetchAttachments error:", err);
+        setError(err?.message ?? "Failed to load attachments");
+        return null;
+      } finally {
+        setLoadingAttachments(false);
+        if (fetchAttachmentsControllerRef.current === controller)
+          fetchAttachmentsControllerRef.current = null;
+      }
+    },
+    [getAuthTokenHeader]
+  );
+
   const saveAndUpload = useCallback(
     async (
       payload: SavePayload,
       photos: { uri: string; name?: string; type?: string }[] = []
     ): Promise<VehicleEntryResponse | null> => {
-      // First save entry
       const saved = await saveVehicleEntry(payload);
-      if (!saved || !saved.id) {
-        // saveVehicleEntry already sets error
-        return null;
-      }
+      if (!saved || !saved.id) return null;
 
-      // If there are photos, upload them
       if (photos.length > 0) {
         const attachments = await uploadAttachments(saved.id, photos);
         if (attachments === null) {
-          // upload failed -> set error (uploadAttachments sets error) and return saved (or null depending on desired behavior)
           return { ...saved, attachments: saved.attachments ?? [] };
         }
         return { ...saved, attachments };
@@ -296,27 +333,22 @@ export const useVehicleEntry = () => {
     [saveVehicleEntry, uploadAttachments]
   );
 
-  // Cancel pending requests & debounce timer (exposed)
   const cancelPendingRequests = useCallback(() => {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-    if (searchControllerRef.current) {
-      searchControllerRef.current.abort();
-      searchControllerRef.current = null;
-    }
-    if (saveControllerRef.current) {
-      saveControllerRef.current.abort();
-      saveControllerRef.current = null;
-    }
-    if (uploadControllerRef.current) {
-      uploadControllerRef.current.abort();
-      uploadControllerRef.current = null;
-    }
+    searchControllerRef.current?.abort();
+    saveControllerRef.current?.abort();
+    uploadControllerRef.current?.abort();
+    fetchAttachmentsControllerRef.current?.abort(); // NEW
+
+    searchControllerRef.current = null;
+    saveControllerRef.current = null;
+    uploadControllerRef.current = null;
+    fetchAttachmentsControllerRef.current = null;
   }, []);
 
-  // cleanup on unmount
   useEffect(() => {
     return () => {
       cancelPendingRequests();
@@ -326,12 +358,14 @@ export const useVehicleEntry = () => {
   return {
     customers,
     loadingCustomers,
+    loadingAttachments,        // NEW
     saving,
     uploadingAttachments,
     error,
     debouncedSearch,
     saveVehicleEntry,
     uploadAttachments,
+    fetchAttachments,          // NEW
     saveAndUpload,
     clearError,
     clearCustomers,
