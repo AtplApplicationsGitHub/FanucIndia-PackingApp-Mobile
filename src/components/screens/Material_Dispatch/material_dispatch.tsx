@@ -603,7 +603,6 @@ const MaterialDispatchScreen: React.FC = () => {
                   </Text>
                   <View
                     style={[
-                      styles_sales.td,
                       { width: 72, alignItems: "flex-end" },
                     ]}
                   >

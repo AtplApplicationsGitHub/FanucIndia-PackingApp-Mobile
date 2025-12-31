@@ -53,7 +53,7 @@ const ErrorModal = ({
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
     if (visible && autoDismiss) {
-      timer = setTimeout(onClose, 1000); // 1 second
+      timer = setTimeout(onClose, 1200);
     }
     return () => {
       if (timer) clearTimeout(timer);
@@ -63,14 +63,21 @@ const ErrorModal = ({
   return (
     <Modal transparent visible={visible} animationType="fade">
       <View style={styles.modalOverlay}>
-        <View style={styles.alertModal}>
-          <Ionicons name="alert-circle-outline" size={48} color={COLORS.danger} />
-          <Text style={styles.alertTitle}>{title}</Text>
-          <Text style={styles.alertMessage}>{message}</Text>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Ionicons name="alert-circle" size={30} color={COLORS.danger} />
+            <Text style={styles.modalTitle}>{title}</Text>
+          </View>
+          <Text style={styles.modalDescription}>{message}</Text>
           {!autoDismiss && (
-            <TouchableOpacity style={styles.alertBtn} onPress={onClose}>
-              <Text style={styles.alertBtnText}>OK</Text>
-            </TouchableOpacity>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { backgroundColor: COLORS.primary }]}
+                onPress={onClose}
+              >
+                <Text style={styles.primaryBtnText}>OK</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -92,7 +99,7 @@ const SuccessModal = ({
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
     if (visible && autoDismiss) {
-      timer = setTimeout(onClose, 1000); // 1 second auto-dismiss
+      timer = setTimeout(onClose, 1200);
     }
     return () => {
       if (timer) clearTimeout(timer);
@@ -102,17 +109,21 @@ const SuccessModal = ({
   return (
     <Modal transparent visible={visible} animationType="fade">
       <View style={styles.modalOverlay}>
-        <View style={styles.alertModal}>
-          <Ionicons name="checkmark-circle" size={48} color={COLORS.success} />
-          <Text style={styles.alertTitle}>Success!</Text>
-          <Text style={styles.alertMessage}>{message}</Text>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Ionicons name="checkmark-circle-outline" size={30} color={COLORS.success} />
+            <Text style={styles.modalTitle}>Success!</Text>
+          </View>
+          <Text style={styles.modalDescription}>{message}</Text>
           {!autoDismiss && (
-            <TouchableOpacity
-              style={[styles.alertBtn, { backgroundColor: COLORS.success }]}
-              onPress={onClose}
-            >
-              <Text style={styles.alertBtnText}>Done</Text>
-            </TouchableOpacity>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { backgroundColor: COLORS.success }]}
+                onPress={onClose}
+              >
+                <Text style={styles.primaryBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -128,6 +139,7 @@ const ConfirmModal = ({
   onCancel,
   confirmText = "Confirm",
   cancelText = "Cancel",
+  type = "primary",
 }: {
   visible: boolean;
   title: string;
@@ -136,24 +148,37 @@ const ConfirmModal = ({
   onCancel: () => void;
   confirmText?: string;
   cancelText?: string;
-}) => (
-  <Modal transparent visible={visible} animationType="fade">
-    <View style={styles.modalOverlay}>
-      <View style={styles.confirmModal}>
-        <Text style={styles.confirmTitle}>{title}</Text>
-        <Text style={styles.confirmMessage}>{message}</Text>
-        <View style={styles.confirmButtons}>
-          <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
-            <Text style={styles.cancelBtnText}>{cancelText}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.confirmBtn} onPress={onConfirm}>
-            <Text style={styles.confirmBtnText}>{confirmText}</Text>
-          </TouchableOpacity>
+  type?: "danger" | "primary";
+}) => {
+  const icon = type === "danger" ? "trash-outline" : "print-outline";
+  const iconColor = type === "danger" ? COLORS.danger : COLORS.accent;
+  const btnColor = type === "danger" ? COLORS.danger : COLORS.primary;
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Ionicons name={icon} size={30} color={iconColor} />
+            <Text style={styles.modalTitle}>{title}</Text>
+          </View>
+          <Text style={styles.modalDescription}>{message}</Text>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={onCancel}>
+              <Text style={styles.secondaryBtnText}>{cancelText}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: btnColor }]}
+              onPress={onConfirm}
+            >
+              <Text style={styles.primaryBtnText}>{confirmText}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
 export default function CustomerLabelPrint(): JSX.Element {
   const [soNumber, setSoNumber] = useState<string>("");
@@ -476,7 +501,7 @@ export default function CustomerLabelPrint(): JSX.Element {
           </Text>
           {sos.length > 0 && (
             <TouchableOpacity onPress={onClearAll} style={styles.clearHeaderBtn}>
-              <Text style={styles.clearHeaderText}>Clear All</Text>
+              <Text style={styles.clearHeaderText}>Clear</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -528,18 +553,20 @@ export default function CustomerLabelPrint(): JSX.Element {
         visible={printConfirmModal}
         title="Print Labels"
         message={`Print ${sos.length} label(s) for:\n\n${customerName}\n${customerAddress}`}
-        confirmText="Print Now"
+        confirmText="Print"
         cancelText="Cancel"
+        type="primary"
         onConfirm={confirmPrint}
         onCancel={() => setPrintConfirmModal(false)}
       />
 
       <ConfirmModal
         visible={clearConfirmModal}
-        title="Clear All"
-        message="Remove all Sales Orders and reset customer?"
+        title="Clear all?"
+        message="This will clear the form and all scanned items."
         confirmText="Clear"
-        cancelText="Cancel"
+        cancelText="Keep"
+        type="danger"
         onConfirm={confirmClearAll}
         onCancel={() => setClearConfirmModal(false)}
       />
@@ -667,94 +694,66 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "center",
     alignItems: "center",
   },
-  alertModal: {
+  modalContent: {
     backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 30,
-    alignItems: "center",
-    width: "85%",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  alertTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1f2937",
-    marginTop: 16,
-  },
-  alertMessage: {
-    fontSize: 16,
-    color: "#475569",
-    textAlign: "center",
-    marginVertical: 12,
-    lineHeight: 22,
-  },
-  alertBtn: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 16,
-  },
-  alertBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  confirmModal: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 24,
     width: "88%",
     shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
     elevation: 10,
   },
-  confirmTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1f2937",
-    textAlign: "center",
-  },
-  confirmMessage: {
-    fontSize: 16,
-    color: "#475569",
-    textAlign: "center",
-    marginVertical: 16,
-    lineHeight: 22,
-  },
-  confirmButtons: {
+  modalHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 10,
+    alignItems: "center",
+    marginBottom: 16,
   },
-  cancelBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#f1f5f9",
-    marginRight: 10,
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+    marginLeft: 12,
   },
-  cancelBtnText: {
-    color: "#64748b",
-    fontWeight: "600",
-    textAlign: "center",
+  modalDescription: {
     fontSize: 16,
+    color: "#4b5563",
+    lineHeight: 24,
+    marginBottom: 24,
   },
-  confirmBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: COLORS.primary,
-    marginLeft: 10,
+  modalFooter: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12,
   },
-  confirmBtnText: {
+  secondaryBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "#f3f4f6", // Muted light grey
+    minWidth: 100,
+    alignItems: "center",
+  },
+  secondaryBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  primaryBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 14,
+    minWidth: 100,
+    alignItems: "center",
+  },
+  primaryBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
     color: "#fff",
-    fontWeight: "600",
-    textAlign: "center",
-    fontSize: 16,
   },
 });
