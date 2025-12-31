@@ -20,6 +20,8 @@ import {
   type BarcodeScanningResult,
 } from "expo-camera";
 import { assignFgLocation, type AssignLocationResponse } from "../../Api/Hooks/Usematerial_fg";
+import { clearMaterialFGData, loadMaterialFGData, saveMaterialFGData } from "../../Storage/material_fg_Storage";
+
 
 type ScanItem = {
   id: string;
@@ -137,8 +139,19 @@ const MaterialFGTransferScreen: React.FC = () => {
 
   useEffect(() => {
     const t = setTimeout(() => locationRef.current?.focus(), 200);
+    
+    // Load persisted data
+    const initStorage = async () => {
+      const storedData = await loadMaterialFGData();
+      if (storedData) {
+        setItems(storedData);
+      }
+    };
+    initStorage();
+
     return () => clearTimeout(t);
   }, []);
+
 
   const showMessage = (title: string, subtitle?: string, onOk?: () => void) =>
     setMessageDlg({ show: true, title, subtitle, onOk });
@@ -173,18 +186,22 @@ const MaterialFGTransferScreen: React.FC = () => {
       const newTimeISO = new Date().toISOString();
 
       if (existingIndex !== -1) {
-        setItems((prev) =>
-          prev.map((item, i) =>
+        setItems((prev) => {
+          const updated = prev.map((item, i) =>
             i === existingIndex ? { ...item, timeISO: newTimeISO } : item
-          )
-        );
+          );
+          saveMaterialFGData(updated);
+          return updated;
+        });
       } else {
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        setItems((prev) => [
-          { id, location: loc, soNumber: so, timeISO: newTimeISO },
-          ...prev,
-        ]);
+        setItems((prev) => {
+          const updated = [{ id, location: loc, soNumber: so, timeISO: newTimeISO }, ...prev];
+          saveMaterialFGData(updated);
+          return updated;
+        });
       }
+
 
       setSoNumber("");
       soRef.current?.focus();
@@ -201,13 +218,15 @@ const MaterialFGTransferScreen: React.FC = () => {
     }
   };
 
-  const clearForm = () => {
+  const clearForm = async () => {
     setLocation("");
     setSoNumber("");
     setItems([]);
+    await clearMaterialFGData();
     setConfirmClear(false);
     setTimeout(() => locationRef.current?.focus(), 50);
   };
+
 
   const openScanner = async (target: "location" | "so") => {
     if (!permission?.granted) {
@@ -264,18 +283,22 @@ const MaterialFGTransferScreen: React.FC = () => {
         );
         const newTimeISO = new Date().toISOString();
         if (existingIndex !== -1) {
-          setItems((prev) =>
-            prev.map((item, i) =>
+          setItems((prev) => {
+            const updated = prev.map((item, i) =>
               i === existingIndex ? { ...item, timeISO: newTimeISO } : item
-            )
-          );
+            );
+            saveMaterialFGData(updated);
+            return updated;
+          });
         } else {
           const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          setItems((prev) => [
-            { id, location: currentLoc, soNumber: so, timeISO: newTimeISO },
-            ...prev,
-          ]);
+          setItems((prev) => {
+            const updated = [{ id, location: currentLoc, soNumber: so, timeISO: newTimeISO }, ...prev];
+            saveMaterialFGData(updated);
+            return updated;
+          });
         }
+
         setSoNumber("");
         soRef.current?.focus();
       } catch (error: any) {

@@ -8,15 +8,17 @@ import {
   Modal,
   Pressable,
   FlatList,
-  SafeAreaView,
   ActivityIndicator,
   Animated,
   Dimensions,
+  Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { Ionicons } from "@expo/vector-icons";
 import { useVehicleEntry } from "../../Api/Hooks/UseVehicleEntry";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
 type Photo = {
   id: string;
@@ -38,6 +40,7 @@ type Attachment = {
 type UploadImagesProps = {
   vehicleEntryId: number | null;
   onUploadSuccess?: () => void;
+  renderTrigger?: (openModal: () => void) => React.ReactNode;
 };
 
 // Reusable Message Modal
@@ -49,7 +52,7 @@ const MessageModal: React.FC<{
   onClose: () => void;
 }> = ({ visible, type, title, message, onClose }) => {
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <Pressable style={styles.msgOverlay} onPress={onClose}>
         <View style={styles.msgContainer}>
           <Ionicons
@@ -71,8 +74,10 @@ const MessageModal: React.FC<{
 export default function UploadImages({
   vehicleEntryId,
   onUploadSuccess,
+  renderTrigger,
 }: UploadImagesProps) {
   const { uploadAttachments, fetchAttachments, uploadingAttachments, loadingAttachments } = useVehicleEntry();
+  const insets = useSafeAreaInsets();
 
   const [localPhotos, setLocalPhotos] = useState<Photo[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<Attachment[]>([]);
@@ -338,10 +343,10 @@ export default function UploadImages({
               item.status === "uploaded"
                 ? "#16A34A"
                 : item.status === "failed"
-                ? "#E11D48"
-                : item.status === "uploading"
-                ? "#FF9800"
-                : "#666",
+                  ? "#E11D48"
+                  : item.status === "uploading"
+                    ? "#FF9800"
+                    : "#666",
           }}
         >
           {item.status === "uploading" ? "Uploading..." : item.status.charAt(0).toUpperCase() + item.status.slice(1)}
@@ -374,12 +379,17 @@ export default function UploadImages({
 
   return (
     <>
-      <TouchableOpacity style={styles.mainAddBtn} onPress={() => setModalVisible(true)}>
-          <Ionicons name="attach-outline" size={26} color="#1976D2" />
-      </TouchableOpacity>
+      {renderTrigger ? (
+        renderTrigger(() => setModalVisible(true))
+      ) : (
+        <TouchableOpacity style={styles.mainAddBtn} onPress={() => setModalVisible(true)}>
+            <Ionicons name="attach-outline" size={26} color="#1976D2" />
+        </TouchableOpacity>
+      )}
 
-      <Modal visible={modalVisible} animationType="slide" transparent={false}>
-        <SafeAreaView style={styles.container}>
+      <Modal visible={modalVisible} animationType="slide" transparent={false} statusBarTranslucent>
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <StatusBar style="dark" />
           <View style={styles.header}>
             <TouchableOpacity onPress={() => setModalVisible(false)}>
               <Ionicons name="close" size={28} color="#000" />
@@ -448,9 +458,9 @@ export default function UploadImages({
             </>
           )}
 
-          <Modal visible={actionSheetVisible} transparent animationType="fade">
+          <Modal visible={actionSheetVisible} transparent animationType="fade" statusBarTranslucent>
             <Pressable style={styles.overlay} onPress={closeActionSheet}>
-              <Animated.View style={[styles.sheet, { transform: [{ translateY: slideAnim }] }]}>
+              <Animated.View style={[styles.sheet, { transform: [{ translateY: slideAnim }], paddingBottom: Math.max(insets.bottom, 20) }]}>
                 <Text style={styles.sheetTitle}>Add Photo</Text>
                 <TouchableOpacity style={styles.sheetItem} onPress={takePhoto}>
                   <Ionicons name="camera-outline" size={26} color="#5856D6" />
@@ -466,7 +476,7 @@ export default function UploadImages({
               </Animated.View>
             </Pressable>
           </Modal>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       <MessageModal
@@ -480,18 +490,14 @@ export default function UploadImages({
   );
 }
 
-// Styles remain unchanged
+// Styles
 const styles = StyleSheet.create({
-mainAddBtn: {
-  flexDirection: "row",
-  alignItems: "center",
-  backgroundColor: "transparent",
-  borderRadius: 0,
-  padding: 0,
-  margin: 10,
-  alignSelf: "flex-end",
-},
-
+  mainAddBtn: {
+    padding: 8,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   container: { flex: 1, backgroundColor: "#f8f9fa" },
   header: {
@@ -611,7 +617,7 @@ mainAddBtn: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 20,
-    paddingBottom: 40,
+    // paddingBottom will be set dynamically via style prop
   },
   sheetTitle: {
     fontSize: 18,

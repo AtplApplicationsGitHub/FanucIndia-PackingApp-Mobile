@@ -42,7 +42,7 @@ export default function VehicleEntryScreen() {
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [transporterName, setTransporterName] = useState('');
   const [driverNumber, setDriverNumber] = useState('');
-  const [photos, setPhotos] = useState<string[]>([]);
+
   const [savedEntryId, setSavedEntryId] = useState<number | null>(null);
   const [entrySaved, setEntrySaved] = useState(false);
   const [allPhotosUploaded, setAllPhotosUploaded] = useState(false);
@@ -53,7 +53,7 @@ export default function VehicleEntryScreen() {
   const [modalTitle, setModalTitle] = useState('');
   const [modalMessage, setModalMessage] = useState('');
   const [modalType, setModalType] = useState<'success' | 'error' | 'confirm'>('success');
-  const [onConfirm, setOnConfirm] = useState<() => void>(() => {}); // For confirmation modal
+  const [onConfirm, setOnConfirm] = useState<() => void>(() => { }); // For confirmation modal
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const customerInputRef = useRef<TextInput>(null);
@@ -68,7 +68,7 @@ export default function VehicleEntryScreen() {
         setVehicleNumber(draft.vehicleNumber || '');
         setTransporterName(draft.transporterName || '');
         setDriverNumber(draft.driverNumber || '');
-        setPhotos(draft.photos || []);
+
         setSavedEntryId(draft.savedEntryId || null);
         setEntrySaved(!!draft.savedEntryId);
         setAllPhotosUploaded(draft.allPhotosUploaded || false);
@@ -88,7 +88,7 @@ export default function VehicleEntryScreen() {
         vehicleNumber,
         transporterName,
         driverNumber,
-        photos,
+
         savedEntryId: savedEntryId || undefined,
         allPhotosUploaded: false,
       };
@@ -100,7 +100,7 @@ export default function VehicleEntryScreen() {
     vehicleNumber,
     transporterName,
     driverNumber,
-    photos,
+
     savedEntryId,
     allPhotosUploaded,
   ]);
@@ -137,7 +137,7 @@ export default function VehicleEntryScreen() {
     setModalType(type);
     setModalTitle(title);
     setModalMessage(message);
-    setOnConfirm(() => onConfirmAction || (() => {}));
+    setOnConfirm(() => onConfirmAction || (() => { }));
     setModalVisible(true);
 
     Animated.timing(fadeAnim, {
@@ -194,7 +194,7 @@ export default function VehicleEntryScreen() {
         setVehicleNumber('');
         setTransporterName('');
         setDriverNumber('');
-        setPhotos([]);
+
         setSavedEntryId(null);
         setEntrySaved(false);
         setAllPhotosUploaded(false);
@@ -208,8 +208,7 @@ export default function VehicleEntryScreen() {
   const handleUploadComplete = async () => {
     setAllPhotosUploaded(true);
     await clearDraftFromStorage();
-    setSaveDisabled(false); // Re-enable for new entry
-    showModal('success', 'All Done!', 'Vehicle entry and photos saved successfully.');
+    setSaveDisabled(false);
   };
 
   return (
@@ -325,17 +324,24 @@ export default function VehicleEntryScreen() {
             <Ionicons name="trash-outline" size={20} color="#fff" />
             <Text style={styles.btnText}>Clear All</Text>
           </TouchableOpacity>
+
+          {entrySaved && savedEntryId && (
+            <View style={styles.attachWrapper}>
+              <UploadImages
+                vehicleEntryId={savedEntryId}
+                onUploadSuccess={handleUploadComplete}
+                renderTrigger={(openModal) => (
+                  <TouchableOpacity style={styles.attachBtn} onPress={openModal}>
+                    <Ionicons name="attach-outline" size={26} color="#1976D2" />
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          )}
         </View>
 
         {/* Upload Section - shown only after entry is saved */}
-        {entrySaved && savedEntryId && (
-          <UploadImages
-            vehicleEntryId={savedEntryId}
-            photos={photos}
-            setPhotos={setPhotos}
-            onUploadSuccess={handleUploadComplete}
-          />
-        )}
+
 
         {error && !modalVisible && <Text style={styles.errorText}>{error}</Text>}
       </ScrollView>
@@ -346,7 +352,7 @@ export default function VehicleEntryScreen() {
           <Animated.View style={[styles.modalContent, { opacity: fadeAnim }]}>
             <Pressable>
               <View style={styles.modalHeader}>
-      
+
                 <Text style={styles.modalTitle}>{modalTitle}</Text>
               </View>
               <Text style={styles.modalMessage}>{modalMessage}</Text>
@@ -442,8 +448,18 @@ const styles = StyleSheet.create({
   },
   saveBtn: { backgroundColor: '#007AFF' },
   clearBtn: { backgroundColor: '#FF3B30' },
+  attachWrapper: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  attachBtn: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#E3F2FD', // Light blue background for the icon
+  },
   btnDisabled: { backgroundColor: '#aaa' },
-  btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  btnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   errorText: { color: '#d32f2f', marginTop: 6, fontSize: 13 },
 
   modalOverlay: {
@@ -482,10 +498,10 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     textAlign: 'center',
   },
-modalButtonRow: {
-  flexDirection: 'row',
-  gap: 12,
-},
+  modalButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
 
   modalButton: {
     flex: 1,

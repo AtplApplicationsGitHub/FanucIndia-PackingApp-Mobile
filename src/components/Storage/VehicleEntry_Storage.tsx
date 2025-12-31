@@ -11,7 +11,7 @@ export type VehicleDraft = {
   vehicleNumber: string;
   transporterName: string;
   driverNumber: string;
-  photos: string[]; // Array of local URI strings from ImagePicker
+
   savedEntryId?: number;
   allPhotosUploaded?: boolean;
 };
@@ -34,10 +34,7 @@ export const loadDraftFromStorage = async (): Promise<VehicleDraft | null> => {
     }
     const draft: VehicleDraft = JSON.parse(jsonValue);
 
-    // Ensure photos is always an array (in case of corrupted data)
-    if (!Array.isArray(draft.photos)) {
-      draft.photos = [];
-    }
+
 
     return draft;
   } catch (error) {

@@ -36,6 +36,7 @@ export type DispatchSOLink = {
 };
 
 export type DispatchAttachment = {
+  id?: string | number;
   fileName: string;
   path: string;
   mimeType: string;

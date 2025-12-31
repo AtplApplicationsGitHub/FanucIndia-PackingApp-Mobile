@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Pressable,
   FlatList,
-  SafeAreaView,
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
@@ -19,6 +18,8 @@ import {
   getAttachments,
   type DispatchAttachment,
 } from "../../Api/Hooks/Usematerial_dispatch";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_FILE_SIZE_MB = 10;
@@ -31,7 +32,7 @@ type Props = {
 };
 
 interface LocalFile {
-  id: string;
+  id: string | number;
   uri: string;
   name: string;
   type: string;
@@ -41,7 +42,7 @@ interface LocalFile {
 type AnyFile =
   | LocalFile
   | {
-      id: string;
+      id: string | number;
       name: string;
       status: "uploaded";
     };
@@ -55,7 +56,7 @@ const MessageModal: React.FC<{
   onClose: () => void;
 }> = ({ visible, type, title, message, onClose }) => {
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <Pressable style={styles.msgOverlay} onPress={onClose}>
         <View style={styles.msgContainer}>
           <Ionicons
@@ -80,6 +81,7 @@ const UploadModal: React.FC<Props> = ({
   onClose,
   onUploadSuccess,
 }) => {
+  const insets = useSafeAreaInsets();
   const [localFiles, setLocalFiles] = useState<LocalFile[]>([]);
   const [serverFiles, setServerFiles] = useState<DispatchAttachment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -318,7 +320,7 @@ const UploadModal: React.FC<Props> = ({
     }
   };
 
-  const removeFile = (id: string) => {
+  const removeFile = (id: string | number) => {
     setLocalFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
@@ -373,8 +375,9 @@ const UploadModal: React.FC<Props> = ({
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent={false}>
-        <SafeAreaView style={styles.container}>
+      <Modal visible={visible} animationType="slide" transparent={false} statusBarTranslucent>
+        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <StatusBar style="dark" />
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose}>
@@ -443,7 +446,7 @@ const UploadModal: React.FC<Props> = ({
               <FlatList
                 data={allFiles}
                 renderItem={renderItem}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item) => item.id.toString()}
                 style={{ flex: 1 }}
                 contentContainerStyle={{ paddingBottom: 20 }}
               />
@@ -451,12 +454,12 @@ const UploadModal: React.FC<Props> = ({
           )}
 
           {/* Action Sheet */}
-          <Modal visible={actionSheetVisible} transparent animationType="fade">
+          <Modal visible={actionSheetVisible} transparent animationType="fade" statusBarTranslucent>
             <Pressable
               style={styles.overlay}
               onPress={() => setActionSheetVisible(false)}
             >
-              <View style={styles.sheet}>
+              <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
                 <Text style={styles.sheetTitle}>Add Attachment</Text>
                 <TouchableOpacity style={styles.sheetItem} onPress={takePhoto}>
                   <Ionicons name="camera-outline" size={26} color="#5856D6" />
@@ -483,7 +486,7 @@ const UploadModal: React.FC<Props> = ({
               </View>
             </Pressable>
           </Modal>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* Custom Message Modal */}
@@ -621,7 +624,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 20,
-    paddingBottom: 40,
+    // paddingBottom dynamically set
   },
   sheetTitle: {
     fontSize: 18,

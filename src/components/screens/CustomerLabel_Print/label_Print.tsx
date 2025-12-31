@@ -322,6 +322,7 @@ export default function CustomerLabelPrint(): JSX.Element {
           `This SO belongs to a different customer.\n\nExpected: ${customerName}\nFound: ${newName}`,
           true
         );
+        setSoNumber("");
         focusInput();
         return;
       }
