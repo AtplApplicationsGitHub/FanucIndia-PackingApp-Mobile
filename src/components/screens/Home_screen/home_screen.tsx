@@ -6,7 +6,6 @@ import {
   StyleSheet,
   FlatList,
   Platform,
-  Switch,
 } from "react-native";
 import {
   useSafeAreaInsets,
@@ -97,6 +96,8 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   // Global keyboard toggle
   const [keyboardDisabled, setKeyboardDisabled] = useKeyboardDisabled();
 
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+
   // Update greeting every minute
   useEffect(() => {
     const tick = () => setGreeting(computeGreeting());
@@ -110,7 +111,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     if (byParams) setDisplayName(byParams);
   }, [route?.params]);
 
-  // Fallback to AsyncStorage
+  // Load User & Permissions from AsyncStorage
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -120,15 +121,15 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           AsyncStorage.getItem("username"),
           AsyncStorage.getItem("user"),
         ]);
-        const parsedUser = k3
-          ? (() => {
-              try {
-                return JSON.parse(k3);
-              } catch {
-                return null;
-              }
-            })()
-          : null;
+        
+        let parsedUser: any = null;
+        if (k3) {
+          try {
+            parsedUser = JSON.parse(k3);
+          } catch {
+            parsedUser = null;
+          }
+        }
 
         const fromStorage =
           (k1 && k1.trim()) ||
@@ -137,8 +138,39 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           (parsedUser?.username as string) ||
           (parsedUser?.email as string);
 
-        if (mounted && fromStorage && !route?.params) {
-          setDisplayName(String(fromStorage).trim());
+        if (mounted) {
+          if (fromStorage && !route?.params) {
+            setDisplayName(String(fromStorage).trim());
+          }
+
+          // Filter Menu based on permissions
+          // If no user object is found, default to SHOW ALL or HIDE ALL? 
+          // Usually better to hide all or show login. Assuming if logged in, we have user object.
+          // If parsedUser is null (legacy login?), we might want to show all or handle gracefully.
+          // For now, if no flags are present, we might show all (backward compatibility) OR hide.
+          // The prompt implies strict access control. 
+          // Let's assume: if user object exists, follow flags. If not, show empty or default.
+          
+          if (parsedUser) {
+            const newMenu = MENU.filter((item) => {
+              switch (item.id) {
+                case "customer":
+                  return !!parsedUser.accessLabelPrint;
+                case "transfer":
+                  return !!parsedUser.accessMaterialFgTransfer;
+                case "dispatch":
+                  return !!parsedUser.accessMaterialDispatch;
+                case "vehicle":
+                  return !!parsedUser.accessVehicleEntry;
+                default:
+                  return false;
+              }
+            });
+            setMenuItems(newMenu);
+          } else {
+             // Fallback if no user object (shouldn't happen on fresh login)
+            setMenuItems([]); 
+          }
         }
       } catch {
         // ignore
@@ -240,12 +272,21 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         </View>
 
         <FlatList
-          data={MENU}
+          data={menuItems}
           keyExtractor={(it) => it.id}
           contentContainerStyle={{
             paddingVertical: 8,
             paddingBottom: 16 + insets.bottom,
+            flexGrow: 1,
+            justifyContent: menuItems.length === 0 ? "center" : undefined,
           }}
+          ListEmptyComponent={
+            <View style={{ padding: 20, alignItems: "center" }}>
+              <Text style={{ color: "#DC2626", fontSize: 10, fontWeight: "600", textAlign: "center" }}>
+                No modules available. Please contact admin.
+              </Text>
+            </View>
+          }
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.card}

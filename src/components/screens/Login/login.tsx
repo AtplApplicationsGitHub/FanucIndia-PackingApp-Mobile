@@ -114,12 +114,15 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
         throw new Error(result?.message || "Login failed (no token in response).");
       }
 
-      const userData = (result as any)?.data?.user;
+      const userData = (result as any)?.data?.user || result?.user;
       const displayName =
         userData?.name || userData?.displayName || userData?.username || email.trim();
 
       await SecureStore.setItemAsync("authToken", String(token));
       await AsyncStorage.setItem("displayName", String(displayName));
+      if (userData) {
+        await AsyncStorage.setItem("user", JSON.stringify(userData));
+      }
 
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (err: any) {

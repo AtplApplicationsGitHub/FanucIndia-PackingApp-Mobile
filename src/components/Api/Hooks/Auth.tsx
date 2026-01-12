@@ -19,12 +19,28 @@ async function parseErrorBody(res: Response) {
   }
 }
 
+export type UserData = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  accessLabelPrint: boolean;
+  accessMaterialFgTransfer: boolean;
+  accessMaterialDispatch: boolean;
+  accessVehicleEntry: boolean;
+};
+
 export type LoginResponse = {
   token?: string;
   accessToken?: string;
   success?: boolean;
   message?: string;
-  data?: any;
+  data?: {
+    user: UserData;
+    token?: string;
+    accessToken?: string;
+  };
+  user?: UserData; // Sometimes it might be at root
 };
 
 export async function loginApiWithEmail(email: string, password: string): Promise<LoginResponse> {
