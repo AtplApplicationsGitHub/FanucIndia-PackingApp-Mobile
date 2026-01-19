@@ -1,5 +1,5 @@
 // src/screens/VehicleEntry.tsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -57,6 +57,25 @@ export default function VehicleEntryScreen() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const customerInputRef = useRef<TextInput>(null);
+
+  // Filter and sort customers: ensure matches starting with query appear at the top
+  const sortedCustomers = useMemo(() => {
+    if (!customers || customers.length === 0) return [];
+    
+    const query = customerQuery.trim().toLowerCase();
+    if (!query) return customers;
+
+    return [...customers].sort((a, b) => {
+      const nameA = a.name.toLowerCase();
+      const nameB = b.name.toLowerCase();
+      const startsWithA = nameA.startsWith(query);
+      const startsWithB = nameB.startsWith(query);
+
+      if (startsWithA && !startsWithB) return -1;
+      if (!startsWithA && startsWithB) return 1;
+      return 0; 
+    });
+  }, [customers, customerQuery]);
 
   // Load draft on mount
   useEffect(() => {
@@ -216,7 +235,10 @@ export default function VehicleEntryScreen() {
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView 
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Customer Search */}
         <TextInput
           ref={customerInputRef}
@@ -239,12 +261,13 @@ export default function VehicleEntryScreen() {
         )}
 
         {/* Customer Dropdown List */}
-        {customers.length > 0 && !selectedCustomer && (
+        {sortedCustomers.length > 0 && !selectedCustomer && (
           <View style={styles.dropdownContainer}>
             <FlatList
-              data={customers}
+              data={sortedCustomers}
               keyExtractor={(item) => item.id.toString()}
               keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled={true}
               showsVerticalScrollIndicator={true}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -285,9 +308,7 @@ export default function VehicleEntryScreen() {
           maxLength={10}
           onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ''))}
         />
-        {!isDriverValid(driverNumber) && driverNumber.length > 0 && (
-          <Text style={styles.errorText}>Enter 10 digits</Text>
-        )}
+
 
         {/* Transporter Name */}
         <TextInput

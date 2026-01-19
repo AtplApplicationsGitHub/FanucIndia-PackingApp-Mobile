@@ -161,7 +161,7 @@ const MaterialDispatchScreen: React.FC = () => {
 
     if (!expanded) {
       setTimeout(() => {
-        soRef.current?.focus();
+        transporterRef.current?.focus();
       }, 350);
     }
   };
