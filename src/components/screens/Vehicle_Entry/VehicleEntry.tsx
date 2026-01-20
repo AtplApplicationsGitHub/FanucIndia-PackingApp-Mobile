@@ -226,7 +226,6 @@ export default function VehicleEntryScreen() {
 
   const handleUploadComplete = async () => {
     setAllPhotosUploaded(true);
-    await clearDraftFromStorage();
     setSaveDisabled(false);
   };
 
@@ -362,8 +361,6 @@ export default function VehicleEntryScreen() {
         </View>
 
         {/* Upload Section - shown only after entry is saved */}
-
-
         {error && !modalVisible && <Text style={styles.errorText}>{error}</Text>}
       </ScrollView>
 

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import * as DocumentPicker from "expo-document-picker";
+
 import {
   uploadAttachments,
   getAttachments,
@@ -20,8 +20,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+const MAX_FILE_SIZE_MB = 50;
 
 type Props = {
   visible: boolean;
@@ -188,14 +188,30 @@ const UploadModal: React.FC<Props> = ({
       quality: 0.8,
     });
     if (!result.canceled && result.assets) {
-      handlePickedFiles(
-        result.assets.map((a) => ({
+      const existing = getAllExistingNames();
+
+      const formattedAssets = result.assets.map((a) => {
+        let i = 1;
+        let candidate = "";
+        // Find the next available IMG_X.jpg
+        while (true) {
+          candidate = `IMG_${i}.jpg`;
+          if (!existing.has(candidate.toLowerCase())) {
+            existing.add(candidate.toLowerCase());
+            break;
+          }
+          i++;
+        }
+
+        return {
           uri: a.uri,
-          name: a.fileName || `image_${Date.now()}.jpg`,
+          name: candidate,
           type: a.mimeType || "image/jpeg",
           size: a.fileSize,
-        }))
-      );
+        };
+      });
+
+      handlePickedFiles(formattedAssets);
     }
     setActionSheetVisible(false);
   };
@@ -230,27 +246,7 @@ const UploadModal: React.FC<Props> = ({
     setActionSheetVisible(false);
   };
 
-  const pickDocument = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        multiple: true,
-        copyToCacheDirectory: true,
-      });
-      if (!result.canceled && result.assets) {
-        handlePickedFiles(
-          result.assets.map((f) => ({
-            uri: f.uri,
-            name: f.name,
-            type: f.mimeType || "application/octet-stream",
-            size: f.size,
-          }))
-        );
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    setActionSheetVisible(false);
-  };
+
 
   const handlePickedFiles = (assets: any[]) => {
     const valid = assets.filter((f) => !f.size || f.size <= MAX_FILE_SIZE);

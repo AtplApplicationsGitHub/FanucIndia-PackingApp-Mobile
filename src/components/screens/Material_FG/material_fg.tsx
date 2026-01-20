@@ -379,12 +379,12 @@ const MaterialFGTransferScreen: React.FC = () => {
 
             <View style={styles.buttonsRow}>
               <TouchableOpacity style={styles.btnPrimary} onPress={addItem} activeOpacity={0.85}>
-                <Ionicons name="save-outline" size={18} color="#FFFFFF" />
+                <Ionicons name="save-outline" size={16} color="#FFFFFF" />
                 <Text style={styles.btnPrimaryText}>Save</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.btnGhost} onPress={() => setConfirmClear(true)} activeOpacity={0.85}>
-                <Ionicons name="close-circle-outline" size={18} color={COLORS.accent} />
+                <Ionicons name="close-circle-outline" size={16} color={COLORS.accent} />
                 <Text style={styles.btnGhostText}>Clear</Text>
               </TouchableOpacity>
             </View>
@@ -553,16 +553,16 @@ const styles = StyleSheet.create({
 
   buttonsRow: { flexDirection: "row", gap: 10, marginTop: 2 },
   btnPrimary: {
-    flex: 1, height: 48, borderRadius: 12, backgroundColor: COLORS.accent,
-    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8,
+    flex: 1, height: 40, borderRadius: 10, backgroundColor: COLORS.accent,
+    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6,
   },
-  btnPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 16 },
+  btnPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
   btnGhost: {
-    flex: 1, height: 48, borderRadius: 12, backgroundColor: "#F3F4F6",
-    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8,
+    flex: 1, height: 40, borderRadius: 10, backgroundColor: "#F3F4F6",
+    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6,
     borderWidth: 1, borderColor: COLORS.border,
   },
-  btnGhostText: { color: COLORS.accent, fontWeight: "700", fontSize: 16 },
+  btnGhostText: { color: COLORS.accent, fontWeight: "700", fontSize: 14 },
 
   tableCard: {
     flex: 1,

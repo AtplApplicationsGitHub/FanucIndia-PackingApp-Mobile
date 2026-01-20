@@ -150,31 +150,11 @@ export default function UploadImages({
     }
   };
 
-  const getUniqueName = (baseName: string): string => {
-    const allNames = [
-      ...existingAttachments.map((a) => a.fileName),
-      ...localPhotos.map((p) => p.name),
-    ];
-    let name = baseName;
-    let i = 1;
-    while (allNames.includes(name)) {
-      const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
-      const withoutExt = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
-      name = `${withoutExt}(${i})${ext}`;
-      i++;
-    }
-    return name;
-  };
-
-  const getNextCameraPhotoName = (): string => {
-    const allNames = [
-      ...existingAttachments.map((a) => a.fileName),
-      ...localPhotos.map((p) => p.name),
-    ];
+  const getNextImageName = (usedNames: Set<string>): string => {
     let i = 1;
     while (true) {
-      const name = `photo${i}.jpg`;
-      if (!allNames.includes(name)) return name;
+      const name = `IMG_${i}.jpg`;
+      if (!usedNames.has(name)) return name;
       i++;
     }
   };
@@ -190,7 +170,13 @@ export default function UploadImages({
 
     if (!result.canceled && result.assets?.[0]) {
       const asset = result.assets[0];
-      const nextName = getNextCameraPhotoName();
+      
+      const usedNames = new Set([
+        ...existingAttachments.map((a) => a.fileName),
+        ...localPhotos.map((p) => p.name),
+      ]);
+      const nextName = getNextImageName(usedNames);
+      
       const compressed = await compressImage(asset.uri, nextName);
       const newPhoto: Photo = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -214,16 +200,26 @@ export default function UploadImages({
     });
 
     if (!result.canceled && result.assets) {
-      const compressedPhotos = await Promise.all(
-        result.assets.map((asset) => compressImage(asset.uri, asset.fileName || undefined))
-      );
+      const usedNames = new Set([
+        ...existingAttachments.map((a) => a.fileName),
+        ...localPhotos.map((p) => p.name),
+      ]);
 
-      const newPhotos: Photo[] = compressedPhotos.map((photo, i) => ({
-        id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
-        ...photo,
-        name: getUniqueName(photo.name),
-        status: "pending",
-      }));
+      const newPhotos: Photo[] = [];
+      
+      for (let i = 0; i < result.assets.length; i++) {
+        const asset = result.assets[i];
+        const nextName = getNextImageName(usedNames);
+        usedNames.add(nextName);
+
+        const compressed = await compressImage(asset.uri, nextName);
+        newPhotos.push({
+          id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
+          ...compressed,
+          name: compressed.name,
+          status: "pending",
+        });
+      }
 
       setLocalPhotos((prev) => [...newPhotos, ...prev]);
       setActionSheetVisible(false);
