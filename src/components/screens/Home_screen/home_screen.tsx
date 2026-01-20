@@ -19,7 +19,7 @@ import type { RootStackParamList } from "../../../../App";
 import { useKeyboardDisabled } from "../../utils/keyboard";
 
 type MenuItem = {
-  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle";
+  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle" | "location_accuracy" | "content_accuracy" | "put_away";
   title: string;
   subtitle: string;
   iconName: string;
@@ -65,7 +65,24 @@ const MENU: MenuItem[] = [
     subtitle: "Ready for shipment",
     iconName: "truck-outline",
   },
-  
+  // {
+  //   id: "location_accuracy",
+  //   title: "Location Accuracy",
+  //   subtitle: "Check location accuracy",
+  //   iconName: "target",
+  // },
+  // {
+  //   id: "content_accuracy",
+  //   title: "Content Accuracy",
+  //   subtitle: "Verify content details",
+  //   iconName: "checkbox-marked-circle-outline",
+  // },
+  // {
+  //   id: "put_away",
+  //   title: "Put Away Location",
+  //   subtitle: "Store items in location",
+  //   iconName: "arrow-down-bold-box-outline",
+  // },
 ];
 
 function pickBestName(input?: {
@@ -162,6 +179,10 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                   return !!parsedUser.accessMaterialDispatch;
                 case "vehicle":
                   return !!parsedUser.accessVehicleEntry;
+                case "location_accuracy":
+                case "content_accuracy":
+                case "put_away":
+                    return true;
                 default:
                   return false;
               }
@@ -197,6 +218,11 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         break;
       case "vehicle":
         navigation.navigate("VehicleEntry");
+        break;
+      case "location_accuracy":
+      case "content_accuracy":
+      case "put_away":
+        console.log("Dummy item clicked:", item.id);
         break;
       default:
         console.warn("Unknown menu item:", item.id);
@@ -272,6 +298,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         </View>
 
         <FlatList
+          style={{ flex: 1 }}
           data={menuItems}
           keyExtractor={(it) => it.id}
           contentContainerStyle={{
@@ -311,6 +338,20 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={Platform.OS === "android"}
         />
+        <View style={{ alignItems: "center", paddingVertical: 10 }}>
+          <TouchableOpacity
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              backgroundColor: "#E5E7EB",
+              borderRadius: 20,
+            }}
+          >
+            <Text style={{ fontSize: 12, color: "#6B7280", fontWeight: "600" }}>
+              Vr:0.02
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -325,7 +366,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 56,
+    minHeight: 48,
     ...Platform.select({
       android: { elevation: 2 },
       ios: {
@@ -369,12 +410,12 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   logoutText: { color: HEADER_TEXT, fontSize: 13, fontWeight: "700" },
-  content: { flex: 1, paddingHorizontal: 12, paddingTop: 16 },
+  content: { flex: 1, paddingHorizontal: 12, paddingTop: 4 },
   greetingContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 6,
   },
   greeting: { fontSize: 18, color: BODY_TEXT },
   toggleRow: {
@@ -393,9 +434,9 @@ const styles = StyleSheet.create({
     gap: 12,
     backgroundColor: CARD_BG,
     paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingVertical: 10,
     borderRadius: 16,
-    marginVertical: 8,
+    marginVertical: 4,
     shadowColor: "#000",
     shadowOpacity: 0.08,
     shadowRadius: 8,

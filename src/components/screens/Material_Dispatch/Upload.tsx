@@ -1,4 +1,3 @@
-// UploadModal.tsx
 import React, { useState, useEffect } from "react";
 import {
   Modal,
@@ -123,24 +122,53 @@ const UploadModal: React.FC<Props> = ({
     }
   };
 
+  // Helper to normalize names for comparison (case-insensitive)
+  const getAllExistingNames = () => {
+    return new Set([
+      ...serverFiles.map((f) => (f.fileName || "").toLowerCase()),
+      ...localFiles.map((f) => f.name.toLowerCase()),
+    ]);
+  };
+
+  // Ensures a unique name for any file (e.g., handles duplicates by appending (1), (2))
   const getUniqueName = (baseName: string): string => {
-    const allNames = [
-      ...serverFiles.map((f) => f.fileName || ""),
-      ...localFiles.map((f) => f.name),
-    ];
-    let name = baseName;
+    const existing = getAllExistingNames();
+
+    if (!existing.has(baseName.toLowerCase())) {
+      return baseName;
+    }
+
+    // Split name and extension
+    let namePart = baseName;
+    let extPart = "";
+    const lastDotIndex = baseName.lastIndexOf(".");
+    
+    if (lastDotIndex !== -1) {
+      namePart = baseName.substring(0, lastDotIndex);
+      extPart = baseName.substring(lastDotIndex);
+    }
+
     let i = 1;
-    while (allNames.includes(name)) {
-      const ext = baseName.includes(".")
-        ? baseName.slice(baseName.lastIndexOf("."))
-        : "";
-      const withoutExt = baseName.includes(".")
-        ? baseName.slice(0, baseName.lastIndexOf("."))
-        : baseName;
-      name = `${withoutExt}(${i})${ext}`;
+    while (true) {
+      const candidate = `${namePart}(${i})${extPart}`;
+      if (!existing.has(candidate.toLowerCase())) {
+        return candidate;
+      }
       i++;
     }
-    return name;
+  };
+
+  // Specifically for Camera: generates photo1.jpg, photo2.jpg, etc.
+  const getNextPhotoName = () => {
+    const existing = getAllExistingNames();
+    let i = 1;
+    while (true) {
+      const candidate = `photo${i}.jpg`;
+      if (!existing.has(candidate.toLowerCase())) {
+        return candidate;
+      }
+      i++;
+    }
   };
 
   const pickFromGallery = async () => {
@@ -184,12 +212,16 @@ const UploadModal: React.FC<Props> = ({
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    
     if (!result.canceled && result.assets?.[0]) {
       const a = result.assets[0];
+      // Force 'photoX.jpg' naming for camera
+      const name = getNextPhotoName();
+      
       handlePickedFiles([
         {
           uri: a.uri,
-          name: a.fileName || `photo_${Date.now()}.jpg`,
+          name: name,
           type: a.mimeType || "image/jpeg",
           size: a.fileSize,
         },
@@ -231,7 +263,6 @@ const UploadModal: React.FC<Props> = ({
         )
         .join("\n");
 
-      // CLIENT-SIDE "File Too Large" popup
       setMsgModal({
         visible: true,
         type: "error",
@@ -242,15 +273,21 @@ const UploadModal: React.FC<Props> = ({
 
     if (valid.length === 0) return;
 
-    const newFiles: LocalFile[] = valid.map((f, i) => ({
-      id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
-      uri: f.uri,
-      name: getUniqueName(f.name || `file_${i}`),
-      type: f.type || "application/octet-stream",
-      status: "pending",
-    }));
+    const newFiles: LocalFile[] = valid.map((f, i) => {
+      // If we provided a specific name (like from camera), try to keep it. 
+      // getUniqueName will just verify it's free, or append (1) if collision occurred in the split second.
+      const safeName = getUniqueName(f.name || `file_${i}`);
+      
+      return {
+        id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
+        uri: f.uri,
+        name: safeName,
+        type: f.type || "application/octet-stream", // Ensure type is present
+        status: "pending",
+      };
+    });
 
-    // 👉 New files on TOP of the list
+    // New files added to the TOP
     setLocalFiles((prev) => [...newFiles, ...prev]);
   };
 
@@ -279,7 +316,6 @@ const UploadModal: React.FC<Props> = ({
         await loadServerFiles();
         onUploadSuccess?.();
 
-        // SUCCESS POPUP
         setMsgModal({
           visible: true,
           type: "success",
@@ -324,9 +360,7 @@ const UploadModal: React.FC<Props> = ({
     setLocalFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  // 👉 No sorting / assigning order format. Just keep natural order:
-  // - Local (new files first, because of handlePickedFiles)
-  // - Then server files
+  // Combine lists for display
   const allFiles: AnyFile[] = [
     ...localFiles,
     ...serverFiles.map((f) => ({
@@ -357,16 +391,19 @@ const UploadModal: React.FC<Props> = ({
                 : item.status === "uploading"
                 ? "#FF9800"
                 : "#666",
+            marginRight: 12,
           }}
         >
-          {item.status === "uploading" ? "Uploading..." : item.status}
+          {item.status === "uploading"
+            ? "Uploading..."
+            : item.status.charAt(0).toUpperCase() + item.status.slice(1)}
         </Text>
         {"uri" in item && item.status === "pending" && (
           <TouchableOpacity
             onPress={() => removeFile(item.id)}
             disabled={uploading}
           >
-            <Ionicons name="close-circle" size={22} color="#E11D48" />
+            <Ionicons name="close-circle" size={24} color="#E11D48" />
           </TouchableOpacity>
         )}
       </View>
@@ -472,11 +509,6 @@ const UploadModal: React.FC<Props> = ({
                   <Ionicons name="images-outline" size={26} color="#16A34A" />
                   <Text style={styles.sheetText}>Choose from Gallery</Text>
                 </TouchableOpacity>
-                {/* Enable documents when needed */}
-                {/* <TouchableOpacity style={styles.sheetItem} onPress={pickDocument}>
-                  <Ionicons name="document-outline" size={26} color="#F59E0B" />
-                  <Text style={styles.sheetText}>Browse Files</Text>
-                </TouchableOpacity> */}
                 <TouchableOpacity
                   style={[styles.sheetItem, styles.cancel]}
                   onPress={() => setActionSheetVisible(false)}
@@ -585,7 +617,8 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 12,
     color: "#546E7A",
-    textAlign: "center",
+    textAlign: "right",
+    paddingRight: 36,
   },
 
   row: {
@@ -601,8 +634,9 @@ const styles = StyleSheet.create({
   statusCell: {
     flex: 2,
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     alignItems: "center",
+    paddingRight: 10,
   },
 
   empty: { flex: 1, justifyContent: "center", alignItems: "center" },

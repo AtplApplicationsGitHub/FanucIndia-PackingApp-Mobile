@@ -427,6 +427,7 @@ export default function CustomerLabelPrint(): JSX.Element {
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
 
       {/* Input + Print Button */}
+      {/* Input + Print Button */}
       <View style={styles.inputCard}>
         <View style={styles.inputRow}>
           <View style={styles.inputFieldWrapper}>
@@ -446,35 +447,34 @@ export default function CustomerLabelPrint(): JSX.Element {
             <Pressable onPress={openScanner} disabled={isLoading} style={styles.scanBtn}>
               <MaterialCommunityIcons
                 name="qrcode-scan"
-                size={24}
+                size={22}
                 color={isLoading ? "#ccc" : COLORS.accent}
               />
             </Pressable>
-            <TouchableOpacity
-              onPress={() => addSO()}
-              disabled={isLoading || !soNumber.trim()}
-              style={[
-                styles.btnSmall,
-                styles.saveBtn,
-                (isLoading || !soNumber.trim()) && styles.btnDisabled,
-              ]}
-            >
-              <Text style={styles.saveBtnText}>
-                {/* we no longer show 'Verifying...' to avoid blocking */}
-                Add
-              </Text>
-            </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            onPress={() => addSO()}
+            disabled={isLoading || !soNumber.trim()}
+            style={[
+              styles.iconBtn,
+              { backgroundColor: COLORS.success }, // Add button color
+              (isLoading || !soNumber.trim()) && styles.btnDisabled,
+            ]}
+          >
+            <Ionicons name="add" size={24} color="#fff" />
+          </TouchableOpacity>
 
           <TouchableOpacity
             onPress={onPrint}
             disabled={isLoading || sos.length === 0}
             style={[
-              styles.printBtnRight,
+              styles.iconBtn,
+              { backgroundColor: COLORS.primary }, // Print button color
               (isLoading || sos.length === 0) && styles.btnDisabled,
             ]}
           >
-            <Ionicons name="print" size={20} color="#fff" />
+            <Ionicons name="print" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -578,111 +578,104 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bg,
-    padding: 17,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
   inputCard: {
     backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 12,
+    padding: 12,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 5,
-    marginTop: 10,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 4,
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 10,
   },
   inputFieldWrapper: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#f8fafc",
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#e2e8f0",
     paddingLeft: 8,
-    height: 54,
-    marginRight: 12,
+    height: 48,
   },
-  input: { flex: 1, fontSize: 17, color: "#1f2937", paddingVertical: 0 },
-  scanBtn: { padding: 10 },
-  btnSmall: {
-    marginLeft: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+  input: { flex: 1, fontSize: 16, color: "#1f2937", paddingVertical: 0 },
+  scanBtn: { padding: 8 },
+  iconBtn: {
+    width: 48,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 10,
   },
-  saveBtn: { backgroundColor: COLORS.success },
   btnDisabled: { opacity: 0.6 },
   saveBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
-  printBtnRight: {
-    backgroundColor: COLORS.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-  printBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  // Removed old button styles (btnSmall, saveBtn, printBtnRight, printBtnText)
+
   customerCard: {
-    marginTop: 16,
+    marginTop: 10,
     backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 3,
-    borderLeftWidth: 5,
-    borderLeftColor: COLORS.success,
-  },
-  fixedField: { flexDirection: "row", alignItems: "flex-start" },
-  fixedLabel: { fontSize: 15, color: "#64748b", width: 80, fontWeight: "600" },
-  fixedValue: { fontSize: 15, color: "#1e293b", fontWeight: "500", flex: 1 },
-  tableCard: {
-    flex: 1,
-    marginTop: 16,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    overflow: "hidden",
-    elevation: 3,
+    borderRadius: 12,
+    padding: 12,
     shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 8,
+    elevation: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.success,
+  },
+  fixedField: { flexDirection: "row", alignItems: "flex-start" },
+  fixedLabel: { fontSize: 14, color: "#64748b", width: 75, fontWeight: "600" },
+  fixedValue: { fontSize: 14, color: "#1e293b", fontWeight: "500", flex: 1 },
+  tableCard: {
+    flex: 1,
+    marginTop: 10,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
   },
   tableHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: "#f8fafc",
     borderBottomWidth: 1,
     borderBottomColor: "#e2e8f0",
   },
-  headerText: { fontSize: 15, fontWeight: "700", color: "#475569" },
+  headerText: { fontSize: 14, fontWeight: "700", color: "#475569" },
   clearHeaderBtn: {
     backgroundColor: "#fee2e2",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: "#fecaca",
   },
-  clearHeaderText: { color: COLORS.danger, fontWeight: "600", fontSize: 14 },
+  clearHeaderText: { color: COLORS.danger, fontWeight: "600", fontSize: 13 },
   row: {
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  soText: { fontSize: 18, fontWeight: "600", color: "#1d4ed8", flex: 1 },
+  soText: { fontSize: 16, fontWeight: "600", color: "#1d4ed8", flex: 1 },
   deleteBtn: { padding: 8 },
   separator: { height: 1, backgroundColor: "#f1f5f9", marginHorizontal: 16 },
   emptyText: {

@@ -166,6 +166,19 @@ export default function UploadImages({
     return name;
   };
 
+  const getNextCameraPhotoName = (): string => {
+    const allNames = [
+      ...existingAttachments.map((a) => a.fileName),
+      ...localPhotos.map((p) => p.name),
+    ];
+    let i = 1;
+    while (true) {
+      const name = `photo${i}.jpg`;
+      if (!allNames.includes(name)) return name;
+      i++;
+    }
+  };
+
   const takePhoto = async () => {
     const hasPerm = await requestPermissions();
     if (!hasPerm) return;
@@ -177,11 +190,12 @@ export default function UploadImages({
 
     if (!result.canceled && result.assets?.[0]) {
       const asset = result.assets[0];
-      const compressed = await compressImage(asset.uri, asset.fileName || undefined);
+      const nextName = getNextCameraPhotoName();
+      const compressed = await compressImage(asset.uri, nextName);
       const newPhoto: Photo = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         ...compressed,
-        name: getUniqueName(compressed.name),
+        name: compressed.name,
         status: "pending",
       };
       setLocalPhotos((prev) => [newPhoto, ...prev]);

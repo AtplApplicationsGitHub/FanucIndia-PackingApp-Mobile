@@ -288,9 +288,17 @@ export async function deleteSalesOrderLink(
 }
 
 // UPLOAD MULTIPLE ATTACHMENTS
+export type FileUploadSpec = {
+  uri: string;
+  name: string;
+  type?: string;
+  mimeType?: string;
+};
+
+// UPLOAD MULTIPLE ATTACHMENTS
 export async function uploadAttachments(
   dispatchId: string,
-  files: DocumentPicker.DocumentPickerAsset[],
+  files: FileUploadSpec[],
   opts?: { token?: string }
 ): Promise<ApiResult> {
   const token = opts?.token ?? (await getToken());
@@ -303,7 +311,7 @@ export async function uploadAttachments(
     formData.append("attachments", {
       uri: file.uri,
       name: file.name || `file_${i}`,
-      type: file.mimeType || "application/octet-stream",
+      type: file.type || file.mimeType || "application/octet-stream",
     } as any);
   });
 
