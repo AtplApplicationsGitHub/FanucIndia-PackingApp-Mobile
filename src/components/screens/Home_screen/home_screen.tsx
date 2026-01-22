@@ -77,12 +77,12 @@ const MENU: MenuItem[] = [
   //   subtitle: "Verify content details",
   //   iconName: "checkbox-marked-circle-outline",
   // },
-  // {
-  //   id: "put_away",
-  //   title: "Put Away Location",
-  //   subtitle: "Store items in location",
-  //   iconName: "arrow-down-bold-box-outline",
-  // },
+  {
+    id: "put_away",
+    title: "Put Away Location",
+    subtitle: "Store items in location",
+    iconName: "arrow-down-bold-box-outline",
+  },
 ];
 
 function pickBestName(input?: {
@@ -160,13 +160,6 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             setDisplayName(String(fromStorage).trim());
           }
 
-          // Filter Menu based on permissions
-          // If no user object is found, default to SHOW ALL or HIDE ALL? 
-          // Usually better to hide all or show login. Assuming if logged in, we have user object.
-          // If parsedUser is null (legacy login?), we might want to show all or handle gracefully.
-          // For now, if no flags are present, we might show all (backward compatibility) OR hide.
-          // The prompt implies strict access control. 
-          // Let's assume: if user object exists, follow flags. If not, show empty or default.
           
           if (parsedUser) {
             const newMenu = MENU.filter((item) => {
@@ -222,7 +215,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       case "location_accuracy":
       case "content_accuracy":
       case "put_away":
-        console.log("Dummy item clicked:", item.id);
+        navigation.navigate("PutAway");
         break;
       default:
         console.warn("Unknown menu item:", item.id);
@@ -283,18 +276,35 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             <Text style={{ fontWeight: "700" }}>{username}</Text>
           </Text>
 
-          {/* <View style={styles.toggleRow}>
+          <View style={styles.toggleRow}>
             <Text style={styles.toggleLabel}>
               {keyboardDisabled ? "Scan Only" : "Keyboard"}
             </Text>
-            <Switch
-              value={!keyboardDisabled}
-              onValueChange={(val) => setKeyboardDisabled(!val)}
-              trackColor={{ false: "#DC2626", true: PRIMARY }}
-              thumbColor={keyboardDisabled ? "#991B1B" : "#FFFFFF"}
-              ios_backgroundColor="#3e3e3e"
-            />
-          </View> */}
+            <TouchableOpacity 
+                activeOpacity={0.8}
+                onPress={() => setKeyboardDisabled(!keyboardDisabled)}
+                style={{
+                  width: 52,
+                  height: 30,
+                  borderRadius: 15,
+                  borderWidth: 2,
+                  borderColor: !keyboardDisabled ? PRIMARY : "#9CA3AF",
+                  backgroundColor: "transparent",
+                  justifyContent: "center",
+                  paddingHorizontal: 3,
+                  alignItems: !keyboardDisabled ? "flex-end" : "flex-start",
+                }}
+            >
+              <View 
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  backgroundColor: !keyboardDisabled ? PRIMARY : "#9CA3AF",
+                }} 
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <FlatList
