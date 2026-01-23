@@ -205,6 +205,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   
   // Multi-scan state (same as putaway)
   const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
+  const [scanStatus, setScanStatus] = useState<{ message: string; color: string } | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
   const sessionCodesRef = useRef<Set<string>>(new Set());
 
@@ -377,6 +378,12 @@ export default function CustomerLabelPrint(): JSX.Element {
     if (sessionCodesRef.current.has(value)) {
       return;
     }
+
+    // Check if already in list to avoid "Duplicate" spam
+    if (sos.some((item) => item.soNumber === value.toUpperCase())) {
+        sessionCodesRef.current.add(value);
+        return;
+    }
     
     // Add to session set to prevent immediate re-scan
     sessionCodesRef.current.add(value);
@@ -387,10 +394,10 @@ export default function CustomerLabelPrint(): JSX.Element {
     setSessionCount(prev => prev + 1);
 
     // Call addSO (async)
-    addSO(value);
+    addSO(value, true);
   };
 
-  const addSO = async (value?: string) => {
+  const addSO = async (value?: string, fromScanner = false) => {
     // Keyboard.dismiss(); // Not needed if we want to handle focus manually or let default behavior happen
     const soToAdd = (value || soNumber).trim().toUpperCase();
     if (!soToAdd) {
@@ -400,6 +407,10 @@ export default function CustomerLabelPrint(): JSX.Element {
     }
 
     if (sos.some((i) => i.soNumber === soToAdd)) {
+      if (fromScanner) {
+        setScanStatus({ message: "Duplicate: " + soToAdd, color: COLORS.warning });
+        return;
+      }
       showError("Duplicate", `"${soToAdd}" is already in the list.`);
       setSoNumber("");
       // If manually entered, refocus. If scanned, the scanner is open, showing alert over it is fine.
@@ -409,7 +420,7 @@ export default function CustomerLabelPrint(): JSX.Element {
 
     // Prevent duplicate verify calls in rapid succession
     if (verifyingRef.current) {
-      showError("Please wait", "Verification in progress...", true);
+      if (!fromScanner) showError("Please wait", "Verification in progress...", true);
       return;
     }
 
@@ -420,6 +431,11 @@ export default function CustomerLabelPrint(): JSX.Element {
       const result = await verifySO(soToAdd);
       if (!result) {
         const errMsg = verifyError ? (typeof verifyError === "string" ? verifyError : String(verifyError)) : "Sales Order not found or invalid.";
+        if (fromScanner) {
+            setScanStatus({ message: "Invalid: " + soToAdd, color: COLORS.danger });
+            Vibration.vibrate(400); // Long Error Vibrate
+            return;
+        }
         showError("Invalid SO", errMsg, true);
         setSoNumber("");
         if (!scanModalVisible) focusInput();
@@ -428,11 +444,24 @@ export default function CustomerLabelPrint(): JSX.Element {
 
       const { customerName: newName, address: newAddress } = result;
 
+      // Robust comparison ignoring case/trim
+      const currentNameNorm = customerName ? customerName.trim().toLowerCase() : "";
+      const newNameNorm = newName ? newName.trim().toLowerCase() : "";
+
       if (sos.length === 0) {
         setCustomerName(newName);
         setCustomerAddress(newAddress);
         setIsCustomerLocked(true);
-      } else if (customerName !== newName) {
+        if (fromScanner) {
+             setScanStatus({ message: "Added: " + soToAdd, color: COLORS.success });
+        }
+      } else if (currentNameNorm !== newNameNorm) {
+        if (fromScanner) {
+             // Just ignore mismatch in multi-scan mode as per user request
+             setScanStatus({ message: "Mismatch Ignored", color: COLORS.danger });
+             Vibration.vibrate(400); // Error Vibrate
+             return;
+        }
         showError(
           "Customer Mismatch",
           `This SO belongs to a different customer.\n\nExpected: ${customerName}\nFound: ${newName}`,
@@ -441,6 +470,11 @@ export default function CustomerLabelPrint(): JSX.Element {
         setSoNumber("");
         if (!scanModalVisible) focusInput();
         return;
+      } else {
+        // Matched
+        if (fromScanner) {
+            setScanStatus({ message: "Added: " + soToAdd, color: COLORS.success });
+        }
       }
 
       const newItem: SOItem = {
@@ -455,6 +489,11 @@ export default function CustomerLabelPrint(): JSX.Element {
 
     } catch (err: any) {
       const msg = err?.message ? err.message : String(err);
+      if (fromScanner) {
+         setScanStatus({ message: "Error: " + msg, color: COLORS.danger });
+         Vibration.vibrate(400);
+         return;
+      }
       showError("Invalid SO", msg || "Sales Order not found.", true);
       setSoNumber("");
       if (!scanModalVisible) focusInput();
@@ -698,10 +737,16 @@ export default function CustomerLabelPrint(): JSX.Element {
                 {sessionCount > 0 && (
                 <View style={styles.scanFeedback}>
                     <Text style={styles.scanCounter}>Scanned: {sessionCount}</Text>
-                    {lastScannedCode && (
-                        <Text style={styles.lastScanText} numberOfLines={1}>
-                            Last: {lastScannedCode}
-                        </Text>
+                    {scanStatus ? (
+                         <Text style={[styles.lastScanText, { color: scanStatus.color, fontWeight: '700' }]} numberOfLines={2}>
+                             {scanStatus.message}
+                         </Text>
+                    ) : (
+                        lastScannedCode && (
+                            <Text style={styles.lastScanText} numberOfLines={1}>
+                                Last: {lastScannedCode}
+                            </Text>
+                        )
                     )}
                 </View>
                 )}

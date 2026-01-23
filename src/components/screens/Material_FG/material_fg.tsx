@@ -22,7 +22,14 @@ import {
 } from "expo-camera";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { assignFgLocation, type AssignLocationResponse } from "../../Api/Hooks/Usematerial_fg";
-import { clearMaterialFGData, loadMaterialFGData, saveMaterialFGData } from "../../Storage/material_fg_Storage";
+import { 
+  clearMaterialFGData, 
+  loadMaterialFGData, 
+  saveMaterialFGData,
+  loadMaterialFGLocation,
+  saveMaterialFGLocation,
+  clearMaterialFGLocation
+} from "../../Storage/material_fg_Storage";
 import { useKeyboardDisabled } from "../../utils/keyboard";
 
 type ScanItem = {
@@ -135,8 +142,22 @@ const MaterialFGTransferScreen: React.FC = () => {
     target: null,
   });
   
-  // Use a Ref to throttle scans slightly if needed, though we close modal on scan usually
+  // Multi-scan state (for SO scanning)
+  const [sessionCount, setSessionCount] = useState(0);
+  const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const sessionCodesRef = useRef<Set<string>>(new Set());
+  
+  // Lock for Location scanning single-shot
   const scanLockRef = useRef(false);
+
+  // Ref to track location value without triggering re-renders in effects
+  const locationValueRef = useRef(location);
+
+  // Update logic flow refs
+  useEffect(() => {
+    locationValueRef.current = location;
+  }, [location]);
 
   // Dialogs
   const [confirmClear, setConfirmClear] = useState(false);
@@ -153,17 +174,20 @@ const MaterialFGTransferScreen: React.FC = () => {
 
   // 1. Focus on mount / focus effect
   // Prioritize Location if empty, otherwise SO
+  // 1. Focus on mount / focus effect
+  // Prioritize Location if empty, otherwise SO
   useFocusEffect(
     useCallback(() => {
       const timer = setTimeout(() => {
-        if (!location) {
+        // Use ref here to prevent re-running on every type
+        if (!locationValueRef.current) {
           locationRef.current?.focus();
         } else {
           soRef.current?.focus();
         }
       }, 100);
       return () => clearTimeout(timer);
-    }, [location])
+    }, [])
   );
 
   // 2. Refocus when "Scan Only" (keyboardDisabled) is enabled
@@ -172,7 +196,7 @@ const MaterialFGTransferScreen: React.FC = () => {
     if (keyboardDisabled && !scanModal.visible && !messageDlg.show && !confirmClear) {
       const timer = setTimeout(() => {
         if (navigation.isFocused()) {
-           if (!location) {
+           if (!locationValueRef.current) {
              locationRef.current?.focus();
            } else {
              soRef.current?.focus();
@@ -181,7 +205,7 @@ const MaterialFGTransferScreen: React.FC = () => {
       }, 200);
       return () => clearTimeout(timer);
     }
-  }, [keyboardDisabled, scanModal.visible, messageDlg.show, confirmClear, navigation, location]);
+  }, [keyboardDisabled, scanModal.visible, messageDlg.show, confirmClear, navigation]);
 
   const handleBlur = () => {
      if (keyboardDisabled && !scanModal.visible && !messageDlg.show && !confirmClear) {
@@ -198,16 +222,59 @@ const MaterialFGTransferScreen: React.FC = () => {
   // Load persisted data
   useEffect(() => {
     const initStorage = async () => {
-      const storedData = await loadMaterialFGData();
+      const [storedData, storedLocation] = await Promise.all([
+        loadMaterialFGData(),
+        loadMaterialFGLocation()
+      ]);
+      
       if (storedData) {
         setItems(storedData);
+      }
+      if (storedLocation) {
+        setLocation(storedLocation);
+        // If location is already there, we might want to focus SO, 
+        // but the focus maintenance hook might need a tick to realize it.
       }
     };
     initStorage();
   }, []);
 
+  // Persist location on change
+  useEffect(() => {
+    saveMaterialFGLocation(location);
+  }, [location]);
+
   const showMessage = (title: string, subtitle?: string, onOk?: () => void) =>
     setMessageDlg({ show: true, title, subtitle, onOk });
+
+  // Separate function to perform the logic of adding an item (used by Manual Entry and Scanner)
+  const performAddItem = async (targetSo: string, targetLoc: string) => {
+      const res: AssignLocationResponse = await assignFgLocation({
+        saleOrderNumber: targetSo,
+        fgLocation: targetLoc,
+      });
+
+      // On success, add/update locally
+      const existingIndex = items.findIndex(
+        (item) => item.location === targetLoc && item.soNumber === targetSo
+      );
+      const newTimeISO = new Date().toISOString();
+      
+      let updatedItems;
+
+      if (existingIndex !== -1) {
+          updatedItems = items.map((item, i) =>
+            i === existingIndex ? { ...item, timeISO: newTimeISO } : item
+          );
+      } else {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        updatedItems = [{ id, location: targetLoc, soNumber: targetSo, timeISO: newTimeISO }, ...items];
+      }
+      
+      setItems(updatedItems);
+      saveMaterialFGData(updatedItems);
+      return updatedItems;
+  };
 
   const addItem = async () => {
     const loc = location.trim();
@@ -227,41 +294,11 @@ const MaterialFGTransferScreen: React.FC = () => {
     }
 
     try {
-      const res: AssignLocationResponse = await assignFgLocation({
-        saleOrderNumber: so,
-        fgLocation: loc,
-      });
-
-      // On success, add/update locally
-      const existingIndex = items.findIndex(
-        (item) => item.location === loc && item.soNumber === so
-      );
-      const newTimeISO = new Date().toISOString();
-
-      if (existingIndex !== -1) {
-        setItems((prev) => {
-          const updated = prev.map((item, i) =>
-            i === existingIndex ? { ...item, timeISO: newTimeISO } : item
-          );
-          saveMaterialFGData(updated);
-          return updated;
-        });
-      } else {
-        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        setItems((prev) => {
-          const updated = [{ id, location: loc, soNumber: so, timeISO: newTimeISO }, ...prev];
-          saveMaterialFGData(updated);
-          return updated;
-        });
-      }
+      await performAddItem(so, loc);
       
-      // Reset only SO number to allow rapid scanning of new items to same location? 
-      // Usually users might want to keep location if they are scanning multiple items into one bin.
-      // But let's stick to user pattern -> reset SO.
       setSoNumber("");
       
-      // Focus logic will handle re-focusing SO if Location is still filled
-      // We manually focus SO just to be sure
+      // Focus SO again
       requestAnimationFrame(() => {
          soRef.current?.focus();
       });
@@ -283,7 +320,11 @@ const MaterialFGTransferScreen: React.FC = () => {
     setLocation("");
     setSoNumber("");
     setItems([]);
-    await clearMaterialFGData();
+    setItems([]);
+    await Promise.all([
+      clearMaterialFGData(),
+      clearMaterialFGLocation() // Clear stored location too
+    ]);
     setConfirmClear(false);
     setTimeout(() => locationRef.current?.focus(), 50);
   };
@@ -310,6 +351,15 @@ const MaterialFGTransferScreen: React.FC = () => {
       }
 
       scanLockRef.current = false;
+
+      // Reset Multi-scan state if scanning SO
+      if (target === "so") {
+          sessionCodesRef.current.clear();
+          setSessionCount(0);
+          setLastScannedCode(null);
+          setScanError(null);
+      }
+
       setScanModal({ visible: true, target });
     } catch (err) {
       console.log(err);
@@ -320,90 +370,59 @@ const MaterialFGTransferScreen: React.FC = () => {
   const closeScanner = () => setScanModal({ visible: false, target: null });
 
   const handleScanned = async (result: BarcodeScanningResult) => {
-    if (scanLockRef.current) return;
-    scanLockRef.current = true;
-
     const value = (result?.data ?? "").trim();
-    if (!value) {
-      scanLockRef.current = false;
-      return;
-    }
-    
-    // Vibrate on scan (like putaway)
-    Vibration.vibrate();
+    if (!value) return;
 
+    // --- Location Scanning (Single Shot) ---
     if (scanModal.target === "location") {
-      setLocation(value);
-      closeScanner();
-      // Wait for modal to close then focus SO
-      setTimeout(() => soRef.current?.focus(), 300);
-      scanLockRef.current = false;
-    } else if (scanModal.target === "so") {
-      const currentLoc = location.trim();
-      if (!currentLoc) {
-        // If we somehow scanned SO without location (should be prevented by flow, but possible)
+        if (scanLockRef.current) return;
+        scanLockRef.current = true;
+
+        Vibration.vibrate();
+        setLocation(value);
         closeScanner();
-        showMessage("Missing location", "Please enter or scan a location first.", () => {
-          setSoNumber("");
-          locationRef.current?.focus();
-        });
+        // Wait for modal to close then focus SO
+        setTimeout(() => soRef.current?.focus(), 300);
         scanLockRef.current = false;
         return;
-      }
+    }
 
-      const so = value;
-      setSoNumber(so);
-      closeScanner();
+    // --- SO Scanning (Multi Scan) ---
+    if (scanModal.target === "so") {
+        // Prevent duplicate scans in same session
+        if (sessionCodesRef.current.has(value)) return;
 
-      // Attempt to save immediately
-      try {
-        const res: AssignLocationResponse = await assignFgLocation({
-          saleOrderNumber: so,
-          fgLocation: currentLoc,
-        });
-        
-        // Save success
-        const existingIndex = items.findIndex(
-           (item) => item.location === currentLoc && item.soNumber === so
-        );
-        const newTimeISO = new Date().toISOString();
-        
-        if (existingIndex !== -1) {
-          setItems((prev) => {
-            const updated = prev.map((item, i) =>
-              i === existingIndex ? { ...item, timeISO: newTimeISO } : item
-            );
-            saveMaterialFGData(updated);
-            return updated;
-          });
-        } else {
-          const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          setItems((prev) => {
-            const updated = [{ id, location: currentLoc, soNumber: so, timeISO: newTimeISO }, ...prev];
-            saveMaterialFGData(updated);
-            return updated;
-          });
+        // Verify Location exists
+        const currentLoc = location.trim();
+        if (!currentLoc) {
+            // Should not happen if UX is followed, but if it does:
+            setScanError("No Location Set!");
+            Vibration.vibrate();
+            return;
         }
 
-        setSoNumber("");
-        // Focus SO again for next item
-        setTimeout(() => soRef.current?.focus(), 300);
+        // Add to session to block immediate re-scan
+        sessionCodesRef.current.add(value);
+        Vibration.vibrate();
 
-      } catch (error: any) {
-        setSoNumber("");
-        showMessage(
-          "SO Number Not Found",
-          error.message,
-          () => {
-             // on OK
-             setTimeout(() => soRef.current?.focus(), 100);
-          }
-        );
-      }
-      scanLockRef.current = false;
-    } else {
-      closeScanner();
-      scanLockRef.current = false;
+        try {
+            setScanError(null);
+            
+            // Call API and update state
+            await performAddItem(value, currentLoc);
+
+            // Update Feedback
+            setLastScannedCode(value);
+            setSessionCount(prev => prev + 1);
+            
+        } catch (error: any) {
+            console.log("Scan failed for", value, error);
+            setScanError(error.message || "Invalid SO");
+            // Optionally remove from sessionRefs to allow retry? 
+            // Better to keep it blocked to prevent spamming the error. 
+            // User can close re-open to clear session if really needed, 
+            // or we could use a timeout to remove it.
+        }
     }
   };
 
@@ -518,7 +537,7 @@ const MaterialFGTransferScreen: React.FC = () => {
                       { backgroundColor: index % 2 === 0 ? COLORS.tableStripe : "#FFFFFF" },
                     ]}
                   >
-                    <Text style={[styles.td, { flex: 0.6 }]}>{items.length - index}</Text>
+                    <Text style={[styles.td, { flex: 0.6 }]}>{index + 1}</Text>
                     <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{item.location}</Text>
                     <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{item.soNumber}</Text>
                     <Text style={[styles.td, { flex: 1.4, textAlign: "right" }]}>{fmtTime(item.timeISO)}</Text>
@@ -564,7 +583,7 @@ const MaterialFGTransferScreen: React.FC = () => {
         onCancel={() => setMessageDlg({ show: false, title: "" })}
       />
 
-      {/* FULL-SCREEN Scanner Modal (Updated to match PutAwayScreen) */}
+      {/* FULL-SCREEN Scanner Modal */}
       <Modal
         visible={scanModal.visible}
         onRequestClose={closeScanner}
@@ -583,27 +602,50 @@ const MaterialFGTransferScreen: React.FC = () => {
                 "code39", "codabar", "code93", "pdf417", "datamatrix"
               ],
             }}
-            onBarcodeScanned={scanLockRef.current ? undefined : handleScanned}
+            onBarcodeScanned={handleScanned}
           />
           
           {/* Top Bar */}
           <View style={styles.fullscreenTopBar}>
             <Text style={styles.fullscreenTitle}>
-              {scanModal.target === "location" ? "Scan Location" : "Scan SO Number"}
+              {scanModal.target === "location" ? "Scan Location" : "Multi-Scan SO Mode"}
             </Text>
             <Pressable onPress={closeScanner} style={styles.fullscreenCloseBtn}>
-              <Text style={styles.closeBtnText}>Close</Text>
+              <Text style={styles.closeBtnText}>
+                 {scanModal.target === "so" && sessionCount > 0 ? "Done" : "Close"}
+              </Text>
             </Pressable>
           </View>
           
           {/* Bottom Bar */}
           <View style={styles.fullscreenBottomBar}>
             <Text style={styles.fullscreenHint}>Align code within frame to scan</Text>
+            
+            {/* Feedback for Multi-Scan */}
+            {scanModal.target === "so" && (
+                <View style={styles.scanFeedback}>
+                  {sessionCount > 0 && <Text style={styles.scanCounter}>Scanned: {sessionCount}</Text>}
+                  {lastScannedCode && (
+                     <Text style={styles.lastScanText} numberOfLines={1}>
+                        Last: {lastScannedCode}
+                     </Text>
+                  )}
+                  {scanError && (
+                     <Text style={styles.errorText} numberOfLines={2}>
+                        {scanError}
+                     </Text>
+                  )}
+               </View>
+            )}
+            
           </View>
           
-          {/* Focus Frame Overlay (added to match putaway) */}
+          {/* Focus Frame Overlay */}
           <View style={styles.focusFrameContainer} pointerEvents="none">
-             <View style={styles.focusFrame} />
+             <View style={[
+                  styles.focusFrame, 
+                  (scanModal.target === "so" && sessionCount > 0) ? { borderColor: COLORS.success } : null
+             ]} />
           </View>
         </View>
       </Modal>
@@ -767,5 +809,13 @@ const styles = StyleSheet.create({
   focusFrameContainer: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   focusFrame: {
     width: 260, height: 260, borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)', borderRadius: 24
-  }
+  },
+  // New Styles for Scanner Feedback
+  scanFeedback: {
+     alignItems: "center",
+     width: "100%",
+  },
+  scanCounter: { color: "#4ADE80", fontWeight: "700", fontSize: 16 },
+  lastScanText: { color: "#fff", fontSize: 14, marginTop: 2, textAlign: "center", width: "100%" },
+  errorText: { color: "#EF4444", fontWeight: "700", fontSize: 14, marginTop: 2, textAlign: "center" },
 });
