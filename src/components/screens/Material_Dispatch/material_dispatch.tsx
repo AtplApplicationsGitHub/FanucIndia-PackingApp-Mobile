@@ -20,7 +20,10 @@ import {
   Modal,
   StatusBar,
   ActivityIndicator,
+  Vibration,
+  Platform,
 } from "react-native";
+import { useKeyboardDisabled } from "../../utils/keyboard";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   CameraView,
@@ -102,6 +105,12 @@ const MaterialDispatchScreen: React.FC = () => {
   const [showNewFormModal, setShowNewFormModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
   const [savingHeader, setSavingHeader] = useState(false);
+
+  // Keyboard & Scan State
+  const [keyboardDisabled] = useKeyboardDisabled();
+  const sessionCodesRef = useRef<Set<string>>(new Set());
+  const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
+  const [sessionCount, setSessionCount] = useState(0);
 
   const animatedHeight = useState(new Animated.Value(1))[0];
   const salesOpacity = useState(new Animated.Value(0))[0];
@@ -346,7 +355,6 @@ const MaterialDispatchScreen: React.FC = () => {
   /* ------------------- SCANNER ------------------- */
   const [scanVisible, setScanVisible] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const [scanLocked, setScanLocked] = useState(false);
 
   const openScanner = async () => {
     if (!dispatchId) {
@@ -362,23 +370,33 @@ const MaterialDispatchScreen: React.FC = () => {
         return;
       }
     }
-    setScanLocked(false);
+    
+    // Reset session
+    sessionCodesRef.current.clear();
+    setLastScannedCode(null);
+    setSessionCount(0);
     setScanVisible(true);
   };
 
   const closeScanner = () => {
     setScanVisible(false);
-    setScanLocked(false);
     focusSOInput();
   };
 
-  const onScanned = async (result: BarcodeScanningResult) => {
-    if (scanLocked) return;
-    setScanLocked(true);
-    await addSO(result.data ?? "");
-    setTimeout(() => {
-      closeScanner();
-    }, 600);
+  const handleScanned = (result: BarcodeScanningResult) => {
+    const value = (result?.data ?? "").trim();
+    if (!value) return;
+    
+    // Prevent duplicate scans in same session
+    if (sessionCodesRef.current.has(value)) return;
+    
+    sessionCodesRef.current.add(value);
+    Vibration.vibrate();
+    
+    addSO(value);
+    
+    setLastScannedCode(value);
+    setSessionCount(prev => prev + 1);
   };
 
   const canSubmit = value.trim().length > 0;
@@ -487,16 +505,18 @@ const MaterialDispatchScreen: React.FC = () => {
               <TextInput
                 ref={transporterRef}
                 style={[styles.input, styles.half]}
-                placeholder="Transporter"
+                placeholder={keyboardDisabled ? "Scan Transporter..." : "Transporter"}
                 placeholderTextColor={C.hint}
                 value={form.transporter}
                 onChangeText={(t) => onChange("transporter", t)}
+                showSoftInputOnFocus={!keyboardDisabled}
               />
               <TextInput
                 style={[styles.input, styles.half]}
-                placeholder="Vehicle Number"
+                placeholder={keyboardDisabled ? "Scan Vehicle..." : "Vehicle Number"}
                 placeholderTextColor={C.hint}
                 autoCapitalize="characters"
+                showSoftInputOnFocus={!keyboardDisabled}
                 value={form.vehicleNo}
                 onChangeText={(t) => {
                   // No spaces allowed, always uppercase
@@ -533,13 +553,14 @@ const MaterialDispatchScreen: React.FC = () => {
                 ref={soRef}
                 value={value}
                 onChangeText={setValue}
-                placeholder="Scan or enter SO"
+                placeholder={keyboardDisabled ? "Scan SO..." : "Scan or enter SO"}
                 placeholderTextColor={C_sales.sub}
                 style={[styles_sales.input, { paddingRight: 44 }]}
                 returnKeyType="done"
                 onSubmitEditing={() => addSO(value)}
                 autoCapitalize="characters"
                 autoCorrect={false}
+                showSoftInputOnFocus={!keyboardDisabled}
               />
               <Pressable onPress={openScanner} style={styles_sales.scanBtn}>
                 <MaterialCommunityIcons
@@ -691,8 +712,10 @@ const MaterialDispatchScreen: React.FC = () => {
       {/* ---------- SCANNER MODAL ---------- */}
       <Modal
         visible={scanVisible}
+        onRequestClose={closeScanner}
         animationType="slide"
         presentationStyle="fullScreen"
+        transparent={false}
       >
         <StatusBar hidden />
         <View style={styles_scan.fullscreenCameraWrap}>
@@ -700,21 +723,40 @@ const MaterialDispatchScreen: React.FC = () => {
             style={styles_scan.fullscreenCamera}
             facing="back"
             barcodeScannerSettings={{
-              barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e"],
+               barcodeTypes: [
+                "qr", "code128", "ean13", "ean8", "upc_a", "upc_e", 
+                "code39", "codabar", "code93", "pdf417", "datamatrix"
+              ],
             }}
-            onBarcodeScanned={scanLocked ? undefined : onScanned}
+            onBarcodeScanned={handleScanned}
           />
+          
+          {/* Top Bar */}
           <View style={styles_scan.fullscreenTopBar}>
-            <Text style={styles_scan.fullscreenTitle}>Scan a code</Text>
-            <Pressable
-              onPress={closeScanner}
-              style={styles_scan.fullscreenCloseBtn}
-            >
-              <Ionicons name="close" size={22} color="#fff" />
+            <Text style={styles_scan.fullscreenTitle}>Multi-Scan Mode</Text>
+            <Pressable onPress={closeScanner} style={styles_scan.fullscreenCloseBtn}>
+              <Text style={styles_scan.closeBtnText}>Done</Text>
             </Pressable>
           </View>
+          
+          {/* Bottom Bar with Feedback */}
           <View style={styles_scan.fullscreenBottomBar}>
-            <Text style={styles_scan.fullscreenHint}>Align code in frame</Text>
+            <Text style={styles_scan.fullscreenHint}>Align codes within frame to scan</Text>
+            {sessionCount > 0 && (
+               <View style={styles_scan.scanFeedback}>
+                  <Text style={styles_scan.scanCounter}>Scanned: {sessionCount}</Text>
+                  {lastScannedCode && (
+                     <Text style={styles_scan.lastScanText} numberOfLines={1}>
+                        Last: {lastScannedCode}
+                     </Text>
+                  )}
+               </View>
+            )}
+          </View>
+          
+          {/* Focus Frame Overlay */}
+          <View style={styles_scan.focusFrameContainer} pointerEvents="none">
+             <View style={[styles_scan.focusFrame, sessionCount > 0 ? { borderColor: "#10B981" } : null]} />
           </View>
         </View>
       </Modal>
@@ -941,34 +983,48 @@ const styles_scan = StyleSheet.create({
   fullscreenCamera: { flex: 1 },
   fullscreenTopBar: {
     position: "absolute",
-    top: 44,
+    top: Platform.OS === 'ios' ? 44 : 16,
     left: 16,
     right: 16,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(0,0,0,0.6)",
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
+    justifyContent: "space-between",
   },
-  fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 14, flex: 1 },
+  fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 16 },
   fullscreenCloseBtn: {
-    height: 28,
-    width: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: "#fff",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  closeBtnText: {
+    fontWeight: "700", color: "#000", fontSize: 14
   },
   fullscreenBottomBar: {
     position: "absolute",
-    bottom: 24,
+    bottom: 32,
     left: 16,
     right: 16,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    padding: 16,
     alignItems: "center",
+    gap: 8,
   },
-  fullscreenHint: { color: "#fff", fontSize: 12 },
+  fullscreenHint: { color: "#ccc", fontSize: 13 },
+  scanFeedback: {
+     alignItems: "center",
+     width: "100%",
+  },
+  scanCounter: { color: "#4ADE80", fontWeight: "700", fontSize: 16 },
+  lastScanText: { color: "#fff", fontSize: 14, marginTop: 2, textAlign: "center", width: "100%" },
+  
+  focusFrameContainer: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  focusFrame: {
+    width: 260, height: 260, borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)', borderRadius: 24
+  }
 });

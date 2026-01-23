@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
   StatusBar,
+  Vibration,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -19,9 +20,10 @@ import {
   useCameraPermissions,
   type BarcodeScanningResult,
 } from "expo-camera";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { assignFgLocation, type AssignLocationResponse } from "../../Api/Hooks/Usematerial_fg";
 import { clearMaterialFGData, loadMaterialFGData, saveMaterialFGData } from "../../Storage/material_fg_Storage";
-
+import { useKeyboardDisabled } from "../../utils/keyboard";
 
 type ScanItem = {
   id: string;
@@ -30,6 +32,7 @@ type ScanItem = {
   timeISO: string;
 };
 
+// Colors matching putaway.tsx for consistency
 const COLORS = {
   bg: "#F7F7F8",
   card: "#FFFFFF",
@@ -42,6 +45,7 @@ const COLORS = {
   danger: "#EF4444",
   muted: "#9CA3AF",
   tableStripe: "#FAFAFB",
+  success: "#10B981",
 };
 
 // ---------- Helpers ----------
@@ -53,7 +57,7 @@ const fmtTime = (iso: string) => {
   return `${hh}:${mm} ${ampm}`;
 };
 
-// ---------- Dialog ----------
+// ---------- Dialog Component ----------
 type DialogProps = {
   visible: boolean;
   icon?: React.ReactNode;
@@ -66,6 +70,7 @@ type DialogProps = {
   onOk?: () => void;
   oneButton?: boolean;
 };
+
 const Dialog: React.FC<DialogProps> = ({
   visible,
   icon,
@@ -111,22 +116,29 @@ const Dialog: React.FC<DialogProps> = ({
 );
 
 const MaterialFGTransferScreen: React.FC = () => {
+  const navigation = useNavigation();
   const [location, setLocation] = useState("");
   const [soNumber, setSoNumber] = useState("");
   const [items, setItems] = useState<ScanItem[]>([]);
 
+  // Refs
   const locationRef = useRef<TextInput>(null);
   const soRef = useRef<TextInput>(null);
 
-  // camera / scan
+  // Custom hook for global keyboard state
+  const [keyboardDisabled] = useKeyboardDisabled();
+
+  // Camera / Scan state
   const [permission, requestPermission] = useCameraPermissions();
   const [scanModal, setScanModal] = useState<{ visible: boolean; target: "location" | "so" | null }>({
     visible: false,
     target: null,
   });
+  
+  // Use a Ref to throttle scans slightly if needed, though we close modal on scan usually
   const scanLockRef = useRef(false);
 
-  // dialogs
+  // Dialogs
   const [confirmClear, setConfirmClear] = useState(false);
   const [messageDlg, setMessageDlg] = useState<{
     show: boolean;
@@ -137,10 +149,54 @@ const MaterialFGTransferScreen: React.FC = () => {
 
   const totalScanned = items.length;
 
+  // --- Focus Management ---
+
+  // 1. Focus on mount / focus effect
+  // Prioritize Location if empty, otherwise SO
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setTimeout(() => {
+        if (!location) {
+          locationRef.current?.focus();
+        } else {
+          soRef.current?.focus();
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }, [location])
+  );
+
+  // 2. Refocus when "Scan Only" (keyboardDisabled) is enabled
+  //    or when modals close.
   useEffect(() => {
-    const t = setTimeout(() => locationRef.current?.focus(), 200);
-    
-    // Load persisted data
+    if (keyboardDisabled && !scanModal.visible && !messageDlg.show && !confirmClear) {
+      const timer = setTimeout(() => {
+        if (navigation.isFocused()) {
+           if (!location) {
+             locationRef.current?.focus();
+           } else {
+             soRef.current?.focus();
+           }
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [keyboardDisabled, scanModal.visible, messageDlg.show, confirmClear, navigation, location]);
+
+  const handleBlur = () => {
+     if (keyboardDisabled && !scanModal.visible && !messageDlg.show && !confirmClear) {
+      setTimeout(() => {
+        if (navigation.isFocused() && !scanModal.visible && !messageDlg.show && !confirmClear) {
+           // Decide which to focus
+           if (!location) locationRef.current?.focus();
+           else soRef.current?.focus();
+        }
+      }, 100);
+    }
+  };
+
+  // Load persisted data
+  useEffect(() => {
     const initStorage = async () => {
       const storedData = await loadMaterialFGData();
       if (storedData) {
@@ -148,10 +204,7 @@ const MaterialFGTransferScreen: React.FC = () => {
       }
     };
     initStorage();
-
-    return () => clearTimeout(t);
   }, []);
-
 
   const showMessage = (title: string, subtitle?: string, onOk?: () => void) =>
     setMessageDlg({ show: true, title, subtitle, onOk });
@@ -201,10 +254,18 @@ const MaterialFGTransferScreen: React.FC = () => {
           return updated;
         });
       }
-
-
+      
+      // Reset only SO number to allow rapid scanning of new items to same location? 
+      // Usually users might want to keep location if they are scanning multiple items into one bin.
+      // But let's stick to user pattern -> reset SO.
       setSoNumber("");
-      soRef.current?.focus();
+      
+      // Focus logic will handle re-focusing SO if Location is still filled
+      // We manually focus SO just to be sure
+      requestAnimationFrame(() => {
+         soRef.current?.focus();
+      });
+
     } catch (error: any) {
       setSoNumber("");
       showMessage(
@@ -227,17 +288,33 @@ const MaterialFGTransferScreen: React.FC = () => {
     setTimeout(() => locationRef.current?.focus(), 50);
   };
 
-
+  // --- Scanner Logic ---
   const openScanner = async (target: "location" | "so") => {
-    if (!permission?.granted) {
-      const res = await requestPermission();
-      if (!res.granted) {
-        showMessage("Camera permission required", "Enable camera to scan QR/barcodes.");
-        return;
+    try {
+      if (!permission) {
+        const res = await requestPermission();
+        if (!res.granted) {
+          showMessage("Permission Required", "Allow camera access to scan QR codes.");
+          return;
+        }
+      } else if (!permission.granted) {
+          if (!permission.canAskAgain) {
+             showMessage("Camera Disabled", "Please enable camera access in your device settings.");
+             return;
+          }
+          const res = await requestPermission();
+          if (!res.granted) {
+            showMessage("Permission Denied", "Camera permission is required.");
+            return;
+          }
       }
+
+      scanLockRef.current = false;
+      setScanModal({ visible: true, target });
+    } catch (err) {
+      console.log(err);
+      showMessage("Error", "Failed to access camera permission.");
     }
-    scanLockRef.current = false;
-    setScanModal({ visible: true, target });
   };
 
   const closeScanner = () => setScanModal({ visible: false, target: null });
@@ -251,15 +328,21 @@ const MaterialFGTransferScreen: React.FC = () => {
       scanLockRef.current = false;
       return;
     }
+    
+    // Vibrate on scan (like putaway)
+    Vibration.vibrate();
 
     if (scanModal.target === "location") {
       setLocation(value);
       closeScanner();
-      setTimeout(() => soRef.current?.focus(), 50);
+      // Wait for modal to close then focus SO
+      setTimeout(() => soRef.current?.focus(), 300);
       scanLockRef.current = false;
     } else if (scanModal.target === "so") {
       const currentLoc = location.trim();
       if (!currentLoc) {
+        // If we somehow scanned SO without location (should be prevented by flow, but possible)
+        closeScanner();
         showMessage("Missing location", "Please enter or scan a location first.", () => {
           setSoNumber("");
           locationRef.current?.focus();
@@ -272,16 +355,19 @@ const MaterialFGTransferScreen: React.FC = () => {
       setSoNumber(so);
       closeScanner();
 
+      // Attempt to save immediately
       try {
         const res: AssignLocationResponse = await assignFgLocation({
           saleOrderNumber: so,
           fgLocation: currentLoc,
         });
-        // On success, add/update locally
+        
+        // Save success
         const existingIndex = items.findIndex(
-          (item) => item.location === currentLoc && item.soNumber === so
+           (item) => item.location === currentLoc && item.soNumber === so
         );
         const newTimeISO = new Date().toISOString();
+        
         if (existingIndex !== -1) {
           setItems((prev) => {
             const updated = prev.map((item, i) =>
@@ -300,15 +386,17 @@ const MaterialFGTransferScreen: React.FC = () => {
         }
 
         setSoNumber("");
-        soRef.current?.focus();
+        // Focus SO again for next item
+        setTimeout(() => soRef.current?.focus(), 300);
+
       } catch (error: any) {
         setSoNumber("");
         showMessage(
           "SO Number Not Found",
           error.message,
           () => {
-            setMessageDlg({ show: false, title: "" });
-            soRef.current?.focus();
+             // on OK
+             setTimeout(() => soRef.current?.focus(), 100);
           }
         );
       }
@@ -328,28 +416,29 @@ const MaterialFGTransferScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={["left", "right"]}>
+    <SafeAreaView style={styles.safe} edges={["left", "right", "bottom"]}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       >
         <View style={styles.content}>
           {/* Form Card */}
           <View style={styles.card}>
-            {/* Location with scan button */}
+            {/* Location */}
             <View style={styles.field}>
               <TextInput
                 ref={locationRef}
                 value={location}
                 onChangeText={setLocation}
-                placeholder="Enter/scan Location"
+                placeholder={keyboardDisabled ? "Scan Location..." : "Enter/scan Location"}
                 placeholderTextColor={COLORS.muted}
                 returnKeyType="next"
                 onSubmitEditing={() => soRef.current?.focus()}
                 style={styles.input}
                 autoCapitalize="none"
                 blurOnSubmit={false}
+                showSoftInputOnFocus={!keyboardDisabled}
+                onBlur={handleBlur}
               />
               <View style={styles.inputDivider} />
               <Pressable onPress={() => openScanner("location")} hitSlop={8} style={styles.scanIconBtn}>
@@ -357,19 +446,21 @@ const MaterialFGTransferScreen: React.FC = () => {
               </Pressable>
             </View>
 
-            {/* SO with scan button */}
+            {/* SO Number */}
             <View style={styles.field}>
               <TextInput
                 ref={soRef}
                 value={soNumber}
                 onChangeText={setSoNumber}
-                placeholder="Enter/scan SO number"
+                placeholder={keyboardDisabled ? "Scan SO Number..." : "Enter/scan SO Number"}
                 placeholderTextColor={COLORS.muted}
                 returnKeyType="done"
                 onSubmitEditing={addItem}
                 style={styles.input}
                 autoCapitalize="none"
-                keyboardType="default"
+                blurOnSubmit={false}
+                showSoftInputOnFocus={!keyboardDisabled}
+                onBlur={handleBlur}
               />
               <View style={styles.inputDivider} />
               <Pressable onPress={() => openScanner("so")} hitSlop={8} style={styles.scanIconBtn}>
@@ -398,10 +489,10 @@ const MaterialFGTransferScreen: React.FC = () => {
             </Text>
 
             <View style={styles.tableHeader}>
-              <Text style={[styles.th, { flex: 0.6, textAlign: "left" }]}>S/No</Text>
+              <Text style={[styles.th, { flex: 0.6 }]}>S/No</Text>
               <Text style={[styles.th, { flex: 2 }]}>Location</Text>
               <Text style={[styles.th, { flex: 2 }]}>SO Number</Text>
-              <Text style={[styles.th, { flex: 1.4 }]}>Time</Text>
+              <Text style={[styles.th, { flex: 1.4, textAlign: "right" }]}>Time</Text>
             </View>
 
             <FlatList
@@ -413,7 +504,7 @@ const MaterialFGTransferScreen: React.FC = () => {
                 <View style={styles.emptyWrap}>
                   <MaterialCommunityIcons name="clipboard-text-outline" size={28} color={COLORS.muted} />
                   <Text style={styles.emptyText}>No scans yet</Text>
-                  <Text style={styles.emptySub}>Scan a location and SO, then press Save (or press Enter).</Text>
+                  <Text style={styles.emptySub}>Scan a location and SO, then press Save.</Text>
                 </View>
               }
               renderItem={({ item, index }) => (
@@ -427,10 +518,10 @@ const MaterialFGTransferScreen: React.FC = () => {
                       { backgroundColor: index % 2 === 0 ? COLORS.tableStripe : "#FFFFFF" },
                     ]}
                   >
-                    <Text style={[styles.td, { flex: 0.6, textAlign: "left" }]}>{index + 1}</Text>
+                    <Text style={[styles.td, { flex: 0.6 }]}>{items.length - index}</Text>
                     <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{item.location}</Text>
                     <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{item.soNumber}</Text>
-                    <Text style={[styles.td, { flex: 1.4 }]}>{fmtTime(item.timeISO)}</Text>
+                    <Text style={[styles.td, { flex: 1.4, textAlign: "right" }]}>{fmtTime(item.timeISO)}</Text>
                   </View>
                 </TouchableOpacity>
               )}
@@ -473,7 +564,7 @@ const MaterialFGTransferScreen: React.FC = () => {
         onCancel={() => setMessageDlg({ show: false, title: "" })}
       />
 
-      {/* FULL-SCREEN Scanner */}
+      {/* FULL-SCREEN Scanner Modal (Updated to match PutAwayScreen) */}
       <Modal
         visible={scanModal.visible}
         onRequestClose={closeScanner}
@@ -487,18 +578,32 @@ const MaterialFGTransferScreen: React.FC = () => {
             style={styles.fullscreenCamera}
             facing="back"
             barcodeScannerSettings={{
-              barcodeTypes: ["qr", "code128", "ean13", "ean8", "upc_a", "upc_e", "code39", "codabar", "code93", "pdf417", "datamatrix"],
+              barcodeTypes: [
+                "qr", "code128", "ean13", "ean8", "upc_a", "upc_e", 
+                "code39", "codabar", "code93", "pdf417", "datamatrix"
+              ],
             }}
             onBarcodeScanned={scanLockRef.current ? undefined : handleScanned}
           />
+          
+          {/* Top Bar */}
           <View style={styles.fullscreenTopBar}>
-            <Text style={styles.fullscreenTitle}>Scan a code</Text>
+            <Text style={styles.fullscreenTitle}>
+              {scanModal.target === "location" ? "Scan Location" : "Scan SO Number"}
+            </Text>
             <Pressable onPress={closeScanner} style={styles.fullscreenCloseBtn}>
-              <Ionicons name="close" size={22} color="#fff" />
+              <Text style={styles.closeBtnText}>Close</Text>
             </Pressable>
           </View>
+          
+          {/* Bottom Bar */}
           <View style={styles.fullscreenBottomBar}>
-            <Text style={styles.fullscreenHint}>Align the code within the frame</Text>
+            <Text style={styles.fullscreenHint}>Align code within frame to scan</Text>
+          </View>
+          
+          {/* Focus Frame Overlay (added to match putaway) */}
+          <View style={styles.focusFrameContainer} pointerEvents="none">
+             <View style={styles.focusFrame} />
           </View>
         </View>
       </Modal>
@@ -509,28 +614,24 @@ const MaterialFGTransferScreen: React.FC = () => {
 export default MaterialFGTransferScreen;
 
 // ---------- Styles ----------
-const FRAME_LEFT = 0.1;   // 10% from left
-const FRAME_TOP = 0.22;   // 22% from top
-const FRAME_WIDTH = 0.8;  // 80% width
-const FRAME_HEIGHT = 0.56;// 56% height
-
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   container: { flex: 1 },
-  content: { flex: 1, paddingHorizontal: 10, paddingTop: 5, paddingBottom: 20 },
+  content: { flex: 1, padding: 12 },
 
   card: {
     backgroundColor: COLORS.card,
     borderRadius: 16,
-    padding: 14,
+    padding: 16,
     gap: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
     shadowColor: "#000",
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.05,
     shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     elevation: 2,
+    marginBottom: 16,
   },
   field: {
     flexDirection: "row",
@@ -546,27 +647,27 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontSize: 15, color: COLORS.text },
   inputDivider: { width: 1, height: 22, backgroundColor: COLORS.border, marginHorizontal: 6 },
   scanIconBtn: {
-    width: 36, height: 36, borderRadius: 999,
+    width: 36, height: 36, borderRadius: 18,
     alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.04)", borderWidth: 1, borderColor: COLORS.border,
-  },
-
-  buttonsRow: { flexDirection: "row", gap: 10, marginTop: 2 },
-  btnPrimary: {
-    flex: 1, height: 40, borderRadius: 10, backgroundColor: COLORS.accent,
-    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6,
-  },
-  btnPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
-  btnGhost: {
-    flex: 1, height: 40, borderRadius: 10, backgroundColor: "#F3F4F6",
-    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6,
+    backgroundColor: "rgba(0,0,0,0.04)",
     borderWidth: 1, borderColor: COLORS.border,
   },
-  btnGhostText: { color: COLORS.accent, fontWeight: "700", fontSize: 14 },
+
+  buttonsRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  btnPrimary: {
+    flex: 1, height: 44, borderRadius: 12, backgroundColor: COLORS.accent,
+    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8,
+  },
+  btnPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
+  btnGhost: {
+    flex: 1, height: 44, borderRadius: 12, backgroundColor: "#F3F4F6",
+    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  btnGhostText: { color: COLORS.accent, fontWeight: "700", fontSize: 15 },
 
   tableCard: {
     flex: 1,
-    marginTop: 14,
     backgroundColor: COLORS.card,
     borderRadius: 16,
     borderWidth: 1,
@@ -574,27 +675,37 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     elevation: 2,
     overflow: "hidden",
   },
-  metric: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8 },
+  metric: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 },
   metricLabel: { color: COLORS.subtext, fontSize: 13, fontWeight: "600" },
   metricValue: { color: COLORS.text, fontSize: 14, fontWeight: "800" },
   tableHeader: {
-    flexDirection: "row", paddingHorizontal: 14, paddingVertical: 10,
-    borderTopWidth: 1, borderTopColor: COLORS.border, borderBottomWidth: 1,
-    borderBottomColor: COLORS.border, backgroundColor: "#FCFCFD",
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    backgroundColor: "#F9FAFB",
   },
   th: { fontWeight: "700", fontSize: 12, color: COLORS.subtext },
   flatList: { flex: 1 },
-  tr: { flexDirection: "row", paddingHorizontal: 14, paddingVertical: 12 },
+  tr: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
   td: { fontSize: 14, color: COLORS.text },
   emptyWrap: { alignItems: "center", gap: 6, paddingVertical: 24 },
   emptyText: { fontWeight: "700", color: COLORS.text },
   emptySub: { color: COLORS.subtext, fontSize: 12 },
 
-  // dialog modal
+  // Dialog Styles
   modalBackdrop: {
     flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", padding: 24,
   },
@@ -614,49 +725,7 @@ const styles = StyleSheet.create({
   btnPrimary2Text: { color: "#fff", fontWeight: "700" },
   btnDestructive: { backgroundColor: COLORS.danger },
 
-  // Optional focus frame / mask
-  scanFullWrap: { flex: 1, backgroundColor: "#000" },
-  focusFrame: {
-    position: "absolute",
-    left: `${FRAME_LEFT * 100}%`,
-    top: `${FRAME_TOP * 100}%`,
-    width: `${FRAME_WIDTH * 100}%`,
-    height: `${FRAME_HEIGHT * 100}%`,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.95)",
-    borderRadius: 14,
-  },
-  maskTop: {
-    position: "absolute",
-    left: 0, right: 0, top: 0,
-    height: `${FRAME_TOP * 100}%`,
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
-  maskLeft: {
-    position: "absolute",
-    top: `${FRAME_TOP * 100}%`,
-    bottom: `${(1 - FRAME_TOP - FRAME_HEIGHT) * 100}%`,
-    left: 0,
-    width: `${FRAME_LEFT * 100}%`,
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
-  maskRight: {
-    position: "absolute",
-    top: `${FRAME_TOP * 100}%`,
-    bottom: `${(1 - FRAME_TOP - FRAME_HEIGHT) * 100}%`,
-    right: 0,
-    width: `${(1 - FRAME_LEFT - FRAME_WIDTH) * 100}%`,
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
-  maskBottom: {
-    position: "absolute",
-    left: 0, right: 0,
-    bottom: 0,
-    height: `${(1 - FRAME_TOP - FRAME_HEIGHT) * 100}%`,
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
-
-  // Full-screen camera UI
+  // Scan modal styles (Matched to PutAwayScreen)
   fullscreenCameraWrap: { flex: 1, backgroundColor: "#000" },
   fullscreenCamera: { flex: 1 },
   fullscreenTopBar: {
@@ -664,31 +733,39 @@ const styles = StyleSheet.create({
     top: Platform.select({ ios: 44, android: 16 }),
     left: 16,
     right: 16,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(0,0,0,0.6)",
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
+    justifyContent: "space-between",
   },
-  fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 14, flex: 1 },
+  fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 16 },
   fullscreenCloseBtn: {
-    height: 28,
-    width: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "#fff",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  closeBtnText: {
+    fontWeight: "700", color: "#000", fontSize: 14
   },
   fullscreenBottomBar: {
     position: "absolute",
-    bottom: 24,
+    bottom: 32,
     left: 16,
     right: 16,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    padding: 16,
     alignItems: "center",
+    gap: 8,
   },
-  fullscreenHint: { color: "#fff", fontSize: 12 },
+  fullscreenHint: { color: "#ccc", fontSize: 13 },
+  
+  focusFrameContainer: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  focusFrame: {
+    width: 260, height: 260, borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)', borderRadius: 24
+  }
 });
