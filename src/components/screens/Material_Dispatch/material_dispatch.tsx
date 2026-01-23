@@ -287,7 +287,7 @@ const MaterialDispatchScreen: React.FC = () => {
     focusSOInput();
   };
 
-  async function addSO(raw: string) {
+  async function addSO(raw: string, isScan = false) {
     const so = normalizeSO(raw);
     if (!so || !dispatchId) {
       clearAndFocusSO();
@@ -295,8 +295,10 @@ const MaterialDispatchScreen: React.FC = () => {
     }
 
     if (items.some((x) => x.soId === so)) {
-      setErrorMessage(`SO ${so} already added.`);
-      setShowError(true);
+      if (!isScan) {
+        setErrorMessage(`SO ${so} already added.`);
+        setShowError(true);
+      }
       clearAndFocusSO();
       return;
     }
@@ -317,13 +319,17 @@ const MaterialDispatchScreen: React.FC = () => {
         ]);
         clearAndFocusSO();
       } else {
-        setErrorMessage(result.error || "Failed to link SO.");
-        setShowError(true);
+        if (!isScan) {
+          setErrorMessage(result.error || "Failed to link SO.");
+          setShowError(true);
+        }
         clearAndFocusSO();
       }
     } catch {
-      setErrorMessage("Failed to link SO.");
-      setShowError(true);
+      if (!isScan) {
+        setErrorMessage("Failed to link SO.");
+        setShowError(true);
+      }
       clearAndFocusSO();
     }
   }
@@ -393,7 +399,7 @@ const MaterialDispatchScreen: React.FC = () => {
     sessionCodesRef.current.add(value);
     Vibration.vibrate();
     
-    addSO(value);
+    addSO(value, true);
     
     setLastScannedCode(value);
     setSessionCount(prev => prev + 1);
@@ -603,6 +609,7 @@ const MaterialDispatchScreen: React.FC = () => {
               </Text>
             </View>
             <FlatList
+              style={{ flex: 1 }}
               data={items}
               keyExtractor={(it) => it.linkId.toString()}
               contentContainerStyle={
@@ -948,6 +955,7 @@ const styles_sales = StyleSheet.create({
   totalText: { color: C_sales.sub, fontSize: 13 },
   totalNum: { fontWeight: "700", color: C_sales.text },
   tableCard: {
+    flex: 1,
     marginTop: 12,
     backgroundColor: C_sales.card,
     borderRadius: 12,
