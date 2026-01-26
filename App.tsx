@@ -12,6 +12,7 @@ import MaterialDispatchScreen from "./src/components/screens/Material_Dispatch/m
 import LabelPrint from "./src/components/screens/CustomerLabel_Print/label_Print";
 import VehicleEntry from "./src/components/screens/Vehicle_Entry/VehicleEntry";
 import PutAwayScreen from "./src/components/screens/put_away/putaway";
+import LocationAccuracyScreen from "./src/components/screens/Location Accuracy/Location";
 
 
 export type RootStackParamList = {
@@ -22,6 +23,7 @@ export type RootStackParamList = {
   MaterialFG: undefined;
   MaterialDispatch: undefined;
   PutAway: undefined;
+  LocationAccuracy: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -91,6 +93,13 @@ export default function App() {
             name="PutAway"
             component={PutAwayScreen}
             options={{ title: "Put Away" }}
+          />
+
+          {/* Location Accuracy */}
+          <Stack.Screen
+            name="LocationAccuracy"
+            component={LocationAccuracyScreen}
+            options={{ title: "Location Accuracy" }}
           />
         </Stack.Navigator>
       </NavigationContainer>

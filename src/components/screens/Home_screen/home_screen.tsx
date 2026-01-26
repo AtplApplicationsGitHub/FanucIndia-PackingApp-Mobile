@@ -65,12 +65,12 @@ const MENU: MenuItem[] = [
     subtitle: "Ready for shipment",
     iconName: "truck-outline",
   },
-  // {
-  //   id: "location_accuracy",
-  //   title: "Location Accuracy",
-  //   subtitle: "Check location accuracy",
-  //   iconName: "target",
-  // },
+  {
+    id: "location_accuracy",
+    title: "Location Accuracy",
+    subtitle: "Check location accuracy",
+    iconName: "target",
+  },
   // {
   //   id: "content_accuracy",
   //   title: "Content Accuracy",
@@ -213,6 +213,8 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         navigation.navigate("VehicleEntry");
         break;
       case "location_accuracy":
+        navigation.navigate("LocationAccuracy");
+        break;
       case "content_accuracy":
       case "put_away":
         navigation.navigate("PutAway");
