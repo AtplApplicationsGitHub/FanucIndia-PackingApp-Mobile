@@ -7,15 +7,23 @@ import {
   TextInput,
   FlatList,
   Alert,
+  Modal,
+  StatusBar,
+  Vibration,
+  Pressable,
+  Platform,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import * as Sharing from 'expo-sharing';
 import { useNavigation } from '@react-navigation/native';
 import LocationStorage from '../../Storage/Location_Storage';
+import { useKeyboardDisabled } from '../../utils/keyboard';
 
 // --- Types ---
 type ExcelRow = {
@@ -30,7 +38,7 @@ type ScannedRecord = {
   YD?: string;
   Location: string; // System location (if matched) or Derived
   ScanLocation: string;
-  Status: 'Valid' | 'Invalid' | 'Missing';
+  Status: 'Valid' | 'Invalid' | 'Missing' | 'Duplicate';
   Timestamp: number;
 };
 
@@ -46,6 +54,7 @@ const COLORS = {
   success: '#10B981',
   error: '#EF4444',
   warning: '#F59E0B',
+  duplicate: '#8B5CF6',
 };
 
 const LocationScreen = () => {
@@ -66,6 +75,19 @@ const LocationScreen = () => {
   const [isReportView, setIsReportView] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  
+  const [keyboardDisabled] = useKeyboardDisabled();
+
+  // --- Camera State ---
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanModal, setScanModal] = useState(false);
+  const [activeScanField, setActiveScanField] = useState<'LOCATION' | 'SO' | null>(null);
+  const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
+  const [lastScanStatus, setLastScanStatus] = useState<'ADDED' | 'DUPLICATE' | 'INVALID' | 'NOT_FOUND' | 'ERROR' | null>(null);
+
+  // Multi-scan tracking
+  const [sessionCount, setSessionCount] = useState(0);
+  const sessionCodesRef = useRef<Set<string>>(new Set());
 
   // --- Persistence ---
   
@@ -210,14 +232,21 @@ const LocationScreen = () => {
     }
   };
 
-  const handleLockLocation = () => {
-    if (!scanLocation.trim()) {
+  const handleLockLocation = (overrideValue?: string) => {
+    const valueToCheck = overrideValue !== undefined ? overrideValue : scanLocation;
+    
+    if (!valueToCheck.trim()) {
       Alert.alert('Validation', 'Please scan a location first.');
       return;
     }
+
+    if (overrideValue !== undefined) {
+        setScanLocation(overrideValue);
+    }
+
     setIsLocationLocked(true);
     // Auto focus next field
-    setTimeout(() => soYdInputRef.current?.focus(), 100);
+    setTimeout(() => soYdInputRef.current?.focus(), 500);
   };
 
   const handleClearSession = () => {
@@ -242,13 +271,15 @@ const LocationScreen = () => {
     ]);
   };
 
-  const handleSaveEntry = () => {
-    if (!scanSoYd.trim()) {
-      Alert.alert('Validation', 'Please scan SO or YD.');
-      return;
+  const handleSaveEntry = (valueOverride?: string, fromScanner: boolean = false): 'ADDED' | 'DUPLICATE' | 'INVALID' | 'NOT_FOUND' | 'ERROR' => {
+    const rawValue = typeof valueOverride === 'string' ? valueOverride : scanSoYd;
+    
+    if (!rawValue.trim()) {
+      if (!fromScanner) Alert.alert('Validation', 'Please scan SO or YD.');
+      return 'ERROR';
     }
 
-    const val = scanSoYd.trim().toUpperCase();
+    const val = rawValue.trim().toUpperCase();
     const currentLoc = scanLocation.trim().toUpperCase();
     
     // Check if match exists in Excel
@@ -266,10 +297,24 @@ const LocationScreen = () => {
              const isDuplicate = scannedRecords.some(r => r.SO === match.SO && r.Status === 'Valid');
 
              if (isDuplicate) {
-                 Alert.alert('Duplicate', 'This item is already added.');
+                 // Save Duplicate and clear input automatically
+                 const newRecord: ScannedRecord = {
+                     id: `dup-${Date.now()}-${Math.random()}`,
+                     SO: match.SO, 
+                     YD: match.YD || '',
+                     Location: match.Location,
+                     ScanLocation: currentLoc,
+                     Status: 'Duplicate',
+                     Timestamp: Date.now(),
+                 };
+                 
+                 setScannedRecords(prev => [newRecord, ...prev]);
+
+                 // Logic to clear and refocus
                  setScanSoYd('');
-                 soYdInputRef.current?.focus();
-                 return;
+                 if (!fromScanner) soYdInputRef.current?.focus();
+                 
+                 return 'DUPLICATE';
              }
  
              const newRecord: ScannedRecord = {
@@ -287,8 +332,20 @@ const LocationScreen = () => {
                 const filtered = prev.filter(r => r.SO !== match.SO || r.Status !== 'Missing');
                 return [newRecord, ...filtered];
              });
+             
+             // Cleanup input
+             setScanSoYd('');
+             if (!fromScanner) soYdInputRef.current?.focus();
+             return 'ADDED';
+
         } else {
              // Found SO but Wrong Location -> Invalid
+             if (fromScanner) {
+                 // REJECT in scanner mode
+                 return 'INVALID';
+             }
+
+             // Manual mode: Log as invalid (existing behavior)
              const newRecord: ScannedRecord = {
                  id: Date.now().toString(),
                  SO: match.SO, 
@@ -299,14 +356,21 @@ const LocationScreen = () => {
                  Timestamp: Date.now(),
              };
              setScannedRecords(prev => [newRecord, ...prev]);
+             return 'INVALID';
         }
     } else {
         // Not in Excel
-        Alert.alert('Not Found', 'SO not found in Excel data.');
+        if (!fromScanner) {
+             Alert.alert('Not Found', 'SO not found in Excel data.');
+        }
+        return 'NOT_FOUND';
     }
     
     setScanSoYd('');
-    soYdInputRef.current?.focus();
+    if (!fromScanner) {
+        soYdInputRef.current?.focus();
+    }
+    return 'ERROR'; 
   };
 
   const handleVerifyReport = () => {
@@ -434,6 +498,98 @@ const LocationScreen = () => {
       }
   };
 
+  // --- Scanner Logic ---
+
+
+  const openScanner = async (field: 'LOCATION' | 'SO') => {
+    try {
+      if (!permission) {
+        const res = await requestPermission();
+        if (!res.granted) {
+            Alert.alert("Permission Required", "Allow camera access to scan QR codes.");
+            return;
+        }
+      } else if (!permission.granted) {
+          if (!permission.canAskAgain) {
+             Alert.alert("Camera Disabled", "Please enable camera access in your device settings.");
+             return;
+          }
+          const res = await requestPermission();
+          if (!res.granted) {
+            Alert.alert("Permission Denied", "Camera permission is required.");
+            return;
+          }
+      }
+      
+      // Reset session state
+      sessionCodesRef.current.clear();
+      setSessionCount(0);
+      setLastScannedCode(null);
+      setLastScanStatus(null);
+      
+      setActiveScanField(field);
+      setScanModal(true);
+    } catch (err) {
+       console.log(err);
+       Alert.alert("Error", "Failed to access camera permission.");
+    }
+  };
+
+  const closeScanner = () => {
+    setScanModal(false);
+    setActiveScanField(null);
+  };
+
+  const handleScanned = (result: BarcodeScanningResult) => {
+    const value = (result?.data ?? "").trim();
+    if (!value) return;
+
+    if (activeScanField === 'LOCATION') {
+        // Single scan for Location
+        Vibration.vibrate();
+        // setScanLocation(value); // Handled by handleLockLocation now
+        setLastScannedCode(value);
+        setScanModal(false);
+        setActiveScanField(null);
+
+        // Auto lock and move focus
+        // We pass the value directly to ensure it uses the scanned value immediately
+        handleLockLocation(value);
+    } else if (activeScanField === 'SO') {
+        // Multi scan for SO
+        
+        // Check for session duplicate
+        if (sessionCodesRef.current.has(value)) {
+            return;
+        }
+        
+        // Add to session set to prevent burst reading
+        sessionCodesRef.current.add(value);
+        
+        // Always provide feedback
+        setLastScannedCode(value);
+        
+        // Try to save
+        // remove setScanSoYd(value) to prevent input box flickering/persistence
+
+        const status = handleSaveEntry(value, true);
+        setLastScanStatus(status);
+        
+        if (status === 'ADDED') {
+             Vibration.vibrate();
+             setSessionCount(prev => prev + 1);
+        } else if (status === 'DUPLICATE') {
+             // Maybe a different vibration or none?
+             Vibration.vibrate([0, 50, 50, 50]); // Short double blip
+        } else {
+             // Invalid
+             Vibration.vibrate([0, 200]); // Long buzz for error
+        }
+        
+        // Do NOT close modal
+    }
+  };
+
   // --- Counts ---
   const activeList = isReportView ? reportFiles : scannedRecords;
   
@@ -452,6 +608,7 @@ const LocationScreen = () => {
       case 'Valid': return { color: '#00E096', bg: 'rgba(0, 224, 150, 0.15)' }; // Green
       case 'Missing': return { color: '#FFAA00', bg: 'rgba(255, 170, 0, 0.15)' }; // Orange
       case 'Invalid': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
+      case 'Duplicate': return { color: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.15)' }; // Purple
       default: return { color: COLORS.text, bg: 'transparent' };
     }
   };
@@ -537,19 +694,28 @@ const LocationScreen = () => {
             {/* Scan Inputs */}
             <View style={styles.card}>
               <View style={styles.inputRow}>
-                <TextInput
-                  ref={locationInputRef}
-                  style={[styles.input, isLocationLocked && styles.inputLocked]}
-                  placeholder="Enter location"
-                  placeholderTextColor={COLORS.muted}
-                  value={scanLocation}
-                  onChangeText={setScanLocation}
-                  editable={!isLocationLocked}
-                  onSubmitEditing={handleLockLocation}
-                  autoCapitalize="characters"
-                />
+                <View style={[styles.inputWrapper, isLocationLocked && styles.inputLocked]}>
+                  <TextInput
+                    ref={locationInputRef}
+                    style={styles.inputInner}
+                    placeholder="Enter location"
+                    placeholderTextColor={COLORS.muted}
+                    value={scanLocation}
+                    onChangeText={setScanLocation}
+                    editable={!isLocationLocked}
+                    onSubmitEditing={() => handleLockLocation()}
+                    autoCapitalize="characters"
+                    showSoftInputOnFocus={!keyboardDisabled}
+                  />
+                   {!isLocationLocked && (
+                      <TouchableOpacity onPress={() => openScanner('LOCATION')} style={styles.scanIconBtnInside}>
+                          <MaterialCommunityIcons name="qrcode-scan" size={20} color={COLORS.muted} />
+                      </TouchableOpacity>
+                   )}
+                </View>
+
                 {!isLocationLocked ? (
-                    <TouchableOpacity onPress={handleLockLocation} style={styles.actionBtn}>
+                    <TouchableOpacity onPress={() => handleLockLocation()} style={styles.actionBtn}>
                          <Ionicons name="location-outline" size={20} color={COLORS.primaryText} />
                     </TouchableOpacity>
                 ) : (
@@ -562,18 +728,25 @@ const LocationScreen = () => {
               {isLocationLocked && (
                   <>
                     <View style={styles.inputRow}>
-                        <TextInput
-                        ref={soYdInputRef}
-                        style={styles.input}
-                        placeholder="Scan SO or YD"
-                        placeholderTextColor={COLORS.muted}
-                        value={scanSoYd}
-                        onChangeText={setScanSoYd}
-                        onSubmitEditing={handleSaveEntry}
-                        autoFocus
-                        autoCapitalize="characters"
-                        />
-                         <TouchableOpacity onPress={handleSaveEntry} style={[styles.actionBtn, { backgroundColor: COLORS.success }]}>
+                        <View style={styles.inputWrapper}>
+                          <TextInput
+                          ref={soYdInputRef}
+                          style={styles.inputInner}
+                          placeholder="Scan SO or YD"
+                          placeholderTextColor={COLORS.muted}
+                          value={scanSoYd}
+                          onChangeText={setScanSoYd}
+                          onSubmitEditing={() => handleSaveEntry()}
+                          autoFocus
+                          autoCapitalize="characters"
+                          showSoftInputOnFocus={!keyboardDisabled}
+                          />
+                           <TouchableOpacity onPress={() => openScanner('SO')} style={styles.scanIconBtnInside}>
+                               <MaterialCommunityIcons name="qrcode-scan" size={20} color={COLORS.muted} />
+                          </TouchableOpacity>
+                        </View>
+
+                         <TouchableOpacity onPress={() => handleSaveEntry()} style={[styles.actionBtn, { backgroundColor: COLORS.success }]}>
                              <Ionicons name="save-outline" size={20} color="white" />
                         </TouchableOpacity>
                     </View>
@@ -635,6 +808,61 @@ const LocationScreen = () => {
         )}
 
       </View>
+      
+      {/* Camera Modal */}
+      <Modal
+        visible={scanModal}
+        onRequestClose={closeScanner}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        transparent={false}
+      >
+        <StatusBar hidden />
+        <View style={styles.fullscreenCameraWrap}>
+          <CameraView
+            style={styles.fullscreenCamera}
+            facing="back"
+            barcodeScannerSettings={{
+              barcodeTypes: [
+                "qr", "code128", "ean13", "ean8", "upc_a", "upc_e", 
+                "code39", "codabar", "code93", "pdf417", "datamatrix", "aztec", "itf14"
+              ],
+            }}
+            onBarcodeScanned={handleScanned}
+          />
+          
+          <View style={styles.fullscreenTopBar}>
+            <Text style={styles.fullscreenTitle}>Scan {activeScanField === 'LOCATION' ? 'Location' : 'SO / YD'}</Text>
+            <TouchableOpacity onPress={closeScanner} style={styles.fullscreenCloseBtn}>
+              <Text style={styles.closeBtnText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          
+          
+          <View style={styles.fullscreenBottomBar}>
+             <Text style={styles.fullscreenHint}>Align code within frame</Text>
+             {lastScannedCode && activeScanField === 'SO' && (
+                <View style={styles.scanFeedback}>
+                   <Text style={styles.scanCounter}>
+                        Scanned: {sessionCount}
+                   </Text>
+                   <Text style={styles.lastScanText} numberOfLines={1}>
+                       {lastScannedCode}
+                   </Text>
+                </View>
+             )}
+          </View>
+          
+          <View style={styles.focusFrameContainer} pointerEvents="none">
+             <View style={[
+                 styles.focusFrame, 
+                 lastScanStatus === 'ADDED' ? { borderColor: COLORS.success } : 
+                 lastScanStatus ? { borderColor: COLORS.error } : null
+             ]} />
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 };
@@ -686,16 +914,25 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 6,
   },
-  input: {
+  inputWrapper: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 8,
+    paddingRight: 8,
+  },
+  inputInner: {
+    flex: 1,
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: COLORS.text,
     fontSize: 16,
+  },
+  scanIconBtnInside: {
+      padding: 8,
   },
   inputLocked: {
       opacity: 0.7,
@@ -773,5 +1010,54 @@ const styles = StyleSheet.create({
   cell: {
       color: COLORS.text,
       fontSize: 13,
-  }
+  },
+  
+  // Camera Styles
+  focusFrameContainer: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  focusFrame: {
+    width: 260, height: 260, borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)', borderRadius: 24
+  },
+  fullscreenCameraWrap: { flex: 1, backgroundColor: "#000" },
+  fullscreenCamera: { flex: 1 },
+  fullscreenTopBar: {
+    position: "absolute",
+    top: Platform.OS === 'ios' ? 44 : 16,
+    left: 16,
+    right: 16,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    justifyContent: "space-between",
+  },
+  fullscreenTitle: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  fullscreenCloseBtn: {
+    backgroundColor: "#fff",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  closeBtnText: {
+    fontWeight: "700", color: "#000", fontSize: 14
+  },
+  fullscreenBottomBar: {
+    position: "absolute",
+    bottom: 32,
+    left: 16,
+    right: 16,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    padding: 16,
+    alignItems: "center",
+  },
+  fullscreenHint: { color: "#ccc", fontSize: 13 },
+  scanFeedback: {
+     alignItems: "center",
+     width: "100%",
+     marginTop: 8
+  },
+  scanCounter: { color: "#4ADE80", fontWeight: "700", fontSize: 16 },
+  lastScanText: { color: "#fff", fontSize: 14, marginTop: 2, textAlign: "center", width: "100%" },
 });

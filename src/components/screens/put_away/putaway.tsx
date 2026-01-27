@@ -13,6 +13,8 @@ import {
   StatusBar,
   Alert,
   Vibration,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -266,6 +268,7 @@ const PutAwayScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safe} edges={["left", "right", "bottom"]}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -338,6 +341,7 @@ const PutAwayScreen: React.FC = () => {
           </View>
         </View>
       </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
 
       {/* Message Dialog */}
       <Dialog
