@@ -69,7 +69,7 @@ const MENU: MenuItem[] = [
     id: "location_accuracy",
     title: "Location Accuracy",
     subtitle: "Check location accuracy",
-    iconName: "target",
+    iconName: "map-marker"
   },
   // {
   //   id: "content_accuracy",

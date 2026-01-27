@@ -1,16 +1,12 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   TextInput,
-  ScrollView,
   FlatList,
   Alert,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -124,6 +120,33 @@ const LocationScreen = () => {
     isLoaded
   ]);
 
+  // --- Back Navigation Handler ---
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (isReportView) {
+        // Prevent default behavior of leaving the screen
+        e.preventDefault();
+        // Go back to main view
+        setIsReportView(false);
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, isReportView]);
+
+  // --- Header Options ---
+  useLayoutEffect(() => {
+    navigation.setOptions({
+        headerRight: () => (
+             !isReportView && excelData.length > 0 ? (
+                <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
+                    <MaterialCommunityIcons name="file-document-multiple" size={20} color="#EAB308" /> 
+                </TouchableOpacity>
+            ) : null
+        ),
+    });
+  }, [navigation, isReportView, excelData, scannedRecords]);
+
   // --- Refs ---
   const locationInputRef = useRef<TextInput>(null);
   const soYdInputRef = useRef<TextInput>(null);
@@ -225,15 +248,18 @@ const LocationScreen = () => {
       return;
     }
 
-    const val = scanSoYd.trim();
-    const currentLoc = scanLocation.trim();
+    const val = scanSoYd.trim().toUpperCase();
+    const currentLoc = scanLocation.trim().toUpperCase();
     
     // Check if match exists in Excel
-    const match = excelData.find(d => d.SO === val || (d.YD && d.YD === val));
+    const match = excelData.find(d => 
+      (d.SO && d.SO.toUpperCase() === val) || 
+      (d.YD && d.YD.toUpperCase() === val)
+    );
 
     if (match) {
         // Found in Excel. Now check Location Match.
-        const isLocationMatch = match.Location === currentLoc;
+        const isLocationMatch = match.Location && match.Location.toUpperCase() === currentLoc;
 
         if (isLocationMatch) {
              // Valid Logic
@@ -256,7 +282,11 @@ const LocationScreen = () => {
                  Timestamp: Date.now(),
              };
  
-             setScannedRecords(prev => [newRecord, ...prev]);
+             // Add new Verified record and remove any "Missing" record for this SO
+             setScannedRecords(prev => {
+                const filtered = prev.filter(r => r.SO !== match.SO || r.Status !== 'Missing');
+                return [newRecord, ...filtered];
+             });
         } else {
              // Found SO but Wrong Location -> Invalid
              const newRecord: ScannedRecord = {
@@ -280,26 +310,90 @@ const LocationScreen = () => {
   };
 
   const handleVerifyReport = () => {
-    const existingIds = new Set(scannedRecords.map(r => r.SO));
-    const globalMissing: ScannedRecord[] = [];
-    
-    excelData.forEach(row => {
-        if (!existingIds.has(row.SO)) {
-            globalMissing.push({
-                id: `global-missing-${row.SO}`,
-                SO: row.SO,
-                YD: row.YD,
-                Location: row.Location,
-                ScanLocation: '',
-                Status: 'Missing',
-                Timestamp: 0
-            });
-        }
-    });
+    if (isReportView) {
+        // --- Global Verification (Report View) ---
+        // Identify all items that have been successfully scanned (Valid)
+        const scannedValidSOs = new Set(
+            scannedRecords
+                .filter(r => r.Status === 'Valid')
+                .map(r => r.SO)
+        );
 
-    setReportFiles([...scannedRecords, ...globalMissing]);
+        // Find items in Excel that are NOT in the valid scanned list
+        const globalMissing = excelData.filter(d => !scannedValidSOs.has(d.SO));
+
+        const missingRecords: ScannedRecord[] = globalMissing.map(item => ({
+            id: `global-missing-${item.SO}-${Date.now()}`,
+            SO: item.SO,
+            YD: item.YD,
+            Location: item.Location,
+            ScanLocation: '',
+            Status: 'Missing',
+            Timestamp: Date.now()
+        }));
+
+        // Display: All manually scanned items (Valid/Invalid) + All calculated Missing items
+        // We filter out any 'Missing' items that might have been carried over from local main-screen verification
+        const currentScannedWithoutMissing = scannedRecords.filter(r => r.Status !== 'Missing');
+        
+        setReportFiles([...currentScannedWithoutMissing, ...missingRecords]);
+        setIsVerified(true);
+        Alert.alert('Verification', `Found ${missingRecords.length} missing items in total.`);
+        return;
+    }
+
+    // --- Location Specific Verification (Main View) ---
+    const currentLoc = scanLocation.trim().toUpperCase();
+
+    if (!currentLoc) {
+        Alert.alert('Validation', 'Please enter a location to verify.');
+        return;
+    }
+
+    // Filter Excel data for the entered location
+    const expectedItems = excelData.filter(d => 
+        d.Location && d.Location.toUpperCase() === currentLoc
+    );
+
+    if (expectedItems.length === 0) {
+        Alert.alert('Info', `No items found in Excel for location: ${currentLoc}`);
+        return;
+    }
+
+    // Identify what has already been scanned as ACTIVE/VALID for this location
+    const scannedValidSOs = new Set(
+        scannedRecords
+            .filter(r => r.Status === 'Valid')
+            .map(r => r.SO)
+    );
+
+    // Filter expected items to find ones NOT in the scanned set
+    const missingItems = expectedItems.filter(item => !scannedValidSOs.has(item.SO));
+
+    if (missingItems.length === 0) {
+        Alert.alert('Verification', 'All items for this location have been scanned!');
+    } else {
+        // Create "Missing" records
+        const newMissingRecords: ScannedRecord[] = missingItems.map(item => ({
+            id: `missing-${item.SO}-${Date.now()}`,
+            SO: item.SO,
+            YD: item.YD,
+            Location: item.Location,
+            ScanLocation: '',
+            Status: 'Missing',
+            Timestamp: Date.now()
+        }));
+
+        // Update scannedRecords to show these in the main table
+        setScannedRecords(prev => {
+            const clean = prev.filter(r => r.Status !== 'Missing');
+            return [...newMissingRecords, ...clean]; 
+        });
+
+        Alert.alert('Verification', `Found ${missingItems.length} missing items for ${currentLoc}.`);
+    }
+
     setIsVerified(true);
-    Alert.alert('Verification', `Found ${globalMissing.length} missing items.`);
   };
 
   const handleGenerateReport = () => {
@@ -320,7 +414,8 @@ const LocationScreen = () => {
           YD: r.YD,
           'System Location': r.Location,
           'Scanned Location': r.ScanLocation,
-          Status: r.Status
+          Status: r.Status,
+          'Date & Time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
       }));
       
       const ws = XLSX.utils.json_to_sheet(sheetData);
@@ -391,22 +486,46 @@ const LocationScreen = () => {
       {/* Main Content */}
       <View style={styles.content}>
         
-        {/* Upload Section - Always Visible if needed? Or only when empty? User said "first only choose file button" */}
-        {/* We keep it visible so they can change file, OR we hide it? 
-            "enter the page fisrt only choose filr button"
-            "after choose the excel file opion loction input box..."
-            I will keep the upload section visible at top but maybe minimize it or just keep it. 
-        */}
         {!isReportView && (
-            <View style={styles.card}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                <TouchableOpacity onPress={handleUploadExcel} style={styles.uploadBtn}>
-                  <Text style={styles.uploadBtnText}>{excelData.length > 0 ? 'Change File' : 'Choose File'}</Text>
-                </TouchableOpacity>
-                <Text style={{ color: COLORS.muted, marginLeft: 12, flex: 1 }} numberOfLines={1}>
-                  {fileName || 'No file chosen'}
+            <View style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                justifyContent: 'space-between', 
+                paddingVertical: 0,
+                marginBottom: 0
+            }}>
+               <Text style={{ color: fileName ? COLORS.text : COLORS.muted, flex: 1, marginRight: 8, fontSize: 15, fontWeight: fileName ? '600' : '400' }} numberOfLines={1}>
+                  {fileName || 'Select Excel File to Begin'}
+               </Text>
+               <TouchableOpacity onPress={handleUploadExcel} style={{ 
+                   width: 36, 
+                   height: 36, 
+                   borderRadius: 18, 
+                   backgroundColor: '#F3F4F6', 
+                   alignItems: 'center', 
+                   justifyContent: 'center' 
+               }}>
+                  <Ionicons 
+                    name={excelData.length > 0 ? "sync-outline" : "folder-open-outline"} 
+                    size={20} 
+                    color={COLORS.text} 
+                  />
+               </TouchableOpacity>
+            </View>
+        )}
+
+        {/* --- Stats Header --- */}
+        {isReportView && (
+            <View style={styles.statsContainer}>
+                 <Text style={styles.statsText}>
+                    <Text style={{ color: '#0284C7', fontWeight: 'bold' }}>Total: {stats.total}</Text>
+                    <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
+                    <Text style={{ color: '#00E096', fontWeight: 'bold' }}>Valid: {stats.valid}</Text>
+                    <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
+                    <Text style={{ color: '#FF3B30', fontWeight: 'bold' }}>Invalid: {stats.invalid}</Text>
+                    <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
+                    <Text style={{ color: '#FFAA00', fontWeight: 'bold' }}>Missing: {stats.missing}</Text>
                 </Text>
-              </View>
             </View>
         )}
 
@@ -427,6 +546,7 @@ const LocationScreen = () => {
                   onChangeText={setScanLocation}
                   editable={!isLocationLocked}
                   onSubmitEditing={handleLockLocation}
+                  autoCapitalize="characters"
                 />
                 {!isLocationLocked ? (
                     <TouchableOpacity onPress={handleLockLocation} style={styles.actionBtn}>
@@ -451,9 +571,10 @@ const LocationScreen = () => {
                         onChangeText={setScanSoYd}
                         onSubmitEditing={handleSaveEntry}
                         autoFocus
+                        autoCapitalize="characters"
                         />
                          <TouchableOpacity onPress={handleSaveEntry} style={[styles.actionBtn, { backgroundColor: COLORS.success }]}>
-                             <Text style={{ fontWeight: '700', color: 'white' }}>Save</Text>
+                             <Ionicons name="save-outline" size={20} color="white" />
                         </TouchableOpacity>
                     </View>
                   </>
@@ -464,40 +585,36 @@ const LocationScreen = () => {
 
         {/* Action Buttons & Table - Visible Only if Data Loaded or Report View */}
         {(excelData.length > 0 || isReportView) && (
-        <View style={{ flex: 1, marginTop: 16 }}>
-            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+        <View style={{ flex: 1, marginTop: 4 }}>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
                 {!isReportView ? (
                     <>
-                        {/* Main Screen Buttons: Verify removed, Table removed below */}
+                        {/* Main Screen Buttons: Clear and Verify Only (Report in Header) */}
                          <TouchableOpacity onPress={handleClearSession} style={styles.clearBtn}>
-                            <Text style={styles.clearBtnText}>Clear Session</Text>
+                            <Text style={styles.clearBtnText}>Clear</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={handleGenerateReport} style={styles.reportBtn}>
-                            <Text style={styles.reportBtnText}>Report</Text>
+
+                        <TouchableOpacity onPress={handleVerifyReport} style={[styles.reportBtn, { backgroundColor: COLORS.warning, flex: 1 }]}>
+                            <Text style={[styles.reportBtnText, { color: '#000' }]}>Verify</Text>
                         </TouchableOpacity>
                     </>
                 ) : (
                     <>
-                        <TouchableOpacity onPress={() => setIsReportView(false)} style={styles.verifyBtn}>
-                            <Text style={styles.verifyBtnText}>Back to Scan</Text>
-                        </TouchableOpacity>
-
                         {!isVerified ? (
                             <TouchableOpacity onPress={handleVerifyReport} style={[styles.reportBtn, { backgroundColor: COLORS.warning }]}>
                                 <Text style={[styles.reportBtnText, { color: '#000' }]}>Verify</Text>
                             </TouchableOpacity>
                         ) : (
                              <TouchableOpacity onPress={handleExport} style={styles.reportBtn}>
-                                <Text style={styles.reportBtnText}>Export Excel</Text>
+                                <Text style={styles.reportBtnText}>Export</Text>
                             </TouchableOpacity>
                         )}
                     </>
                 )}
             </View>
 
-            {/* Table - Visible ONLY in Report View */}
-            {isReportView && (
-              <>
+            {/* Table - Always Visible below buttons */}
+            <View style={{ flex: 1, marginTop: 8 }}>
                 <View style={styles.tableHeader}>
                     <Text style={[styles.tableHeadText, { flex: 1 }]}>SO</Text>
                     <Text style={[styles.tableHeadText, { flex: 1 }]}>YD</Text>
@@ -513,8 +630,7 @@ const LocationScreen = () => {
                     contentContainerStyle={{ paddingBottom: 20 }}
                     ListEmptyComponent={<Text style={{ color: COLORS.muted, textAlign: 'center', marginTop: 20 }}>No records yet.</Text>}
                 />
-              </>
-            )}
+            </View>
         </View>
         )}
 
@@ -532,58 +648,43 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+    paddingTop: 0,
   },
   card: {
     backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    padding: 10,
+    marginBottom: 4,
+    // Borders removed for cleaner look
   },
   cardTitle: {
     color: COLORS.text,
     fontSize: 14,
     fontWeight: '600',
   },
-  uploadBtn: {
-    backgroundColor: '#F3F4F6',
+
+  statsContainer: {
+    backgroundColor: '#F9FAFB',
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  uploadBtnText: {
-    color: '#111827',
-    fontWeight: '600',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  statBox: {
-    flex: 1,
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    marginTop: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: '#E5E7EB',
   },
-  statValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 4,
+  statsText: {
+    fontSize: 14,
+    color: COLORS.text,
   },
-  statLabel: {
-    color: COLORS.muted,
-    fontSize: 12,
-  },
+
   inputRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
+    gap: 8,
+    marginTop: 6,
   },
   input: {
     flex: 1,
@@ -614,36 +715,39 @@ const styles = StyleSheet.create({
       borderWidth: 1,
       borderColor: COLORS.primary,
       borderRadius: 8,
-      paddingVertical: 12,
+      paddingVertical: 8,
       alignItems: 'center',
   },
   verifyBtnText: {
       color: COLORS.primary,
       fontWeight: '600',
+      fontSize: 13,
   },
   clearBtn: {
-       flex: 1,
+      flex: 1,
       backgroundColor: COLORS.card,
       borderWidth: 1,
       borderColor: COLORS.border,
       borderRadius: 8,
-      paddingVertical: 12,
+      paddingVertical: 8,
       alignItems: 'center',
   },
   clearBtnText: {
        color: COLORS.text,
        fontWeight: '600',
+       fontSize: 13,
   },
   reportBtn: {
-      flex: 0.8,
+      flex: 1,
        backgroundColor: COLORS.primary,
       borderRadius: 8,
-      paddingVertical: 12,
+      paddingVertical: 8,
       alignItems: 'center',
   },
   reportBtnText: {
       color: COLORS.primaryText,
       fontWeight: '700',
+      fontSize: 13,
   },
   
   // Table
