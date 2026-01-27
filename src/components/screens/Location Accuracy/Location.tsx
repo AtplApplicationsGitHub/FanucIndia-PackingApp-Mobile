@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TextInput,
   FlatList,
-  Alert,
   Modal,
   StatusBar,
   Vibration,
@@ -30,6 +29,18 @@ type ExcelRow = {
   SO: string;
   YD?: string;
   Location: string; // System location
+};
+
+type AlertButton = {
+  text: string;
+  style?: 'default' | 'cancel' | 'destructive';
+  onPress?: () => void;
+};
+
+type AlertConfig = {
+  visible: boolean;
+  message: string;
+  buttons: AlertButton[];
 };
 
 type ScannedRecord = {
@@ -77,6 +88,26 @@ const LocationScreen = () => {
   const [isLoaded, setIsLoaded] = useState(false);
   
   const [keyboardDisabled] = useKeyboardDisabled();
+  
+  // --- Alert State ---
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    visible: false,
+    message: '',
+    buttons: [],
+  });
+  
+  const showAlert = (message: string, buttons?: AlertButton[]) => {
+    setAlertConfig({
+      visible: true,
+      message,
+      buttons: buttons && buttons.length > 0 ? buttons : [{ text: 'OK', style: 'default' }],
+    });
+  };
+
+  const handleAlertAction = (action?: () => void) => {
+      setAlertConfig(prev => ({ ...prev, visible: false }));
+      if (action) setTimeout(action, 100); // Small delay to allow modal to close smoothly
+  };
 
   // --- Camera State ---
   const [permission, requestPermission] = useCameraPermissions();
@@ -156,18 +187,63 @@ const LocationScreen = () => {
     return unsubscribe;
   }, [navigation, isReportView]);
 
+  // --- Focus Management ---
+  useEffect(() => {
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      locationInputRef.current?.blur();
+      soYdInputRef.current?.blur();
+    });
+
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      // Auto-focus location input when entering screen if appropriate
+      if (excelData.length > 0 && !isLocationLocked) {
+         setTimeout(() => {
+             if (navigation.isFocused()) {
+                locationInputRef.current?.focus();
+             }
+         }, 400);
+      }
+    });
+
+    return () => {
+        unsubscribeBlur();
+        unsubscribeFocus();
+    };
+  }, [navigation, excelData, isLocationLocked]);
+
+  // Auto-focus when unlocking manually
+  useEffect(() => {
+      if (!isLocationLocked && excelData.length > 0 && navigation.isFocused()) {
+          setTimeout(() => {
+             locationInputRef.current?.focus();
+          }, 200);
+      }
+  }, [isLocationLocked, excelData, navigation]);
+
   // --- Header Options ---
   useLayoutEffect(() => {
     navigation.setOptions({
-        headerRight: () => (
-             !isReportView && excelData.length > 0 ? (
-                <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
-                    <MaterialCommunityIcons name="file-document-multiple" size={20} color="#EAB308" /> 
-                </TouchableOpacity>
-            ) : null
-        ),
+        headerRight: () => {
+             if (isReportView) {
+                return (
+                    <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
+                      <MaterialCommunityIcons name="file-chart-outline" size={24} />
+
+                    </TouchableOpacity>
+                );
+             }
+
+             if (excelData.length > 0) {
+                return (
+                    <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
+                       <MaterialCommunityIcons name="file-chart-outline" size={24} />
+                    </TouchableOpacity>
+                );
+             }
+             return null;
+        },
     });
-  }, [navigation, isReportView, excelData, scannedRecords]);
+  }, [navigation, isReportView, excelData, scannedRecords, reportFiles]);
 
   // --- Refs ---
   const locationInputRef = useRef<TextInput>(null);
@@ -195,7 +271,7 @@ const LocationScreen = () => {
       const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet);
 
       if (jsonData.length === 0) {
-        Alert.alert('Error', 'Excel file is empty.');
+        showAlert('Excel file is empty.');
         return;
       }
 
@@ -207,7 +283,7 @@ const LocationScreen = () => {
       // Let's check for SO and Location as critical. YD often optional but column should likely be there if template is strict.
       // We will check for SO and Location keys.
       if (!hasSO || !hasLocation) {
-        Alert.alert('Error', 'Invalid Excel format. Required columns: SO, Location, YD');
+        showAlert('Invalid Excel format. Required columns: SO, Location, YD');
         return;
       }
 
@@ -224,11 +300,13 @@ const LocationScreen = () => {
       
       // Auto focus the location input after data loads and UI renders
       setTimeout(() => {
-        locationInputRef.current?.focus();
+        if (navigation.isFocused()) {
+            locationInputRef.current?.focus();
+        }
       }, 500);
     } catch (err) {
       console.error(err);
-      Alert.alert('Error', 'Failed to parse Excel file.');
+      showAlert('Failed to parse Excel file.');
     }
   };
 
@@ -236,7 +314,7 @@ const LocationScreen = () => {
     const valueToCheck = overrideValue !== undefined ? overrideValue : scanLocation;
     
     if (!valueToCheck.trim()) {
-      Alert.alert('Validation', 'Please scan a location first.');
+      showAlert('Please scan a location first.');
       return;
     }
 
@@ -246,11 +324,15 @@ const LocationScreen = () => {
 
     setIsLocationLocked(true);
     // Auto focus next field
-    setTimeout(() => soYdInputRef.current?.focus(), 500);
+    setTimeout(() => {
+        if (navigation.isFocused()) {
+            soYdInputRef.current?.focus();
+        }
+    }, 500);
   };
 
   const handleClearSession = () => {
-    Alert.alert('Confirm Reset', 'Are you sure you want to clear the current session?', [
+    showAlert('Are you sure you want to clear the current session?', [
       { text: 'Cancel', style: 'cancel' },
       { 
         text: 'Clear', 
@@ -275,7 +357,7 @@ const LocationScreen = () => {
     const rawValue = typeof valueOverride === 'string' ? valueOverride : scanSoYd;
     
     if (!rawValue.trim()) {
-      if (!fromScanner) Alert.alert('Validation', 'Please scan SO or YD.');
+      if (!fromScanner) showAlert('Please scan SO or YD.');
       return 'ERROR';
     }
 
@@ -297,23 +379,14 @@ const LocationScreen = () => {
              const isDuplicate = scannedRecords.some(r => r.SO === match.SO && r.Status === 'Valid');
 
              if (isDuplicate) {
-                 // Save Duplicate and clear input automatically
-                 const newRecord: ScannedRecord = {
-                     id: `dup-${Date.now()}-${Math.random()}`,
-                     SO: match.SO, 
-                     YD: match.YD || '',
-                     Location: match.Location,
-                     ScanLocation: currentLoc,
-                     Status: 'Duplicate',
-                     Timestamp: Date.now(),
-                 };
-                 
-                 setScannedRecords(prev => [newRecord, ...prev]);
+                 // Show Popup for Duplicate
+                 showAlert('SO already added');
 
                  // Logic to clear and refocus
                  setScanSoYd('');
                  if (!fromScanner) soYdInputRef.current?.focus();
                  
+                 // Do NOT add a duplicate record to the list
                  return 'DUPLICATE';
              }
  
@@ -327,9 +400,9 @@ const LocationScreen = () => {
                  Timestamp: Date.now(),
              };
  
-             // Add new Verified record and remove any "Missing" record for this SO
+             // Add new Verified record and remove ANY previous record for this SO (Valid, Invalid, Missing)
              setScannedRecords(prev => {
-                const filtered = prev.filter(r => r.SO !== match.SO || r.Status !== 'Missing');
+                const filtered = prev.filter(r => r.SO !== match.SO);
                 return [newRecord, ...filtered];
              });
              
@@ -361,7 +434,7 @@ const LocationScreen = () => {
     } else {
         // Not in Excel
         if (!fromScanner) {
-             Alert.alert('Not Found', 'SO not found in Excel data.');
+             showAlert('SO not found in Excel data.');
         }
         return 'NOT_FOUND';
     }
@@ -374,43 +447,11 @@ const LocationScreen = () => {
   };
 
   const handleVerifyReport = () => {
-    if (isReportView) {
-        // --- Global Verification (Report View) ---
-        // Identify all items that have been successfully scanned (Valid)
-        const scannedValidSOs = new Set(
-            scannedRecords
-                .filter(r => r.Status === 'Valid')
-                .map(r => r.SO)
-        );
-
-        // Find items in Excel that are NOT in the valid scanned list
-        const globalMissing = excelData.filter(d => !scannedValidSOs.has(d.SO));
-
-        const missingRecords: ScannedRecord[] = globalMissing.map(item => ({
-            id: `global-missing-${item.SO}-${Date.now()}`,
-            SO: item.SO,
-            YD: item.YD,
-            Location: item.Location,
-            ScanLocation: '',
-            Status: 'Missing',
-            Timestamp: Date.now()
-        }));
-
-        // Display: All manually scanned items (Valid/Invalid) + All calculated Missing items
-        // We filter out any 'Missing' items that might have been carried over from local main-screen verification
-        const currentScannedWithoutMissing = scannedRecords.filter(r => r.Status !== 'Missing');
-        
-        setReportFiles([...currentScannedWithoutMissing, ...missingRecords]);
-        setIsVerified(true);
-        Alert.alert('Verification', `Found ${missingRecords.length} missing items in total.`);
-        return;
-    }
-
     // --- Location Specific Verification (Main View) ---
     const currentLoc = scanLocation.trim().toUpperCase();
 
     if (!currentLoc) {
-        Alert.alert('Validation', 'Please enter a location to verify.');
+        showAlert('Please enter a location to verify.');
         return;
     }
 
@@ -420,7 +461,7 @@ const LocationScreen = () => {
     );
 
     if (expectedItems.length === 0) {
-        Alert.alert('Info', `No items found in Excel for location: ${currentLoc}`);
+        showAlert(`No items found in Excel for location: ${currentLoc}`);
         return;
     }
 
@@ -435,7 +476,7 @@ const LocationScreen = () => {
     const missingItems = expectedItems.filter(item => !scannedValidSOs.has(item.SO));
 
     if (missingItems.length === 0) {
-        Alert.alert('Verification', 'All items for this location have been scanned!');
+        showAlert('All items for this location have been scanned!');
     } else {
         // Create "Missing" records
         const newMissingRecords: ScannedRecord[] = missingItems.map(item => ({
@@ -454,22 +495,48 @@ const LocationScreen = () => {
             return [...newMissingRecords, ...clean]; 
         });
 
-        Alert.alert('Verification', `Found ${missingItems.length} missing items for ${currentLoc}.`);
+        showAlert(`Found ${missingItems.length} missing items for ${currentLoc}.`);
     }
 
     setIsVerified(true);
   };
 
   const handleGenerateReport = () => {
-    // Show scanned values only initially
-    setReportFiles([...scannedRecords]);
-    setIsVerified(false);
+    // --- Automatic Global Verification ---
+    // Identify all items that have been successfully scanned (Valid)
+    const scannedValidSOs = new Set(
+        scannedRecords
+            .filter(r => r.Status === 'Valid')
+            .map(r => r.SO)
+    );
+
+    // Find items in Excel that are NOT in the valid scanned list
+    const globalMissing = excelData.filter(d => !scannedValidSOs.has(d.SO));
+
+    const missingRecords: ScannedRecord[] = globalMissing.map(item => ({
+        id: `global-missing-${item.SO}-${Date.now()}`,
+        SO: item.SO,
+        YD: item.YD,
+        Location: item.Location,
+        ScanLocation: '',
+        Status: 'Missing',
+        Timestamp: Date.now()
+    }));
+
+    // Display: All manually scanned items (Valid/Invalid) + All calculated Missing items
+    const currentScannedWithoutMissing = scannedRecords.filter(r => r.Status !== 'Missing');
+    
+    setReportFiles([...currentScannedWithoutMissing, ...missingRecords]);
+    setIsVerified(true);
     setIsReportView(true);
+    
+    // Optional: You can uncomment this if you want an alert upon entry
+    // showAlert(`Report Generated. Found ${missingRecords.length} missing.`);
   };
 
   const handleExport = async () => {
       if (reportFiles.length === 0) {
-          Alert.alert('Export', 'No data to export.');
+          showAlert('No data to export.');
           return;
       }
       
@@ -494,7 +561,7 @@ const LocationScreen = () => {
       if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(uri);
       } else {
-          Alert.alert('Error', 'Sharing is not available on this device.');
+          showAlert('Sharing is not available on this device.');
       }
   };
 
@@ -506,17 +573,17 @@ const LocationScreen = () => {
       if (!permission) {
         const res = await requestPermission();
         if (!res.granted) {
-            Alert.alert("Permission Required", "Allow camera access to scan QR codes.");
+            showAlert("Allow camera access to scan QR codes.");
             return;
         }
       } else if (!permission.granted) {
           if (!permission.canAskAgain) {
-             Alert.alert("Camera Disabled", "Please enable camera access in your device settings.");
+             showAlert("Please enable camera access in your device settings.");
              return;
           }
           const res = await requestPermission();
           if (!res.granted) {
-            Alert.alert("Permission Denied", "Camera permission is required.");
+            showAlert("Camera permission is required.");
             return;
           }
       }
@@ -531,7 +598,7 @@ const LocationScreen = () => {
       setScanModal(true);
     } catch (err) {
        console.log(err);
-       Alert.alert("Error", "Failed to access camera permission.");
+       showAlert("Failed to access camera permission.");
     }
   };
 
@@ -771,19 +838,7 @@ const LocationScreen = () => {
                             <Text style={[styles.reportBtnText, { color: '#000' }]}>Verify</Text>
                         </TouchableOpacity>
                     </>
-                ) : (
-                    <>
-                        {!isVerified ? (
-                            <TouchableOpacity onPress={handleVerifyReport} style={[styles.reportBtn, { backgroundColor: COLORS.warning }]}>
-                                <Text style={[styles.reportBtnText, { color: '#000' }]}>Verify</Text>
-                            </TouchableOpacity>
-                        ) : (
-                             <TouchableOpacity onPress={handleExport} style={styles.reportBtn}>
-                                <Text style={styles.reportBtnText}>Export</Text>
-                            </TouchableOpacity>
-                        )}
-                    </>
-                )}
+                ) : null}
             </View>
 
             {/* Table - Always Visible below buttons */}
@@ -862,6 +917,49 @@ const LocationScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Custom Alert Modal */}
+      <Modal
+        visible={alertConfig.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      >
+        <View style={styles.alertOverlay}>
+            <View style={styles.alertBox}>
+                <Text style={styles.alertMessage}>{alertConfig.message}</Text>
+                
+                <View style={styles.alertButtonContainer}>
+                    {alertConfig.buttons.map((btn, index) => {
+                        const isDestructive = btn.style === 'destructive';
+                        const isCancel = btn.style === 'cancel';
+                        const isPrimary = !isDestructive && !isCancel;
+
+                        return (
+                            <TouchableOpacity 
+                                key={index} 
+                                style={[
+                                    styles.alertButton, 
+                                    isPrimary && styles.alertButtonPrimary,
+                                    isDestructive && styles.alertButtonDestructive,
+                                    isCancel && styles.alertButtonCancel
+                                ]}
+                                onPress={() => handleAlertAction(btn.onPress)}
+                            >
+                                <Text style={[
+                                    styles.alertButtonText,
+                                    isPrimary && styles.alertTextPrimary,
+                                    isDestructive && styles.alertTextDestructive,
+                                    isCancel && styles.alertTextCancel
+                                ]}>{btn.text}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            </View>
+        </View>
+      </Modal>
+
 
     </SafeAreaView>
   );
@@ -1060,4 +1158,76 @@ const styles = StyleSheet.create({
   },
   scanCounter: { color: "#4ADE80", fontWeight: "700", fontSize: 16 },
   lastScanText: { color: "#fff", fontSize: 14, marginTop: 2, textAlign: "center", width: "100%" },
+
+  // Alert Styles
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  alertBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+        width: 0,
+        height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
+  },
+  alertMessage: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  alertButtonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+    justifyContent: 'center',
+    flexWrap: 'wrap-reverse', // To handle many buttons if needed
+  },
+  alertButton: {
+    flex: 1,
+    minWidth: 100,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6', // Default for cancel/others
+  },
+  alertButtonPrimary: {
+    backgroundColor: COLORS.primary,
+  },
+  alertButtonDestructive: {
+    backgroundColor: '#FEE2E2',
+  },
+  alertButtonCancel: {
+    backgroundColor: '#F3F4F6',
+  },
+  alertButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  alertTextPrimary: {
+    color: '#0B0F19',
+  },
+  alertTextDestructive: {
+    color: '#EF4444',
+  },
+  alertTextCancel: {
+    color: '#374151',
+  },
 });
