@@ -557,7 +557,7 @@ const PutAwayScreen = () => {
         Location: item.Location,
         ScanLocation: '',
         Status: 'Missing',
-        Timestamp: Date.now()
+        Timestamp: 0 // Set to 0 so they appear at the bottom of the list (sorted by time desc)
     }));
 
     // Display: All manually scanned items (Valid/Invalid) + All calculated Missing items
@@ -578,32 +578,109 @@ const PutAwayScreen = () => {
           return;
       }
       
-      const sheetData: any[] = [];
-      let sno = 1;
+      
+      // Export based on IMPORTED Excel Data Order
+      // Logic:
+      // 1. If Excel Row has specific SO -> Strict Match (Show Scanned/Empty for that specific SO)
+      // 2. If Excel Row has NO SO (Location Only) -> Find ALl scans for that location and expand them.
+      
+      let sheetData: any[] = [];
 
-      groupedData.forEach(r => {
-          const sos = r.SOs ? r.SOs.split(',') : [];
+      if (excelData.length > 0) {
+           // 1. Map for Strict Matching (SO + Location)
+           const strictMap = new Map();
+           // 2. Map for Location-Only Matching (Location -> List of Scans)
+           const locMap = new Map<string, ScannedRecord[]>();
 
-          if (sos.length > 0) {
-              sos.forEach(so => {
+           scannedRecords.forEach(r => {
+               // Strict Key
+               if (r.SO && r.Status === 'Valid') {
+                    const strictKey = `${r.SO.toUpperCase().trim()}|${(r.Location || '').toUpperCase().trim()}`;
+                    strictMap.set(strictKey, r);
+               }
+
+               // Location Map (only valid scans)
+               if (r.Status === 'Valid') {
+                   const locKey = (r.Location || r.ScanLocation || '').toUpperCase().trim();
+                   if (!locMap.has(locKey)) locMap.set(locKey, []);
+                   locMap.get(locKey)?.push(r);
+               }
+           });
+
+           let sno = 1;
+           
+           excelData.forEach((row) => {
+               const soVal = row.SO ? row.SO.toString().trim() : '';
+               const locVal = row.Location ? row.Location.toString().trim() : '';
+               
+               if (soVal) {
+                   // --- STRICT PLAN MODE (Row has SO) ---
+                   const strictKey = `${soVal.toUpperCase()}|${locVal.toUpperCase()}`;
+                   const scannedRecord = strictMap.get(strictKey);
+                   
+                   sheetData.push({
+                       'S/No': sno++,
+                       'Location': locVal,
+                       'SO': soVal,
+                       'Status': scannedRecord ? 'Scanned' : 'Empty',
+                       'Date and time': scannedRecord && scannedRecord.Timestamp ? new Date(scannedRecord.Timestamp).toLocaleString() : '-'
+                   });
+               } else {
+                   // --- FREE / LOCATION ONLY MODE (Row is just a Location) ---
+                   const locKey = locVal.toUpperCase();
+                   const scansForLoc = locMap.get(locKey);
+
+                   if (scansForLoc && scansForLoc.length > 0) {
+                       // Expand: One row per scanned SO at this location
+                       scansForLoc.forEach(scan => {
+                           sheetData.push({
+                               'S/No': sno++,
+                               'Location': locVal,
+                               'SO': scan.SO, // Use the ACTUAL scanned SO
+                               'Status': 'Scanned',
+                               'Date and time': scan.Timestamp ? new Date(scan.Timestamp).toLocaleString() : '-'
+                           });
+                       });
+                   } else {
+                       // No scans for this location placeholder
+                       sheetData.push({
+                           'S/No': sno++,
+                           'Location': locVal,
+                           'SO': '', 
+                           'Status': 'Empty',
+                           'Date and time': '-'
+                       });
+                   }
+               }
+           });
+
+      } else {
+           // Backward compatibility for completely Empty Plan (shouldn't happen with excelData check, but for safety)
+          let sno = 1;
+          groupedData.forEach(r => {
+              const sos = r.SOs ? r.SOs.split(',') : [];
+
+              if (sos.length > 0) {
+                  sos.forEach(so => {
+                      sheetData.push({
+                          'S/No': sno++,
+                          'Location': r.Location,
+                          'SO': so.trim(),
+                          'Status': r.Status === 'Valid' ? 'Scanned' : (r.Status === 'Invalid' ? 'Empty' : r.Status),
+                          'Date and time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
+                      });
+                  });
+              } else {
                   sheetData.push({
                       'S/No': sno++,
                       'Location': r.Location,
-                      'SO': so.trim(),
+                      'SO': '',
                       'Status': r.Status === 'Valid' ? 'Scanned' : (r.Status === 'Invalid' ? 'Empty' : r.Status),
                       'Date and time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
                   });
-              });
-          } else {
-              sheetData.push({
-                  'S/No': sno++,
-                  'Location': r.Location,
-                  'SO': '',
-                  'Status': r.Status === 'Valid' ? 'Scanned' : (r.Status === 'Invalid' ? 'Empty' : r.Status),
-                  'Date and time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
-              });
-          }
-      });
+              }
+          });
+      }
       
       const ws = XLSX.utils.json_to_sheet(sheetData);
       const wb = XLSX.utils.book_new();
@@ -802,21 +879,17 @@ const PutAwayScreen = () => {
   const stats = useMemo(() => {
     // 1. Total Unique Locations in Excel Plan
     const planLocs = new Set(excelData
-        .map(d => d.Location ? d.Location.trim().toUpperCase() : '')
+        .map(d => d.Location ? d.Location.toString().trim().toUpperCase() : '')
         .filter(l => l)
     );
     const total = planLocs.size;
 
     // 2. Locations that have at least one 'Valid' scan
-    // We use scannedRecords (source of truth) to find distinct locations that are 'Valid'
     const scannedLocs = new Set(scannedRecords
         .filter(r => r.Status === 'Valid')
-        .map(r => r.Location ? r.Location.trim().toUpperCase() : '')
+        .map(r => r.Location ? r.Location.toString().trim().toUpperCase() : '')
         .filter(l => planLocs.has(l)) // Only count if it is part of the plan
     );
-    
-    // If we are in free mode (no excel data), Total is 0.
-    // If we have data, we count how many plan locations are touched.
     
     const valid = scannedLocs.size;
     const missing = Math.max(0, total - valid);
