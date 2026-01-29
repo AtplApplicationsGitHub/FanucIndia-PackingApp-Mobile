@@ -71,12 +71,12 @@ const MENU: MenuItem[] = [
     subtitle: "Check location accuracy",
     iconName: "map-marker"
   },
-  // {
-  //   id: "content_accuracy",
-  //   title: "Content Accuracy",
-  //   subtitle: "Verify content details",
-  //   iconName: "checkbox-marked-circle-outline",
-  // },
+  {
+    id: "content_accuracy",
+    title: "Content Accuracy",
+    subtitle: "Verify content details",
+    iconName: "checkbox-marked-circle-outline",
+  },
   {
     id: "put_away",
     title: "Put Away Location",
@@ -198,7 +198,6 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const onPressItem = (item: MenuItem) => () => {
     switch (item.id) {
       case "pick":
-        // navigation.navigate("PickAndPack");
         break;
       case "transfer":
         navigation.navigate("MaterialFG");
@@ -216,6 +215,8 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         navigation.navigate("LocationAccuracy");
         break;
       case "content_accuracy":
+        navigation.navigate("ContentAccuracy");
+        break;
       case "put_away":
         navigation.navigate("PutAway");
         break;

@@ -19,15 +19,14 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import * as Sharing from 'expo-sharing';
 import { useNavigation } from '@react-navigation/native';
+// import LocationStorage from '../../Storage/Location_Storage'; // Storage disabled for PutAway until implemented
 import { useKeyboardDisabled } from '../../utils/keyboard';
-import PutAwayStorage, { type ScannedRecord } from '../../Storage/putaway_Storage';
 
 // --- Types ---
 type ExcelRow = {
   SO: string;
   YD?: string;
   Location: string; // System location
-  
 };
 
 type AlertButton = {
@@ -42,7 +41,15 @@ type AlertConfig = {
   buttons: AlertButton[];
 };
 
-// ScannedRecord type imported from storage
+type ScannedRecord = {
+  id: string; // Unique ID for list
+  SO?: string;
+  YD?: string;
+  Location: string; // System location (if matched) or Derived
+  ScanLocation: string;
+  Status: 'Valid' | 'Invalid' | 'Missing' | 'Duplicate';
+  Timestamp: number;
+};
 
 // --- Theme Colors ---
 const COLORS = {
@@ -57,14 +64,6 @@ const COLORS = {
   error: '#EF4444',
   warning: '#F59E0B',
   duplicate: '#8B5CF6',
-};
-
-type GroupedRecord = {
-    id: string; // Composite ID
-    Location: string;
-    SOs: string; // Comma separated
-    Status: 'Valid' | 'Invalid' | 'Missing';
-    Timestamp: number; // Latest timestamp
 };
 
 const PutAwayScreen = () => {
@@ -84,66 +83,9 @@ const PutAwayScreen = () => {
   
   const [isReportView, setIsReportView] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
   
   const [keyboardDisabled] = useKeyboardDisabled();
-
-  // --- Filter State ---
-  const [filterType, setFilterType] = useState<'ALL' | 'Scanned' | 'Empty'>('Scanned');
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-
-  // --- Storage ---
-  const [isLoaded, setIsLoaded] = useState(false);
-
-  // Load Session on Mount
-  useEffect(() => {
-      const load = async () => {
-          const session = await PutAwayStorage.getSession();
-          if (session) {
-              setExcelData(session.excelData || []);
-              setFileName(session.fileName || null);
-              setScannedRecords(session.scannedRecords || []);
-              setReportFiles(session.reportFiles || []);
-              setScanLocation(session.scanLocation || '');
-              setIsLocationLocked(session.isLocationLocked || false);
-              setScanSoYd(session.scanSoYd || '');
-              setIsVerified(session.isVerified || false);
-              setIsReportView(session.isReportView || false);
-              setFilterType(session.filterType || 'Scanned');
-          }
-          setIsLoaded(true);
-      };
-      load();
-  }, []);
-
-  // Save Session on Change
-  useEffect(() => {
-      if (isLoaded) {
-          PutAwayStorage.saveSession({
-              excelData,
-              fileName,
-              scannedRecords,
-              reportFiles,
-              scanLocation,
-              isLocationLocked,
-              scanSoYd,
-              isVerified,
-              isReportView,
-              filterType
-          });
-      }
-  }, [
-      isLoaded,
-      excelData,
-      fileName,
-      scannedRecords,
-      reportFiles,
-      scanLocation,
-      isLocationLocked,
-      scanSoYd,
-      isVerified,
-      isReportView,
-      filterType
-  ]);
   
   // --- Alert State ---
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({
@@ -176,7 +118,60 @@ const PutAwayScreen = () => {
   const [sessionCount, setSessionCount] = useState(0);
   const sessionCodesRef = useRef<Set<string>>(new Set());
 
+  // --- Persistence ---
+  
+  // Load Session on Mount (Stubbed)
+  useEffect(() => {
+    const loadSession = async () => {
+      // Stub: No storage implementation yet
+      // const data = await LocationStorage.getSession();
+      // if (data) {
+      //   setExcelData(data.excelData || []);
+      //   setFileName(data.fileName || null);
+      //   setScannedRecords(data.scannedRecords || []);
+      //   setReportFiles(data.reportFiles || []);
+      //   setScanLocation(data.scanLocation || '');
+      //   setIsLocationLocked(data.isLocationLocked || false);
+      //   setScanSoYd(data.scanSoYd || '');
+      //   setIsVerified(data.isVerified || false);
+      //   setIsReportView(data.isReportView || false);
+      // }
+      setIsLoaded(true);
+    };
+    loadSession();
+  }, []);
 
+  // Save Session on Change (Stubbed)
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const saveData = async () => {
+      // Stub: No storage implementation yet
+      // await LocationStorage.saveSession({
+      //   excelData,
+      //   fileName,
+      //   scannedRecords,
+      //   reportFiles,
+      //   scanLocation,
+      //   isLocationLocked,
+      //   scanSoYd,
+      //   isVerified,
+      //   isReportView
+      // });
+    };
+    saveData();
+  }, [
+    excelData, 
+    fileName, 
+    scannedRecords, 
+    reportFiles, 
+    scanLocation, 
+    isLocationLocked, 
+    scanSoYd, 
+    isVerified, 
+    isReportView, 
+    isLoaded
+  ]);
 
   // --- Back Navigation Handler ---
   useEffect(() => {
@@ -354,6 +349,7 @@ const PutAwayScreen = () => {
         text: 'Clear', 
         style: 'destructive', 
         onPress: async () => {
+          // await LocationStorage.clearSession(); // Stubbed
           setScanLocation('');
           setScanSoYd('');
           setIsLocationLocked(false);
@@ -363,7 +359,6 @@ const PutAwayScreen = () => {
           setIsVerified(false);
           setExcelData([]);
           setFileName(null);
-          await PutAwayStorage.clearSession();
         }
       }
     ]);
@@ -516,8 +511,8 @@ const PutAwayScreen = () => {
         showAlert('All items for this location have been scanned!');
     } else {
         // Create "Missing" records
-        const newMissingRecords: ScannedRecord[] = missingItems.map((item, index) => ({
-            id: `missing-${item.SO}-${Date.now()}-${index}`,
+        const newMissingRecords: ScannedRecord[] = missingItems.map(item => ({
+            id: `missing-${item.SO}-${Date.now()}`,
             SO: item.SO,
             YD: item.YD,
             Location: item.Location,
@@ -550,8 +545,8 @@ const PutAwayScreen = () => {
     // Find items in Excel that are NOT in the valid scanned list
     const globalMissing = excelData.filter(d => !scannedValidSOs.has(d.SO));
 
-    const missingRecords: ScannedRecord[] = globalMissing.map((item, index) => ({
-        id: `global-missing-${item.SO}-${Date.now()}-${index}`,
+    const missingRecords: ScannedRecord[] = globalMissing.map(item => ({
+        id: `global-missing-${item.SO}-${Date.now()}`,
         SO: item.SO,
         YD: item.YD,
         Location: item.Location,
@@ -566,44 +561,25 @@ const PutAwayScreen = () => {
     setReportFiles([...currentScannedWithoutMissing, ...missingRecords]);
     setIsVerified(true);
     setIsReportView(true);
+    
+    // Optional: You can uncomment this if you want an alert upon entry
+    // showAlert(`Report Generated. Found ${missingRecords.length} missing.`);
   };
 
   const handleExport = async () => {
-      // Group for export as well
-      const activeList = reportFiles.length > 0 ? reportFiles : scannedRecords;
-      const groupedData = getGroupedRecords(activeList);
-
-      if (groupedData.length === 0) {
+      if (reportFiles.length === 0) {
           showAlert('No data to export.');
           return;
       }
       
-      const sheetData: any[] = [];
-      let sno = 1;
-
-      groupedData.forEach(r => {
-          const sos = r.SOs ? r.SOs.split(',') : [];
-
-          if (sos.length > 0) {
-              sos.forEach(so => {
-                  sheetData.push({
-                      'S/No': sno++,
-                      'Location': r.Location,
-                      'SO': so.trim(),
-                      'Status': r.Status === 'Valid' ? 'Scanned' : (r.Status === 'Invalid' ? 'Empty' : r.Status),
-                      'Date and time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
-                  });
-              });
-          } else {
-              sheetData.push({
-                  'S/No': sno++,
-                  'Location': r.Location,
-                  'SO': '',
-                  'Status': r.Status === 'Valid' ? 'Scanned' : (r.Status === 'Invalid' ? 'Empty' : r.Status),
-                  'Date and time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
-              });
-          }
-      });
+      const sheetData = reportFiles.map(r => ({
+          SO: r.SO,
+          YD: r.YD,
+          'System Location': r.Location,
+          'Scanned Location': r.ScanLocation,
+          Status: r.Status,
+          'Date & Time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
+      }));
       
       const ws = XLSX.utils.json_to_sheet(sheetData);
       const wb = XLSX.utils.book_new();
@@ -670,6 +646,7 @@ const PutAwayScreen = () => {
     if (activeScanField === 'LOCATION') {
         // Single scan for Location
         Vibration.vibrate();
+        // setScanLocation(value); // Handled by handleLockLocation now
         setLastScannedCode(value);
         setScanModal(false);
         setActiveScanField(null);
@@ -692,6 +669,8 @@ const PutAwayScreen = () => {
         setLastScannedCode(value);
         
         // Try to save
+        // remove setScanSoYd(value) to prevent input box flickering/persistence
+
         const status = handleSaveEntry(value, true);
         setLastScanStatus(status);
         
@@ -710,140 +689,47 @@ const PutAwayScreen = () => {
     }
   };
 
-  // --- Grouping Logic ---
-  const getGroupedRecords = (records: ScannedRecord[]): GroupedRecord[] => {
-      // Return flat list converted to GroupedRecord format for consistency
-      // User request: "supprate SO one one" - No grouping by location
-      return records.map(record => ({
-              id: record.id,
-              Location: record.Location || record.ScanLocation || 'Unknown',
-              SOs: record.SO || '',
-              Status: (record.Status === 'Invalid' ? 'Invalid' : (record.Status === 'Missing' ? 'Missing' : 'Valid')) as GroupedRecord['Status'],
-              Timestamp: record.Timestamp
-      })).sort((a, b) => b.Timestamp - a.Timestamp);
-  };
+  // --- Counts ---
+  const activeList = isReportView ? reportFiles : scannedRecords;
+  
+  const stats = useMemo(() => {
+    const total = activeList.length;
+    const valid = activeList.filter(r => r.Status === 'Valid').length;
+    const invalid = activeList.filter(r => r.Status === 'Invalid').length;
+    const missing = activeList.filter(r => r.Status === 'Missing').length;
+    return { total, valid, invalid, missing };
+  }, [activeList]);
 
-  // --- Helper ---
+  // --- Render ---
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Valid': return { color: '#00E096', bg: 'rgba(0, 224, 150, 0.15)' }; // Green
-      case 'Scanned': return { color: '#00E096', bg: 'rgba(0, 224, 150, 0.15)' }; // Green
-      case 'Missing': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
-      case 'Empty': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
+      case 'Missing': return { color: '#FFAA00', bg: 'rgba(255, 170, 0, 0.15)' }; // Orange
+      case 'Invalid': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
       default: return { color: COLORS.text, bg: 'transparent' };
     }
   };
 
-  // --- Filtering & Grouping ---
-  
-  const groupedList = useMemo(() => {
-      // Determine Source & Mode
-      let sourceRecords = scannedRecords;
-      let generateMissingFromPlan = true;
-      let applyFilter = filterType;
-
-      if (isReportView) {
-          sourceRecords = reportFiles;
-          generateMissingFromPlan = false; // Report already contains the calculated missing items
-          applyFilter = 'ALL'; // Second screen shows all data by default
-      }
-
-      // 1. Process Source Records (Flat List)
-      // We do NOT group by location anymore, as per user request to separate SOs
-      const flatList: GroupedRecord[] = sourceRecords.map(record => ({
-            id: record.id,
-            Location: record.Location || record.ScanLocation || 'Unknown',
-            SOs: record.SO || '',
-            Status: (record.Status === 'Invalid' ? 'Invalid' : (record.Status === 'Missing' ? 'Missing' : 'Valid')) as GroupedRecord['Status'],
-            Timestamp: record.Timestamp || 0
-      }));
-
-      // 2. Merge Missing/Empty Locations from Excel Plan (Only for Main View)
-      if (generateMissingFromPlan && excelData.length > 0) {
-           // Find locations that have ANY scan activity (Valid or Invalid)
-           const scannedLocs = new Set(sourceRecords.map(r => 
-               (r.Location || r.ScanLocation || '').trim().toUpperCase()
-           ));
-
-           // Filter Excel data to find rows where Location was NOT scanned at all
-           const unscannedRows = excelData.filter(row => {
-               const loc = (row.Location || '').trim().toUpperCase();
-               return loc && !scannedLocs.has(loc);
-           });
-
-           // Add these as "Empty/Missing" records
-           unscannedRows.forEach((row, idx) => {
-               // One entry per SO - flattened
-               flatList.push({
-                   id: `plan-${row.Location}-${idx}`,
-                   Location: row.Location,
-                   SOs: row.SO || '', 
-                   Status: 'Missing', 
-                   Timestamp: 0 
-               });
-           });
-      }
-
-      const sortedList = flatList.sort((a, b) => b.Timestamp - a.Timestamp);
-      
-      if (applyFilter === 'ALL') return sortedList;
-      
-      return sortedList.filter(item => {
-          const displayStatus = item.Status === 'Valid' ? 'Scanned' : (item.Status === 'Invalid' ? 'Empty' : 'Empty'); 
-          
-          if (applyFilter === 'Scanned') return displayStatus === 'Scanned';
-          if (applyFilter === 'Empty') return displayStatus === 'Empty';
-          
-          return true;
-      });
-  }, [scannedRecords, excelData, filterType, isReportView, reportFiles]);
-
-  // --- Counts ---
-  const stats = useMemo(() => {
-    // 1. Total Unique Locations in Excel Plan
-    const planLocs = new Set(excelData
-        .map(d => d.Location ? d.Location.trim().toUpperCase() : '')
-        .filter(l => l)
-    );
-    const total = planLocs.size;
-
-    // 2. Locations that have at least one 'Valid' scan
-    // We use scannedRecords (source of truth) to find distinct locations that are 'Valid'
-    const scannedLocs = new Set(scannedRecords
-        .filter(r => r.Status === 'Valid')
-        .map(r => r.Location ? r.Location.trim().toUpperCase() : '')
-        .filter(l => planLocs.has(l)) // Only count if it is part of the plan
-    );
-    
-    // If we are in free mode (no excel data), Total is 0.
-    // If we have data, we count how many plan locations are touched.
-    
-    const valid = scannedLocs.size;
-    const missing = Math.max(0, total - valid);
-
-    return { total, valid, missing };
-  }, [excelData, scannedRecords]);
-
-  const renderItem = ({ item, index }: { item: GroupedRecord, index: number }) => {
-    // Map internal status 'Valid' to 'Scanned' for display, 'Invalid' to 'Empty', 'Missing' to 'Empty'
-    const displayStatus = item.Status === 'Valid' ? 'Scanned' : 'Empty';
-    const { color, bg } = getStatusColor(displayStatus);
+  const renderItem = ({ item }: { item: ScannedRecord }) => {
+    const { color, bg } = getStatusColor(item.Status);
 
     return (
       <View style={styles.row}>
-        <Text style={[styles.cell, { flex: 0.5, textAlign: 'center' }]}>{index + 1}</Text>
+        <Text style={[styles.cell, { flex: 1 }]}>{item.SO || '-'}</Text>
+        <Text style={[styles.cell, { flex: 1 }]}>{item.YD || '-'}</Text>
         <Text style={[styles.cell, { flex: 1 }]}>{item.Location || '-'}</Text>
-        <Text style={[styles.cell, { flex: 2 }]}>{item.SOs || '-'}</Text>
+        <Text style={[styles.cell, { flex: 1 }]}>{item.ScanLocation || '-'}</Text>
         <View style={{ flex: 1.2, alignItems: 'center', justifyContent: 'center' }}>
             <View style={{ 
                 backgroundColor: bg, 
-                paddingHorizontal: 8, 
+                paddingHorizontal: 12, 
                 paddingVertical: 4, 
                 borderRadius: 4,
                 width: 80,
                 alignItems: 'center'
             }}>
-                <Text style={{ color: color, fontWeight: '600', fontSize: 12 }}>{displayStatus}</Text>
+                <Text style={{ color: color, fontWeight: '600', fontSize: 13 }}>{item.Status}</Text>
             </View>
         </View>
       </View>
@@ -889,9 +775,11 @@ const PutAwayScreen = () => {
                  <Text style={styles.statsText}>
                     <Text style={{ color: '#0284C7', fontWeight: 'bold' }}>Total: {stats.total}</Text>
                     <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
-                    <Text style={{ color: '#00E096', fontWeight: 'bold' }}>Scanned: {stats.valid}</Text>
+                    <Text style={{ color: '#00E096', fontWeight: 'bold' }}>Valid: {stats.valid}</Text>
                     <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
-                    <Text style={{ color: '#FF3B30', fontWeight: 'bold' }}>Missing: {stats.missing}</Text>
+                    <Text style={{ color: '#FF3B30', fontWeight: 'bold' }}>Invalid: {stats.invalid}</Text>
+                    <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
+                    <Text style={{ color: '#FFAA00', fontWeight: 'bold' }}>Missing: {stats.missing}</Text>
                 </Text>
             </View>
         )}
@@ -899,6 +787,8 @@ const PutAwayScreen = () => {
         {/* The rest is shown ONLY if data matches */}
         {excelData.length > 0 && !isReportView && (
           <>
+            {/* Stats Removed as per request */}
+            
             {/* Scan Inputs */}
             <View style={styles.card}>
               <View style={styles.inputRow}>
@@ -940,7 +830,7 @@ const PutAwayScreen = () => {
                           <TextInput
                           ref={soYdInputRef}
                           style={styles.inputInner}
-                          placeholder="Scan SO"
+                          placeholder="Scan SO or YD"
                           placeholderTextColor={COLORS.muted}
                           value={scanSoYd}
                           onChangeText={setScanSoYd}
@@ -975,9 +865,8 @@ const PutAwayScreen = () => {
                             <Text style={styles.clearBtnText}>Clear</Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity onPress={() => setFilterModalVisible(true)} style={styles.filterBtn}>
-                            <Ionicons name="filter" size={16} color={COLORS.text} />
-                            <Text style={styles.filterBtnText}>Filter: {filterType}</Text>
+                        <TouchableOpacity onPress={handleVerifyReport} style={[styles.reportBtn, { backgroundColor: COLORS.warning, flex: 1 }]}>
+                            <Text style={[styles.reportBtnText, { color: '#000' }]}>Verify</Text>
                         </TouchableOpacity>
                     </>
                 ) : null}
@@ -986,14 +875,15 @@ const PutAwayScreen = () => {
             {/* Table - Always Visible below buttons */}
             <View style={{ flex: 1, marginTop: 8 }}>
                 <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeadText, { flex: 0.5, textAlign: 'center' }]}>S/No</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>Location</Text>
-                    <Text style={[styles.tableHeadText, { flex: 2 }]}>SO</Text>
+                    <Text style={[styles.tableHeadText, { flex: 1 }]}>SO</Text>
+                    <Text style={[styles.tableHeadText, { flex: 1 }]}>YD</Text>
+                    <Text style={[styles.tableHeadText, { flex: 1 }]}>Loc</Text>
+                    <Text style={[styles.tableHeadText, { flex: 1 }]}>Scan</Text>
                     <Text style={[styles.tableHeadText, { flex: 1.2, textAlign: 'center' }]}>Status</Text>
                 </View>
                 
                 <FlatList
-                    data={groupedList}
+                    data={activeList}
                     keyExtractor={item => item.id}
                     renderItem={renderItem}
                     contentContainerStyle={{ paddingBottom: 20 }}
@@ -1028,7 +918,7 @@ const PutAwayScreen = () => {
           />
           
           <View style={styles.fullscreenTopBar}>
-            <Text style={styles.fullscreenTitle}>Scan {activeScanField === 'LOCATION' ? 'Location' : 'SO'}</Text>
+            <Text style={styles.fullscreenTitle}>Scan {activeScanField === 'LOCATION' ? 'Location' : 'SO / YD'}</Text>
             <TouchableOpacity onPress={closeScanner} style={styles.fullscreenCloseBtn}>
               <Text style={styles.closeBtnText}>Done</Text>
             </TouchableOpacity>
@@ -1099,52 +989,6 @@ const PutAwayScreen = () => {
                 </View>
             </View>
         </View>
-      </Modal>
-
-      {/* Filter Options Modal */}
-      <Modal
-        visible={filterModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setFilterModalVisible(false)}
-      >
-         <TouchableOpacity 
-            style={styles.alertOverlay} 
-            activeOpacity={1} 
-            onPress={() => setFilterModalVisible(false)}
-         >
-            <View style={[styles.alertBox, { width: 220, padding: 0, overflow: 'hidden' }]}>
-                <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
-                     <Text style={{ fontSize: 16, fontWeight: '700', color: COLORS.text, textAlign: 'center' }}>Filter By Status</Text>
-                </View>
-                
-                {['ALL', 'Scanned', 'Empty'].map((type) => (
-                    <TouchableOpacity 
-                        key={type}
-                        style={{ 
-                            paddingVertical: 14, 
-                            width: '100%', 
-                            alignItems: 'center',
-                            borderBottomWidth: type !== 'Empty' ? 1 : 0,
-                            borderBottomColor: '#F3F4F6',
-                            backgroundColor: filterType === type ? '#F0FDFA' : 'white'
-                        }}
-                        onPress={() => {
-                            setFilterType(type as any);
-                            setFilterModalVisible(false);
-                        }}
-                    >
-                        <Text style={{ 
-                            fontSize: 16, 
-                            fontWeight: filterType === type ? '700' : '400',
-                            color: filterType === type ? COLORS.success : COLORS.text 
-                        }}>
-                            {type}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </View>
-         </TouchableOpacity>
       </Modal>
 
 
@@ -1258,23 +1102,6 @@ const styles = StyleSheet.create({
        color: COLORS.text,
        fontWeight: '600',
        fontSize: 13,
-  },
-  filterBtn: {
-      flex: 1,
-      backgroundColor: '#FFFFFF',
-      borderWidth: 1,
-      borderColor: COLORS.border,
-      borderRadius: 8,
-      paddingVertical: 8,
-      alignItems: 'center',
-      flexDirection: 'row',
-      justifyContent: 'center',
-      gap: 4,
-  },
-  filterBtnText: {
-      color: COLORS.text,
-      fontWeight: '600',
-      fontSize: 13,
   },
   reportBtn: {
       flex: 1,

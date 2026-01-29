@@ -227,8 +227,7 @@ const LocationScreen = () => {
              if (isReportView) {
                 return (
                     <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
-                      <MaterialCommunityIcons name="file-chart-outline" size={24} />
-
+                      <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
                     </TouchableOpacity>
                 );
              }
@@ -236,7 +235,11 @@ const LocationScreen = () => {
              if (excelData.length > 0) {
                 return (
                     <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
-                       <MaterialCommunityIcons name="file-chart-outline" size={24} />
+                        <MaterialCommunityIcons
+                          name="file-document-multiple"
+                          size={20}
+                          color="#2196F3"
+                        />
                     </TouchableOpacity>
                 );
              }
@@ -675,7 +678,6 @@ const LocationScreen = () => {
       case 'Valid': return { color: '#00E096', bg: 'rgba(0, 224, 150, 0.15)' }; // Green
       case 'Missing': return { color: '#FFAA00', bg: 'rgba(255, 170, 0, 0.15)' }; // Orange
       case 'Invalid': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
-      case 'Duplicate': return { color: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.15)' }; // Purple
       default: return { color: COLORS.text, bg: 'transparent' };
     }
   };
