@@ -543,15 +543,35 @@ const PutAwayScreen = () => {
     // Identify all items that have been successfully scanned (Valid)
     const scannedValidSOs = new Set(
         scannedRecords
-            .filter(r => r.Status === 'Valid')
+            .filter(r => r.Status === 'Valid' && r.SO)
             .map(r => r.SO)
     );
 
+    // Identify all Locations that have been scanned (Valid) - For checking location-only coverage
+    const scannedLocations = new Set(
+        scannedRecords
+            .filter(r => r.Status === 'Valid')
+            .map(r => (r.Location || r.ScanLocation || '').trim().toUpperCase())
+    );
+
     // Find items in Excel that are NOT in the valid scanned list
-    const globalMissing = excelData.filter(d => !scannedValidSOs.has(d.SO));
+    const globalMissing = excelData.filter(d => {
+        const soVal = d.SO ? d.SO.trim() : '';
+        const locVal = (d.Location || '').trim().toUpperCase();
+
+        if (soVal) {
+             // Strict Plan: If the row has an SO, check if that SO was scanned
+             return !scannedValidSOs.has(soVal);
+        } else {
+             // Free/Location Plan: If the row has NO SO (placeholder), 
+             // check if the Location has been visited at least once.
+             // If scanned, we consider the placeholder satisfied.
+             return !scannedLocations.has(locVal);
+        }
+    });
 
     const missingRecords: ScannedRecord[] = globalMissing.map((item, index) => ({
-        id: `global-missing-${item.SO}-${Date.now()}-${index}`,
+        id: `global-missing-${item.SO || 'loc'}-${Date.now()}-${index}`,
         SO: item.SO,
         YD: item.YD,
         Location: item.Location,

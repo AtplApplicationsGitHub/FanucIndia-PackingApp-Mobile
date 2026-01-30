@@ -27,6 +27,8 @@ type ExcelRow = {
   SO: string;
   YD?: string;
   Location: string; // System location
+  Cert?: string;
+  Avail?: string;
 };
 
 type AlertButton = {
@@ -47,7 +49,6 @@ type ScannedRecord = {
   YD?: string;
   Location: string; // System location (if matched) or Derived
   ScanLocation: string;
-  Status: 'Valid' | 'Invalid' | 'Missing' | 'Duplicate';
   Timestamp: number;
 };
 
@@ -76,7 +77,10 @@ const PutAwayScreen = () => {
   const [scanLocation, setScanLocation] = useState('');
   const [isLocationLocked, setIsLocationLocked] = useState(false);
   
-  const [scanSoYd, setScanSoYd] = useState('');
+  const [scanSO, setScanSO] = useState('');
+  const [isSOLocked, setIsSOLocked] = useState(false);
+
+  const [scanMaterial, setScanMaterial] = useState('');
   
   const [scannedRecords, setScannedRecords] = useState<ScannedRecord[]>([]);
   const [reportFiles, setReportFiles] = useState<ScannedRecord[]>([]);
@@ -110,13 +114,53 @@ const PutAwayScreen = () => {
   // --- Camera State ---
   const [permission, requestPermission] = useCameraPermissions();
   const [scanModal, setScanModal] = useState(false);
-  const [activeScanField, setActiveScanField] = useState<'LOCATION' | 'SO' | null>(null);
+  const [activeScanField, setActiveScanField] = useState<'LOCATION' | 'SO' | 'MATERIAL' | null>(null);
   const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
-  const [lastScanStatus, setLastScanStatus] = useState<'ADDED' | 'DUPLICATE' | 'INVALID' | 'NOT_FOUND' | 'ERROR' | null>(null);
+  const [lastScanStatus, setLastScanStatus] = useState<boolean | null>(null);
 
   // Multi-scan tracking
   const [sessionCount, setSessionCount] = useState(0);
   const sessionCodesRef = useRef<Set<string>>(new Set());
+
+  // --- Filtered Data for Table ---
+  const filteredData = useMemo(() => {
+    if (!excelData.length) return [];
+    
+    // We only show rows that have been scanned at least once (or partially scanned)
+    // Filter based on what has been scanned *at the current view location* (if locked)
+    // or globally if not locked? Assuming user wants to see what they scanned.
+    
+    let activeScans = scannedRecords;
+
+    if (scanLocation.trim() && isLocationLocked) {
+        const currentLoc = scanLocation.trim().toUpperCase();
+        activeScans = activeScans.filter(r => r.ScanLocation === currentLoc);
+    }
+    
+    // Determine unique (SO, YD, Location) keys from these scans to pull from ExcelData
+    // We strictly pull rows from ExcelData that match the items scanned.
+    
+    // Note: A scan record points to a system location (r.Location).
+    // We want to show that system row.
+    
+    const relevantKeys = new Set(activeScans.map(r => `${r.SO}-${r.Location}-${r.YD}`));
+    
+    const data = excelData.filter(d => {
+        const key = `${d.SO}-${d.Location}-${d.YD}`;
+        return relevantKeys.has(key);
+    });
+    
+    // If we have an SO lock on top of Location lock, further filter?
+    // scanSO is used for input, but if we already scanned items, we might want to see them all.
+    // Keep consistent with previous logic
+    
+    if (isSOLocked && scanSO.trim()) {
+        const so = scanSO.trim().toUpperCase();
+        return data.filter(d => d.SO.toUpperCase() === so);
+    }
+    
+    return data;
+  }, [excelData, isLocationLocked, scanLocation, isSOLocked, scanSO, scannedRecords]);
 
   // --- Persistence ---
   
@@ -167,7 +211,9 @@ const PutAwayScreen = () => {
     reportFiles, 
     scanLocation, 
     isLocationLocked, 
-    scanSoYd, 
+    scanSO,
+    isSOLocked,
+    scanMaterial, 
     isVerified, 
     isReportView, 
     isLoaded
@@ -191,7 +237,8 @@ const PutAwayScreen = () => {
   useEffect(() => {
     const unsubscribeBlur = navigation.addListener('blur', () => {
       locationInputRef.current?.blur();
-      soYdInputRef.current?.blur();
+      soInputRef.current?.blur();
+      materialInputRef.current?.blur();
     });
 
     const unsubscribeFocus = navigation.addListener('focus', () => {
@@ -250,7 +297,8 @@ const PutAwayScreen = () => {
 
   // --- Refs ---
   const locationInputRef = useRef<TextInput>(null);
-  const soYdInputRef = useRef<TextInput>(null);
+  const soInputRef = useRef<TextInput>(null);
+  const materialInputRef = useRef<TextInput>(null);
 
   // --- Actions ---
 
@@ -271,20 +319,30 @@ const PutAwayScreen = () => {
       const workbook = XLSX.read(b64, { type: 'base64' });
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet);
+      const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
       if (jsonData.length === 0) {
         showAlert('Excel file is empty.');
         return;
       }
 
-      // Validate Headers
-      // Validate Headers
+      // Validate Headers & Identify Columns
       const firstRow = jsonData[0];
-      const hasLocation = 'Location' in firstRow;
+      const keys = Object.keys(firstRow);
 
-      if (!hasLocation) {
-        showAlert('Invalid Excel format. Required column: Location');
+      // Flexible Column Matching
+      const getColumnName = (candidates: string[]) => 
+        keys.find(key => candidates.some(c => key.toLowerCase().trim().startsWith(c.toLowerCase())));
+
+      const locKey = getColumnName(['Location', 'Storage Bin', 'Storage Bi']);
+      const soKey = getColumnName(['SO', 'Original S', 'Serial', 'Order']);
+      const ydKey = getColumnName(['YD', 'Material', 'Item']);
+
+      const certKey = getColumnName(['Cert', 'Certificate']);
+      const availKey = getColumnName(['Avail', 'Qty', 'Quantity']);
+
+      if (!locKey) {
+        showAlert('Invalid Excel format. Required column: Location or Storage Bin');
         return;
       }
 
@@ -292,9 +350,11 @@ const PutAwayScreen = () => {
 
       // Basic Validation/Normalization
       const normalizedData = jsonData.map(row => ({
-        SO: row.SO ? String(row.SO).trim() : '',
-        YD: row.YD ? String(row.YD).trim() : undefined,
-        Location: row.Location ? String(row.Location).trim() : '',
+        SO: soKey && row[soKey] ? String(row[soKey]).trim() : '',
+        YD: ydKey && row[ydKey] ? String(row[ydKey]).trim() : undefined,
+        Location: row[locKey] ? String(row[locKey]).trim() : '',
+        Cert: certKey && row[certKey] ? String(row[certKey]).trim() : '',
+        Avail: availKey && row[availKey] ? String(row[availKey]).trim() : '',
       })).filter(r => r.Location); // Must have Location
 
       setExcelData(normalizedData);
@@ -319,16 +379,7 @@ const PutAwayScreen = () => {
       return;
     }
 
-    // Validate Location against Excel Master List
-    if (excelData.length > 0) {
-        const locNorm = valueToCheck.trim().toUpperCase();
-        const exists = excelData.some(d => d.Location.toUpperCase() === locNorm);
-        if (!exists) {
-            showAlert(`Location '${valueToCheck}' not found in the valid list.`);
-            return;
-        }
-    }
-
+    // Allow any location to be scanned (Mismatch Logic)
     if (overrideValue !== undefined) {
         setScanLocation(overrideValue);
     }
@@ -337,9 +388,58 @@ const PutAwayScreen = () => {
     // Auto focus next field
     setTimeout(() => {
         if (navigation.isFocused()) {
-            soYdInputRef.current?.focus();
+            soInputRef.current?.focus();
         }
     }, 500);
+  };
+
+  const handleUnlockLocation = () => {
+        setIsLocationLocked(false);
+        setIsSOLocked(false);
+        setScanSO('');
+        setScanMaterial('');
+        setTimeout(() => locationInputRef.current?.focus(), 100);
+  };
+
+  const handleLockSO = (overrideValue?: string) => {
+    const valueToCheck = overrideValue !== undefined ? overrideValue : scanSO;
+    
+    if (!valueToCheck.trim()) {
+      showAlert('Please scan SO first.');
+      return;
+    }
+
+    // Check if SO exists anywhere in the plan
+    const planRows = excelData.filter(d => d.SO && d.SO.trim().length > 0);
+    const hasPlan = planRows.length > 0;
+    
+    if (hasPlan) {
+        // Global search for SO
+        const match = planRows.find(d => d.SO.toUpperCase() === valueToCheck.trim().toUpperCase());
+        
+        if (!match) {
+             showAlert(`SO '${valueToCheck}' not found in the plan.`);
+             return;
+        }
+    }
+
+    if (overrideValue !== undefined) {
+        setScanSO(overrideValue);
+    }
+
+    setIsSOLocked(true);
+    // Auto focus next field (Material)
+    setTimeout(() => {
+        if (navigation.isFocused()) {
+            materialInputRef.current?.focus();
+        }
+    }, 500);
+  };
+
+  const handleUnlockSO = () => {
+        setIsSOLocked(false);
+        setScanMaterial('');
+        setTimeout(() => soInputRef.current?.focus(), 100);
   };
 
   const handleClearSession = () => {
@@ -351,8 +451,10 @@ const PutAwayScreen = () => {
         onPress: async () => {
           // await LocationStorage.clearSession(); // Stubbed
           setScanLocation('');
-          setScanSoYd('');
+          setScanSO('');
+          setScanMaterial('');
           setIsLocationLocked(false);
+          setIsSOLocked(false);
           setScannedRecords([]);
           setReportFiles([]);
           setIsReportView(false);
@@ -364,201 +466,93 @@ const PutAwayScreen = () => {
     ]);
   };
 
-  const handleSaveEntry = (valueOverride?: string, fromScanner: boolean = false): 'ADDED' | 'DUPLICATE' | 'INVALID' | 'NOT_FOUND' | 'ERROR' => {
-    const rawValue = typeof valueOverride === 'string' ? valueOverride : scanSoYd;
+  const handleSaveEntry = (valueOverride?: string, fromScanner: boolean = false): boolean => {
+    const rawValue = typeof valueOverride === 'string' ? valueOverride : scanMaterial;
     
     if (!rawValue.trim()) {
-      if (!fromScanner) showAlert('Please scan SO or YD.');
-      return 'ERROR';
+      if (!fromScanner) showAlert('Please scan Material.');
+      return false;
     }
 
-    const val = rawValue.trim().toUpperCase();
+    const matVal = rawValue.trim().toUpperCase();
     const currentLoc = scanLocation.trim().toUpperCase();
+    const currentSO = scanSO.trim().toUpperCase();
     
-    // Check mode: Plan (has SOs) or Free (only Locations)
+    // Check mode
     const planRows = excelData.filter(d => d.SO && d.SO.trim().length > 0);
     const hasPlan = planRows.length > 0;
 
-    // Check if match exists in Plan
-    const match = planRows.find(d => 
-      (d.SO && d.SO.toUpperCase() === val) || 
-      (d.YD && d.YD.toUpperCase() === val)
-    );
-
     if (hasPlan) {
-        if (match) {
-            // Found in Excel Plan. Now check Location Match.
-            const isLocationMatch = match.Location && match.Location.toUpperCase() === currentLoc;
-    
-            if (isLocationMatch) {
-                 // Valid - Check Duplicate
-                 const isDuplicate = scannedRecords.some(r => r.SO === match.SO && r.Status === 'Valid');
-    
-                 if (isDuplicate) {
-                     showAlert('SO already added');
-                     setScanSoYd('');
-                     if (!fromScanner) soYdInputRef.current?.focus();
-                     return 'DUPLICATE';
-                 }
-     
-                 const newRecord: ScannedRecord = {
-                     id: Date.now().toString(),
-                     SO: match.SO, 
-                     YD: match.YD || '',
-                     Location: match.Location,
-                     ScanLocation: currentLoc,
-                     Status: 'Valid',
-                     Timestamp: Date.now(),
-                 };
-     
-                 setScannedRecords(prev => {
-                    const filtered = prev.filter(r => r.SO !== match.SO);
-                    return [newRecord, ...filtered];
-                 });
-                 
-                 setScanSoYd('');
-                 if (!fromScanner) soYdInputRef.current?.focus();
-                 return 'ADDED';
-    
-            } else {
-                 // Found SO but Wrong Location -> Invalid
-                 if (fromScanner) return 'INVALID';
-    
-                 const newRecord: ScannedRecord = {
-                     id: Date.now().toString(),
-                     SO: match.SO, 
-                     YD: match.YD || '',
-                     Location: match.Location,
-                     ScanLocation: currentLoc,
-                     Status: 'Invalid',
-                     Timestamp: Date.now(),
-                 };
-                 setScannedRecords(prev => [newRecord, ...prev]);
-                 return 'INVALID';
-            }
+        // Search for matches
+        // Prioritize: Match on SO + Material + Current Location
+        let specificMatch = planRows.find(d => 
+            d.SO.toUpperCase() === currentSO &&
+            d.Location.toUpperCase() === currentLoc &&
+            (d.YD && d.YD.toString().trim().toUpperCase() === matVal)
+        );
+
+        // Fallback: Match on SO + Material (Mismatch Location)
+        if (!specificMatch) {
+            specificMatch = planRows.find(d => 
+                d.SO.toUpperCase() === currentSO &&
+                (d.YD && d.YD.toString().trim().toUpperCase() === matVal)
+            );
+        }
+
+        if (specificMatch) {
+            // Found valid material row
+            
+            // Allow multiple scans for counting.
+            // Just record it.
+            
+            const newRecord: ScannedRecord = {
+                id: Date.now().toString() + Math.random().toString(),
+                SO: specificMatch.SO, 
+                YD: matVal,
+                Location: specificMatch.Location, // System Location
+                ScanLocation: currentLoc, // Where we actually scanned it
+                Timestamp: Date.now(),
+            };
+
+            setScannedRecords(prev => [newRecord, ...prev]);
+            setScanMaterial('');
+            setTimeout(() => { if (navigation.isFocused()) materialInputRef.current?.focus(); }, 100);
+            return true;
+
         } else {
-            // Not in Plan
-            if (!fromScanner) showAlert('SO not found in Excel data.');
-            return 'NOT_FOUND';
+            if (!fromScanner) showAlert(`Material mismatch. '${matVal}' is not valid for SO '${currentSO}'.`);
+            return false;
         }
     } else {
-        // --- Free Mode (Location List Only) ---
-        // Verify ScanLocation is valid (should be covered by lock, but double check)
-        const validLocEntry = excelData.find(d => d.Location.toUpperCase() === currentLoc);
-        if (!validLocEntry) {
-             if (!fromScanner) showAlert('Invalid Location context.');
-             return 'INVALID';
-        }
-
-        // Check if SO duplicate
-        const isDuplicate = scannedRecords.some(r => r.SO === val && r.Status === 'Valid');
-        if (isDuplicate) {
-             showAlert('SO already added');
-             setScanSoYd('');
-             if (!fromScanner) soYdInputRef.current?.focus();
-             return 'DUPLICATE';
-        }
-
+        // Free Mode
         const newRecord: ScannedRecord = {
              id: Date.now().toString(),
-             SO: val,
-             YD: '',
+             SO: currentSO,
+             YD: matVal,
              Location: currentLoc,
              ScanLocation: currentLoc,
-             Status: 'Valid',
              Timestamp: Date.now(),
         };
 
         setScannedRecords(prev => [newRecord, ...prev]);
-        setScanSoYd('');
-        if (!fromScanner) soYdInputRef.current?.focus();
-        return 'ADDED';
+        setScanMaterial('');
+        setTimeout(() => { if (navigation.isFocused()) materialInputRef.current?.focus(); }, 100);
+        return true;
     }
   };
 
   const handleVerifyReport = () => {
-    // --- Location Specific Verification (Main View) ---
-    const currentLoc = scanLocation.trim().toUpperCase();
-
-    if (!currentLoc) {
-        showAlert('Please enter a location to verify.');
-        return;
-    }
-
-    // Filter Excel data for the entered location
-    const expectedItems = excelData.filter(d => 
-        d.Location && d.Location.toUpperCase() === currentLoc && d.SO
-    );
-
-    if (expectedItems.length === 0) {
-        // Count just for feedback in free mode
-        const scannedCount = scannedRecords.filter(r => r.ScanLocation === currentLoc && r.Status === 'Valid').length;
-        showAlert(`No specific plan for ${currentLoc}. Items scanned here: ${scannedCount}`);
-        return;
-    }
-
-    // Identify what has already been scanned as ACTIVE/VALID for this location
-    const scannedValidSOs = new Set(
-        scannedRecords
-            .filter(r => r.Status === 'Valid')
-            .map(r => r.SO)
-    );
-
-    // Filter expected items to find ones NOT in the scanned set
-    const missingItems = expectedItems.filter(item => !scannedValidSOs.has(item.SO));
-
-    if (missingItems.length === 0) {
-        showAlert('All items for this location have been scanned!');
-    } else {
-        // Create "Missing" records
-        const newMissingRecords: ScannedRecord[] = missingItems.map(item => ({
-            id: `missing-${item.SO}-${Date.now()}`,
-            SO: item.SO,
-            YD: item.YD,
-            Location: item.Location,
-            ScanLocation: '',
-            Status: 'Missing',
-            Timestamp: Date.now()
-        }));
-
-        // Update scannedRecords to show these in the main table
-        setScannedRecords(prev => {
-            const clean = prev.filter(r => r.Status !== 'Missing');
-            return [...newMissingRecords, ...clean]; 
-        });
-
-        showAlert(`Found ${missingItems.length} missing items for ${currentLoc}.`);
-    }
-
-    setIsVerified(true);
+    // Removed specific verification logic as requested
+    showAlert('Verification logic disabled.');
   };
 
   const handleGenerateReport = () => {
     // --- Automatic Global Verification ---
     // Identify all items that have been successfully scanned (Valid)
-    const scannedValidSOs = new Set(
-        scannedRecords
-            .filter(r => r.Status === 'Valid')
-            .map(r => r.SO)
-    );
+    // Simply passing all records to report
+    const missingRecords: ScannedRecord[] = []; // Calculate if needed, but for now just showing report
 
-    // Find items in Excel that are NOT in the valid scanned list
-    const globalMissing = excelData.filter(d => !scannedValidSOs.has(d.SO));
-
-    const missingRecords: ScannedRecord[] = globalMissing.map(item => ({
-        id: `global-missing-${item.SO}-${Date.now()}`,
-        SO: item.SO,
-        YD: item.YD,
-        Location: item.Location,
-        ScanLocation: '',
-        Status: 'Missing',
-        Timestamp: Date.now()
-    }));
-
-    // Display: All manually scanned items (Valid/Invalid) + All calculated Missing items
-    const currentScannedWithoutMissing = scannedRecords.filter(r => r.Status !== 'Missing');
-    
-    setReportFiles([...currentScannedWithoutMissing, ...missingRecords]);
+    setReportFiles([...scannedRecords]);
     setIsVerified(true);
     setIsReportView(true);
     
@@ -577,7 +571,6 @@ const PutAwayScreen = () => {
           YD: r.YD,
           'System Location': r.Location,
           'Scanned Location': r.ScanLocation,
-          Status: r.Status,
           'Date & Time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
       }));
       
@@ -600,7 +593,7 @@ const PutAwayScreen = () => {
   // --- Scanner Logic ---
 
 
-  const openScanner = async (field: 'LOCATION' | 'SO') => {
+  const openScanner = async (field: 'LOCATION' | 'SO' | 'MATERIAL') => {
     try {
       if (!permission) {
         const res = await requestPermission();
@@ -644,97 +637,37 @@ const PutAwayScreen = () => {
     if (!value) return;
 
     if (activeScanField === 'LOCATION') {
-        // Single scan for Location
         Vibration.vibrate();
-        // setScanLocation(value); // Handled by handleLockLocation now
         setLastScannedCode(value);
         setScanModal(false);
         setActiveScanField(null);
-
-        // Auto lock and move focus
-        // We pass the value directly to ensure it uses the scanned value immediately
         handleLockLocation(value);
     } else if (activeScanField === 'SO') {
-        // Multi scan for SO
-        
-        // Check for session duplicate
+        Vibration.vibrate();
+        setLastScannedCode(value);
+        setScanModal(false);
+        setActiveScanField(null);
+        handleLockSO(value);
+    } else if (activeScanField === 'MATERIAL') {
         if (sessionCodesRef.current.has(value)) {
             return;
         }
-        
-        // Add to session set to prevent burst reading
         sessionCodesRef.current.add(value);
-        
-        // Always provide feedback
         setLastScannedCode(value);
         
-        // Try to save
-        // remove setScanSoYd(value) to prevent input box flickering/persistence
-
-        const status = handleSaveEntry(value, true);
-        setLastScanStatus(status);
+        const success = handleSaveEntry(value, true);
+        setLastScanStatus(success);
         
-        if (status === 'ADDED') {
+        if (success) {
              Vibration.vibrate();
              setSessionCount(prev => prev + 1);
-        } else if (status === 'DUPLICATE') {
-             // Maybe a different vibration or none?
-             Vibration.vibrate([0, 50, 50, 50]); // Short double blip
         } else {
-             // Invalid
-             Vibration.vibrate([0, 200]); // Long buzz for error
+             Vibration.vibrate([0, 200]); 
         }
-        
-        // Do NOT close modal
     }
   };
 
-  // --- Counts ---
-  const activeList = isReportView ? reportFiles : scannedRecords;
-  
-  const stats = useMemo(() => {
-    const total = activeList.length;
-    const valid = activeList.filter(r => r.Status === 'Valid').length;
-    const invalid = activeList.filter(r => r.Status === 'Invalid').length;
-    const missing = activeList.filter(r => r.Status === 'Missing').length;
-    return { total, valid, invalid, missing };
-  }, [activeList]);
 
-  // --- Render ---
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Valid': return { color: '#00E096', bg: 'rgba(0, 224, 150, 0.15)' }; // Green
-      case 'Missing': return { color: '#FFAA00', bg: 'rgba(255, 170, 0, 0.15)' }; // Orange
-      case 'Invalid': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
-      default: return { color: COLORS.text, bg: 'transparent' };
-    }
-  };
-
-  const renderItem = ({ item }: { item: ScannedRecord }) => {
-    const { color, bg } = getStatusColor(item.Status);
-
-    return (
-      <View style={styles.row}>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.SO || '-'}</Text>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.YD || '-'}</Text>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.Location || '-'}</Text>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.ScanLocation || '-'}</Text>
-        <View style={{ flex: 1.2, alignItems: 'center', justifyContent: 'center' }}>
-            <View style={{ 
-                backgroundColor: bg, 
-                paddingHorizontal: 12, 
-                paddingVertical: 4, 
-                borderRadius: 4,
-                width: 80,
-                alignItems: 'center'
-            }}>
-                <Text style={{ color: color, fontWeight: '600', fontSize: 13 }}>{item.Status}</Text>
-            </View>
-        </View>
-      </View>
-    );
-  };
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
@@ -770,19 +703,7 @@ const PutAwayScreen = () => {
         )}
 
         {/* --- Stats Header --- */}
-        {isReportView && (
-            <View style={styles.statsContainer}>
-                 <Text style={styles.statsText}>
-                    <Text style={{ color: '#0284C7', fontWeight: 'bold' }}>Total: {stats.total}</Text>
-                    <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
-                    <Text style={{ color: '#00E096', fontWeight: 'bold' }}>Valid: {stats.valid}</Text>
-                    <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
-                    <Text style={{ color: '#FF3B30', fontWeight: 'bold' }}>Invalid: {stats.invalid}</Text>
-                    <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
-                    <Text style={{ color: '#FFAA00', fontWeight: 'bold' }}>Missing: {stats.missing}</Text>
-                </Text>
-            </View>
-        )}
+
 
         {/* The rest is shown ONLY if data matches */}
         {excelData.length > 0 && !isReportView && (
@@ -790,7 +711,10 @@ const PutAwayScreen = () => {
             {/* Stats Removed as per request */}
             
             {/* Scan Inputs */}
+            {/* Scan Inputs */}
             <View style={styles.card}>
+              
+              {/* --- Location Input --- */}
               <View style={styles.inputRow}>
                 <View style={[styles.inputWrapper, isLocationLocked && styles.inputLocked]}>
                   <TextInput
@@ -817,29 +741,65 @@ const PutAwayScreen = () => {
                          <Ionicons name="location-outline" size={20} color={COLORS.primaryText} />
                     </TouchableOpacity>
                 ) : (
-                    <TouchableOpacity onPress={() => setIsLocationLocked(false)} style={[styles.actionBtn, { backgroundColor: COLORS.muted }]}>
+                    <TouchableOpacity onPress={handleUnlockLocation} style={[styles.actionBtn, { backgroundColor: COLORS.muted }]}>
                         <Ionicons name="create-outline" size={20} color="white" />
                     </TouchableOpacity>
                 )}
               </View>
-              
+
+              {/* --- SO Input (Visible if Location Locked) --- */}
               {isLocationLocked && (
+              <View style={styles.inputRow}>
+                <View style={[styles.inputWrapper, isSOLocked && styles.inputLocked]}>
+                  <TextInput
+                    ref={soInputRef}
+                    style={styles.inputInner}
+                    placeholder="Enter SO .."
+                    placeholderTextColor={COLORS.muted}
+                    value={scanSO}
+                    onChangeText={setScanSO}
+                    editable={!isSOLocked}
+                    onSubmitEditing={() => handleLockSO()}
+                    autoCapitalize="characters"
+                    showSoftInputOnFocus={!keyboardDisabled}
+                  />
+                   {!isSOLocked && (
+                      <TouchableOpacity onPress={() => openScanner('SO')} style={styles.scanIconBtnInside}>
+                          <MaterialCommunityIcons name="qrcode-scan" size={20} color={COLORS.muted} />
+                      </TouchableOpacity>
+                   )}
+                </View>
+
+                {!isSOLocked ? (
+                    <TouchableOpacity onPress={() => handleLockSO()} style={[styles.actionBtn, { backgroundColor: '#3B82F6' }]}>
+                         <Ionicons name="cube-outline" size={20} color="white" />
+                    </TouchableOpacity>
+                ) : (
+                    <TouchableOpacity onPress={handleUnlockSO} style={[styles.actionBtn, { backgroundColor: COLORS.muted }]}>
+                        <Ionicons name="create-outline" size={20} color="white" />
+                    </TouchableOpacity>
+                )}
+              </View>
+              )}
+              
+              {/* --- Material Input (Visible if SO Locked) --- */}
+              {isLocationLocked && isSOLocked && (
                   <>
                     <View style={styles.inputRow}>
                         <View style={styles.inputWrapper}>
                           <TextInput
-                          ref={soYdInputRef}
+                          ref={materialInputRef}
                           style={styles.inputInner}
-                          placeholder="Scan SO or YD"
+                          placeholder="Material Code .."
                           placeholderTextColor={COLORS.muted}
-                          value={scanSoYd}
-                          onChangeText={setScanSoYd}
+                          value={scanMaterial}
+                          onChangeText={setScanMaterial}
                           onSubmitEditing={() => handleSaveEntry()}
                           autoFocus
                           autoCapitalize="characters"
                           showSoftInputOnFocus={!keyboardDisabled}
                           />
-                           <TouchableOpacity onPress={() => openScanner('SO')} style={styles.scanIconBtnInside}>
+                           <TouchableOpacity onPress={() => openScanner('MATERIAL')} style={styles.scanIconBtnInside}>
                                <MaterialCommunityIcons name="qrcode-scan" size={20} color={COLORS.muted} />
                           </TouchableOpacity>
                         </View>
@@ -854,45 +814,232 @@ const PutAwayScreen = () => {
           </>
         )}
 
-        {/* Action Buttons & Table - Visible Only if Data Loaded or Report View */}
-        {(excelData.length > 0 || isReportView) && (
-        <View style={{ flex: 1, marginTop: 4 }}>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-                {!isReportView ? (
-                    <>
-                        {/* Main Screen Buttons: Clear and Verify Only (Report in Header) */}
-                         <TouchableOpacity onPress={handleClearSession} style={styles.clearBtn}>
-                            <Text style={styles.clearBtnText}>Clear</Text>
-                        </TouchableOpacity>
+            {/* Table Section */}
+            {excelData.length > 0 && !isReportView && (
+                <View style={{ flex: 1, marginTop: 12, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 4, overflow: 'hidden' }}>
+                    <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert</Text></View>
+                        <View style={{ width: 45 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
+                        <View style={{ width: 45 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScnLoc</Text></View>
+                        <View style={{ flex: 1, paddingHorizontal: 4 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat</Text></View>
+                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
+                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
+                        <View style={{ width: 55, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                    </View>
+                    <FlatList
+                        data={filteredData}
+                        keyExtractor={(item, index) => `row-${index}`}
+                        renderItem={({ item }) => {
+                            // Calculate Scanned Count
+                            const relevantScans = scannedRecords.filter(r => 
+                                r.SO === item.SO && 
+                                r.Location === item.Location && 
+                                (!item.YD || r.YD === item.YD) &&
+                                (!isLocationLocked || r.ScanLocation === scanLocation)
+                            );
 
-                        <TouchableOpacity onPress={handleVerifyReport} style={[styles.reportBtn, { backgroundColor: COLORS.warning, flex: 1 }]}>
-                            <Text style={[styles.reportBtnText, { color: '#000' }]}>Verify</Text>
-                        </TouchableOpacity>
-                    </>
-                ) : null}
-            </View>
+                            const scannedQty = relevantScans.length;
+                            const availQty = parseInt(item.Avail || '0') || 0;
+                            
+                            // Check Mismatch
+                            const hasMismatch = relevantScans.some(r => r.ScanLocation !== item.Location);
+                            const distinctLocations = [...new Set(relevantScans.map(s => s.ScanLocation))];
+                            const mismatchScan = distinctLocations.find(l => l !== item.Location);
+                            // Show mismatch if exists, otherwise show the valid scan location if available
+                            const displayScnLoc = mismatchScan || distinctLocations[0] || '';
+                            
+                            // Determine Status
+                            let status = 'MISS';
+                            let statusColor = '#EA580C'; // Orange
+                            let badgeBg = '#FFEDD5';
+                            let borderColor = '#F97316';
+                            
+                            if (hasMismatch) {
+                                status = 'MISMATCH';
+                                statusColor = '#CA8A04'; // Yellow-Dark
+                                badgeBg = '#FEF9C3';
+                                borderColor = '#EAB308';
+                            } else if (scannedQty === 0) {
+                                status = 'MISS';
+                                statusColor = '#EA580C';
+                                badgeBg = '#FFEDD5';
+                                borderColor = '#F97316';
+                            } else if (scannedQty === availQty) {
+                                status = 'VALID';
+                                statusColor = '#16A34A'; // Green
+                                badgeBg = '#DCFCE7';
+                                borderColor = '#16A34A';
+                            } else if (scannedQty < availQty) {
+                                status = 'PROC'; // Processing
+                                statusColor = '#2563EB'; // Blue
+                                badgeBg = '#DBEAFE';
+                                borderColor = '#3B82F6';
+                            } else {
+                                status = 'INVAL'; // Over
+                                statusColor = '#DC2626'; // Red
+                                badgeBg = '#FEE2E2';
+                                borderColor = '#EF4444'; 
+                            }
 
-            {/* Table - Always Visible below buttons */}
-            <View style={{ flex: 1, marginTop: 8 }}>
-                <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>SO</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>YD</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>Loc</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>Scan</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1.2, textAlign: 'center' }]}>Status</Text>
+                            return (
+                                <View style={{ 
+                                    flexDirection: 'row', 
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 4, 
+                                    borderBottomWidth: 1, 
+                                    borderBottomColor: '#F3F4F6',
+                                    backgroundColor: 'white',
+                                    alignItems: 'center'
+                                }}>
+                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
+                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Cert || '-'}</Text></View>
+                                    <View style={{ width: 45 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location}</Text></View>
+                                    <View style={{ width: 45 }}>
+                                        <Text style={{ fontSize: 10, color: hasMismatch ? '#EF4444' : '#4B5563', fontWeight: '700' }} numberOfLines={1}>
+                                            {displayScnLoc}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flex: 1, paddingHorizontal: 4 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={2}>{item.YD || '-'}</Text></View>
+                                    <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Avail || '-'}</Text></View>
+                                    <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: status === 'INVAL' ? '#EF4444' : '#10B981', fontWeight: 'bold' }}>{scannedQty}</Text></View>
+                                    <View style={{ width: 55, alignItems: 'center' }}>
+                                        <View style={{ 
+                                            backgroundColor: badgeBg, 
+                                            paddingHorizontal: 2, 
+                                            paddingVertical: 2, 
+                                            borderRadius: 4,
+                                            borderWidth: 1,
+                                            borderColor: borderColor,
+                                            width: '100%',
+                                            alignItems: 'center'
+                                        }}>
+                                            <Text style={{ fontSize: 8, color: statusColor, fontWeight: '700' }}>
+                                                {status}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            );
+                        }}
+                        ListEmptyComponent={
+                            <View style={{ padding: 20, alignItems: 'center' }}>
+                                <Text style={{ color: COLORS.muted }}>No records scanned yet.</Text>
+                            </View>
+                        }
+                    />
                 </View>
-                
-                <FlatList
-                    data={activeList}
-                    keyExtractor={item => item.id}
-                    renderItem={renderItem}
-                    contentContainerStyle={{ paddingBottom: 20 }}
-                    ListEmptyComponent={<Text style={{ color: COLORS.muted, textAlign: 'center', marginTop: 20 }}>No records yet.</Text>}
-                />
-            </View>
-        </View>
-        )}
+            )}
+            {/* Report View Section (Show ALL Excel Data + Status) */}
+            {isReportView && (
+                <View style={{ flex: 1, marginTop: 12, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 4, overflow: 'hidden' }}>
+                    <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert</Text></View>
+                        <View style={{ width: 45 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
+                        <View style={{ width: 45 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScnLoc</Text></View>
+                        <View style={{ flex: 1, paddingHorizontal: 4 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat</Text></View>
+                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
+                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
+                        <View style={{ width: 55, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                    </View>
+                    <FlatList
+                        data={excelData}
+                        keyExtractor={(item, index) => `rep-${index}`}
+                        renderItem={({ item }) => {
+                             // Matching Logic
+                             const relevantScans = scannedRecords.filter(r => 
+                                r.SO === item.SO && 
+                                r.Location === item.Location && 
+                                (!item.YD || r.YD === item.YD)
+                             );
+                             
+                             const scannedQty = relevantScans.length;
+                             const availQty = parseInt(item.Avail || '0') || 0;
+                             
+                             // Mismatch Check
+                             const distinctLocations = [...new Set(relevantScans.map(s => s.ScanLocation))];
+                             const mismatchScan = distinctLocations.find(l => l !== item.Location);
+                             const hasMismatch = !!mismatchScan;
+                             const displayScnLoc = mismatchScan || distinctLocations[0] || '-';
 
+                             // Status Calculation
+                             let status = 'MISS';
+                             let statusColor = '#EA580C'; // Orange
+                             let badgeBg = '#FFEDD5';
+                             let borderColor = '#F97316';
+                             
+                             if (hasMismatch && item.Location) {
+                                // Mismatch in report view
+                                status = 'MISMATCH';
+                                statusColor = '#CA8A04'; // Yellow
+                                badgeBg = '#FEF9C3';
+                                borderColor = '#EAB308';
+                             } else if (scannedQty === 0) {
+                                  status = 'MISS';
+                                  statusColor = '#EA580C';
+                                  badgeBg = '#FFEDD5';
+                                  borderColor = '#F97316';
+                             } else if (scannedQty === availQty) {
+                                 status = 'VALID';
+                                 statusColor = '#16A34A';
+                                 badgeBg = '#DCFCE7';
+                                 borderColor = '#16A34A';
+                             } else if (scannedQty < availQty) {
+                                 status = 'PROC'; 
+                                 statusColor = '#2563EB';
+                                 badgeBg = '#DBEAFE';
+                                 borderColor = '#3B82F6';
+                             } else {
+                                 status = 'INVAL'; 
+                                 statusColor = '#DC2626';
+                                 badgeBg = '#FEE2E2';
+                                 borderColor = '#EF4444'; 
+                             }
+
+                            return (
+                                <View style={{ 
+                                    flexDirection: 'row', 
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 4, 
+                                    borderBottomWidth: 1, 
+                                    borderBottomColor: '#F3F4F6',
+                                    backgroundColor: 'white',
+                                    alignItems: 'center'
+                                }}>
+                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
+                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Cert || '-'}</Text></View>
+                                    <View style={{ width: 45 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location}</Text></View>
+                                    <View style={{ width: 45 }}>
+                                         <Text style={{ fontSize: 10, color: hasMismatch ? '#EF4444' : '#4B5563', fontWeight: '700' }} numberOfLines={1}>
+                                            {displayScnLoc}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flex: 1, paddingHorizontal: 4 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={2}>{item.YD || '-'}</Text></View>
+                                    <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Avail || '-'}</Text></View>
+                                    <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: status === 'MISS' ? '#EF4444' : '#10B981', fontWeight: 'bold' }}>{scannedQty}</Text></View>
+                                    <View style={{ width: 55, alignItems: 'center' }}>
+                                        <View style={{ 
+                                            backgroundColor: badgeBg, 
+                                            paddingHorizontal: 2, 
+                                            paddingVertical: 2, 
+                                            borderRadius: 4,
+                                            borderWidth: 1,
+                                            borderColor: borderColor,
+                                            width: '100%',
+                                            alignItems: 'center'
+                                        }}>
+                                            <Text style={{ fontSize: 8, color: statusColor, fontWeight: '700' }}>
+                                                {status}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            );
+                        }}
+                    />
+                </View>
+            )}
       </View>
       
       {/* Camera Modal */}
@@ -942,8 +1089,8 @@ const PutAwayScreen = () => {
           <View style={styles.focusFrameContainer} pointerEvents="none">
              <View style={[
                  styles.focusFrame, 
-                 lastScanStatus === 'ADDED' ? { borderColor: COLORS.success } : 
-                 lastScanStatus ? { borderColor: COLORS.error } : null
+                 lastScanStatus === true ? { borderColor: COLORS.success } : 
+                 lastScanStatus === false ? { borderColor: COLORS.error } : null
              ]} />
           </View>
         </View>
