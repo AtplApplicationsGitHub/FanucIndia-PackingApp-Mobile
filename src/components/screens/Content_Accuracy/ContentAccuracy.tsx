@@ -10,6 +10,7 @@ import {
   StatusBar,
   Vibration,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -19,7 +20,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import * as Sharing from 'expo-sharing';
 import { useNavigation } from '@react-navigation/native';
-// import LocationStorage from '../../Storage/Location_Storage'; // Storage disabled for PutAway until implemented
+import ContentAccuracyStorage from '../../Storage/ContentAccuracy_Storage';
 import { useKeyboardDisabled } from '../../utils/keyboard';
 
 // --- Types ---
@@ -164,46 +165,61 @@ const PutAwayScreen = () => {
 
   // --- Persistence ---
   
-  // Load Session on Mount (Stubbed)
+  // Load Session on Mount
   useEffect(() => {
     const loadSession = async () => {
-      // Stub: No storage implementation yet
-      // const data = await LocationStorage.getSession();
-      // if (data) {
-      //   setExcelData(data.excelData || []);
-      //   setFileName(data.fileName || null);
-      //   setScannedRecords(data.scannedRecords || []);
-      //   setReportFiles(data.reportFiles || []);
-      //   setScanLocation(data.scanLocation || '');
-      //   setIsLocationLocked(data.isLocationLocked || false);
-      //   setScanSoYd(data.scanSoYd || '');
-      //   setIsVerified(data.isVerified || false);
-      //   setIsReportView(data.isReportView || false);
-      // }
-      setIsLoaded(true);
+      try {
+        const data = await ContentAccuracyStorage.getSession();
+        if (data) {
+          setExcelData(data.excelData || []);
+          setFileName(data.fileName || null);
+          setScannedRecords(data.scannedRecords || []);
+          setReportFiles(data.reportFiles || []);
+          
+          setScanLocation(data.scanLocation || '');
+          setIsLocationLocked(data.isLocationLocked || false);
+          
+          setScanSO(data.scanSO || '');
+          setIsSOLocked(data.isSOLocked || false);
+          
+          setScanMaterial(data.scanMaterial || '');
+          
+          setIsVerified(data.isVerified || false);
+          setIsReportView(data.isReportView || false);
+        }
+      } catch (e) {
+        console.error("Error loading session", e);
+      } finally {
+        setIsLoaded(true);
+      }
     };
     loadSession();
   }, []);
 
-  // Save Session on Change (Stubbed)
+  // Save Session on Change
   useEffect(() => {
     if (!isLoaded) return;
 
     const saveData = async () => {
-      // Stub: No storage implementation yet
-      // await LocationStorage.saveSession({
-      //   excelData,
-      //   fileName,
-      //   scannedRecords,
-      //   reportFiles,
-      //   scanLocation,
-      //   isLocationLocked,
-      //   scanSoYd,
-      //   isVerified,
-      //   isReportView
-      // });
+      await ContentAccuracyStorage.saveSession({
+        excelData,
+        fileName,
+        scannedRecords,
+        reportFiles,
+        scanLocation,
+        isLocationLocked,
+        scanSO,
+        isSOLocked,
+        scanMaterial,
+        isVerified,
+        isReportView
+      });
     };
-    saveData();
+    
+    // Debounce slightly to avoid excessive writes
+    const timeout = setTimeout(saveData, 500);
+    return () => clearTimeout(timeout);
+    
   }, [
     excelData, 
     fileName, 
@@ -271,26 +287,29 @@ const PutAwayScreen = () => {
   useLayoutEffect(() => {
     navigation.setOptions({
         headerRight: () => {
-             if (isReportView) {
-                return (
+             return (
+               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                 {excelData.length > 0 && (
+                    <TouchableOpacity onPress={handleClearSession} style={{ marginRight: 16, padding: 4 }}>
+                        <Ionicons name="trash-outline" size={22} color="#EF4444" />
+                    </TouchableOpacity>
+                 )}
+
+                 {isReportView ? (
                     <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
                       <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
                     </TouchableOpacity>
-                );
-             }
-
-             if (excelData.length > 0) {
-                return (
+                 ) : (excelData.length > 0 && (
                     <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
                         <MaterialCommunityIcons
                           name="file-document-multiple"
-                          size={20}
+                          size={22}
                           color="#2196F3"
                         />
                     </TouchableOpacity>
-                );
-             }
-             return null;
+                 ))}
+               </View>
+             );
         },
     });
   }, [navigation, isReportView, excelData, scannedRecords, reportFiles]);
@@ -449,7 +468,7 @@ const PutAwayScreen = () => {
         text: 'Clear', 
         style: 'destructive', 
         onPress: async () => {
-          // await LocationStorage.clearSession(); // Stubbed
+          await ContentAccuracyStorage.clearSession();
           setScanLocation('');
           setScanSO('');
           setScanMaterial('');
@@ -500,11 +519,35 @@ const PutAwayScreen = () => {
         }
 
         if (specificMatch) {
-            // Found valid material row
+            // Check for Mismatch Correction ("Rewrite")
+            // If the current scan is a Vaild Match, check if we previously scanned this as a Mismatch.
+            // If so, update the previous record instead of adding a new one.
+            const isMatch = specificMatch.Location.toUpperCase() === currentLoc;
             
-            // Allow multiple scans for counting.
-            // Just record it.
-            
+            if (isMatch) {
+                 const mismatchIndex = scannedRecords.findIndex(r => 
+                    r.SO === specificMatch?.SO && 
+                    r.YD === matVal && 
+                    r.ScanLocation !== r.Location // It was a mismatch
+                 );
+
+                 if (mismatchIndex !== -1) {
+                     // Rewrite logic
+                     const updatedRecords = [...scannedRecords];
+                     updatedRecords[mismatchIndex] = {
+                         ...updatedRecords[mismatchIndex],
+                         ScanLocation: currentLoc, 
+                         Location: specificMatch.Location,
+                         Timestamp: Date.now(),
+                     };
+                     setScannedRecords(updatedRecords);
+                     setScanMaterial('');
+                     setTimeout(() => { if (navigation.isFocused()) materialInputRef.current?.focus(); }, 100);
+                     return true;
+                 }
+            }
+
+            // Normal Add
             const newRecord: ScannedRecord = {
                 id: Date.now().toString() + Math.random().toString(),
                 SO: specificMatch.SO, 
@@ -541,45 +584,112 @@ const PutAwayScreen = () => {
     }
   };
 
-  const handleVerifyReport = () => {
-    // Removed specific verification logic as requested
-    showAlert('Verification logic disabled.');
-  };
+
 
   const handleGenerateReport = () => {
-    // --- Automatic Global Verification ---
-    // Identify all items that have been successfully scanned (Valid)
-    // Simply passing all records to report
+
     const missingRecords: ScannedRecord[] = []; // Calculate if needed, but for now just showing report
 
     setReportFiles([...scannedRecords]);
     setIsVerified(true);
     setIsReportView(true);
-    
-    // Optional: You can uncomment this if you want an alert upon entry
-    // showAlert(`Report Generated. Found ${missingRecords.length} missing.`);
   };
 
   const handleExport = async () => {
-      if (reportFiles.length === 0) {
+      // Check if we have any data to work with
+      if (excelData.length === 0 && scannedRecords.length === 0) {
           showAlert('No data to export.');
           return;
       }
-      
-      const sheetData = reportFiles.map(r => ({
-          SO: r.SO,
-          YD: r.YD,
-          'System Location': r.Location,
-          'Scanned Location': r.ScanLocation,
-          'Date & Time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
-      }));
-      
+
+      let sheetData: any[] = [];
+
+      // Helper to generate key for matching
+      const getKey = (so: string, loc: string, yd: string) => 
+        `${so?.trim().toUpperCase()}|${loc?.trim().toUpperCase()}|${yd?.trim().toUpperCase()}`;
+
+      if (excelData.length > 0) {
+          // --- Plan Mode: Export All System Rows (including Missing) ---
+          
+          // Group scans by System Key (SO + System Location + Material)
+          const scanMap = new Map<string, ScannedRecord[]>();
+          scannedRecords.forEach(r => {
+             const key = getKey(r.SO || '', r.Location || '', r.YD || '');
+             if (!scanMap.has(key)) scanMap.set(key, []);
+             scanMap.get(key)!.push(r);
+          });
+
+          sheetData = excelData.map(row => {
+              const so = row.SO || '';
+              const loc = row.Location || ''; 
+              const mat = row.YD || '';
+              const cert = row.Cert || ''; // Cert. No matching
+              const avail = row.Avail ? String(row.Avail) : '0';
+              const sysQty = parseFloat(avail) || 0;
+
+              const key = getKey(so, loc, mat);
+              const scans = scanMap.get(key) || [];
+              const scannedQty = scans.length;
+              
+              let status = 'Missing';
+              if (scannedQty === 0) {
+                  status = 'Missing';
+              } else if (scannedQty === sysQty) {
+                  status = 'Valid';
+              } else if (scannedQty > sysQty) {
+                  status = 'Invalid';
+              } else {
+                  status = 'Processing';
+              }
+
+              // Check for Location Mismatch
+              // If we have scans, check if the *actual* scan location differs from system loc
+              const mismatch = scans.some(r => r.ScanLocation.toUpperCase() !== loc.trim().toUpperCase());
+              if (scannedQty > 0 && mismatch) {
+                  status = 'Mismatch';
+              }
+
+              // Scanned Location(s) - Join distinct locations
+              const uniqueScanLocs = Array.from(new Set(scans.map(s => s.ScanLocation))).filter(Boolean).join(', ');
+              
+              // Date Time (Last scan timestamp)
+              const lastScan = scans.length > 0 ? scans[scans.length-1] : null;
+              const dateStr = lastScan ? new Date(lastScan.Timestamp).toLocaleString() : '';
+
+              return {
+                  'SO': so,
+                  'Cert. No': cert,
+                  'System Location': loc,
+                  'Scanned Location': uniqueScanLocs,
+                  'Material': mat,
+                  'Actual Qty': avail,
+                  'Scanned Qty': scannedQty,
+                  'Status': status,
+                  'DateTime': dateStr
+              };
+          });
+
+      } else {
+          // --- Free Mode: Just Export Scans ---
+          sheetData = scannedRecords.map(r => ({
+              'SO': r.SO,
+              'Cert. No': '',
+              'System Location': r.Location, // In free mode, matches scan
+              'Scanned Location': r.ScanLocation,
+              'Material': r.YD,
+              'Actual Qty': '',
+              'Scanned Qty': 1,
+              'Status': 'Ad-hoc',
+              'DateTime': new Date(r.Timestamp).toLocaleString()
+          }));
+      }
+
       const ws = XLSX.utils.json_to_sheet(sheetData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Report");
       
       const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-      const uri = FileSystem.cacheDirectory + 'PutAwayReport.xlsx';
+      const uri = FileSystem.cacheDirectory + 'ContentAccuracyReport.xlsx';
       
       await FileSystem.writeAsStringAsync(uri, b64, { encoding: 'base64' });
       
@@ -668,6 +778,48 @@ const PutAwayScreen = () => {
   };
 
 
+  // --- Stats Calculation ---
+  const stats = useMemo(() => {
+     if (excelData.length === 0) return { total: 0, missing: 0, valid: 0, invalid: 0, mismatch: 0 };
+     
+     const total = excelData.length;
+     let valid = 0;
+     let missing = 0;
+     let invalid = 0; 
+     let mismatch = 0;
+     
+     excelData.forEach(item => {
+         const avail = parseFloat(item.Avail || '0') || 0;
+         
+         // Get all scans for this Line Item
+         const itemScans = scannedRecords.filter(r => 
+             r.SO === item.SO && 
+             r.Location === item.Location && 
+             (!item.YD || r.YD === item.YD)
+         );
+         
+         // 1. Check for Mismatch (Wrong Location) - Row Count
+         const hasMismatch = itemScans.some(r => r.ScanLocation !== item.Location);
+         if (hasMismatch) mismatch++;
+
+         // 2. Count Valid Scans (Correct Location only)
+         const correctScansCount = itemScans.filter(r => r.ScanLocation === item.Location).length;
+         
+         // Valid Row: Scanned >= Avail
+         if (correctScansCount >= avail) {
+             valid++;
+         } else {
+             missing++;
+         }
+         
+         // Invalid Row: Scanned > Avail (Over/Excess)
+         if (correctScansCount > avail) {
+             invalid++;
+         }
+     });
+     
+     return { total, missing, valid, invalid, mismatch };
+  }, [excelData, scannedRecords]);
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
@@ -708,8 +860,8 @@ const PutAwayScreen = () => {
         {/* The rest is shown ONLY if data matches */}
         {excelData.length > 0 && !isReportView && (
           <>
-            {/* Stats Removed as per request */}
-            
+
+
             {/* Scan Inputs */}
             {/* Scan Inputs */}
             <View style={styles.card}>
@@ -762,6 +914,7 @@ const PutAwayScreen = () => {
                     onSubmitEditing={() => handleLockSO()}
                     autoCapitalize="characters"
                     showSoftInputOnFocus={!keyboardDisabled}
+                    autoFocus={true}
                   />
                    {!isSOLocked && (
                       <TouchableOpacity onPress={() => openScanner('SO')} style={styles.scanIconBtnInside}>
@@ -798,6 +951,7 @@ const PutAwayScreen = () => {
                           autoFocus
                           autoCapitalize="characters"
                           showSoftInputOnFocus={!keyboardDisabled}
+                          blurOnSubmit={false}
                           />
                            <TouchableOpacity onPress={() => openScanner('MATERIAL')} style={styles.scanIconBtnInside}>
                                <MaterialCommunityIcons name="qrcode-scan" size={20} color={COLORS.muted} />
@@ -850,7 +1004,7 @@ const PutAwayScreen = () => {
                             const displayScnLoc = mismatchScan || distinctLocations[0] || '';
                             
                             // Determine Status
-                            let status = 'MISS';
+                            let status = 'MISSING';
                             let statusColor = '#EA580C'; // Orange
                             let badgeBg = '#FFEDD5';
                             let borderColor = '#F97316';
@@ -861,7 +1015,7 @@ const PutAwayScreen = () => {
                                 badgeBg = '#FEF9C3';
                                 borderColor = '#EAB308';
                             } else if (scannedQty === 0) {
-                                status = 'MISS';
+                                status = 'MISSING';
                                 statusColor = '#EA580C';
                                 badgeBg = '#FFEDD5';
                                 borderColor = '#F97316';
@@ -932,7 +1086,44 @@ const PutAwayScreen = () => {
             )}
             {/* Report View Section (Show ALL Excel Data + Status) */}
             {isReportView && (
-                <View style={{ flex: 1, marginTop: 12, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 4, overflow: 'hidden' }}>
+              <>
+                 <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false}
+                    style={{ 
+                        backgroundColor: '#F3F4F6', 
+                        borderRadius: 8, 
+                        marginBottom: 2,
+                        flexGrow: 0,
+                    }}
+                    contentContainerStyle={{
+                        flexDirection: 'row', 
+                        alignItems: 'center',
+                        paddingVertical: 8,
+                        paddingHorizontal: 8, 
+                        columnGap: 5,
+                    }}
+                >
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#2563EB' }}>Total: {stats.total}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+                    
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#16A34A' }}>Valid: {stats.valid}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#DC2626' }}>Invalid: {stats.invalid}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#EA580C' }}>Missing: {stats.missing}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+
+                    
+                    
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#CA8A04' }}>Mismatch: {stats.mismatch}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+
+                </ScrollView>
+
+                <View style={{ flex: 1, marginTop: 2, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 4, overflow: 'hidden' }}>
                     <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
                         <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
                         <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert</Text></View>
@@ -964,7 +1155,7 @@ const PutAwayScreen = () => {
                              const displayScnLoc = mismatchScan || distinctLocations[0] || '-';
 
                              // Status Calculation
-                             let status = 'MISS';
+                             let status = 'MISSING';
                              let statusColor = '#EA580C'; // Orange
                              let badgeBg = '#FFEDD5';
                              let borderColor = '#F97316';
@@ -975,8 +1166,9 @@ const PutAwayScreen = () => {
                                 statusColor = '#CA8A04'; // Yellow
                                 badgeBg = '#FEF9C3';
                                 borderColor = '#EAB308';
+                                 borderColor = '#EAB308';
                              } else if (scannedQty === 0) {
-                                  status = 'MISS';
+                                  status = 'MISSING';
                                   statusColor = '#EA580C';
                                   badgeBg = '#FFEDD5';
                                   borderColor = '#F97316';
@@ -996,7 +1188,6 @@ const PutAwayScreen = () => {
                                  badgeBg = '#FEE2E2';
                                  borderColor = '#EF4444'; 
                              }
-
                             return (
                                 <View style={{ 
                                     flexDirection: 'row', 
@@ -1039,6 +1230,7 @@ const PutAwayScreen = () => {
                         }}
                     />
                 </View>
+              </>
             )}
       </View>
       
@@ -1162,29 +1354,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     // Borders removed for cleaner look
   },
-  cardTitle: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  statsContainer: {
-    backgroundColor: '#F9FAFB',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-    marginTop: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  statsText: {
-    fontSize: 14,
-    color: COLORS.text,
-  },
-
+  // Table
+  // Table styles removed (inline styles used)
+  
   inputRow: {
     flexDirection: 'row',
     gap: 8,
@@ -1221,71 +1393,6 @@ const styles = StyleSheet.create({
       borderRadius: 8,
       alignItems: 'center',
       justifyContent: 'center',
-  },
-  verifyBtn: {
-      flex: 1,
-      backgroundColor: 'transparent',
-      borderWidth: 1,
-      borderColor: COLORS.primary,
-      borderRadius: 8,
-      paddingVertical: 8,
-      alignItems: 'center',
-  },
-  verifyBtnText: {
-      color: COLORS.primary,
-      fontWeight: '600',
-      fontSize: 13,
-  },
-  clearBtn: {
-      flex: 1,
-      backgroundColor: COLORS.card,
-      borderWidth: 1,
-      borderColor: COLORS.border,
-      borderRadius: 8,
-      paddingVertical: 8,
-      alignItems: 'center',
-  },
-  clearBtnText: {
-       color: COLORS.text,
-       fontWeight: '600',
-       fontSize: 13,
-  },
-  reportBtn: {
-      flex: 1,
-       backgroundColor: COLORS.primary,
-      borderRadius: 8,
-      paddingVertical: 8,
-      alignItems: 'center',
-  },
-  reportBtnText: {
-      color: COLORS.primaryText,
-      fontWeight: '700',
-      fontSize: 13,
-  },
-  
-  // Table
-  tableHeader: {
-      flexDirection: 'row',
-      borderBottomWidth: 1,
-      borderBottomColor: COLORS.border,
-      paddingBottom: 8,
-      marginBottom: 8,
-  },
-  tableHeadText: {
-      color: COLORS.muted,
-      fontSize: 12,
-      fontWeight: '600',
-  },
-  row: {
-      flexDirection: 'row',
-      paddingVertical: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: COLORS.border,
-      alignItems: 'center',
-  },
-  cell: {
-      color: COLORS.text,
-      fontSize: 13,
   },
   
   // Camera Styles
