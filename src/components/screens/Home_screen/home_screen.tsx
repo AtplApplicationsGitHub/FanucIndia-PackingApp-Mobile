@@ -316,7 +316,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           keyExtractor={(it) => it.id}
           contentContainerStyle={{
             paddingVertical: 8,
-            paddingBottom: 16 + insets.bottom,
+            paddingBottom: 4,
             flexGrow: 1,
             justifyContent: menuItems.length === 0 ? "center" : undefined,
           }}
@@ -350,6 +350,8 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={Platform.OS === "android"}
+          showsVerticalScrollIndicator={false}
+          overScrollMode="never"
         />
         <View style={{ alignItems: "center", paddingVertical: 10 }}>
           <TouchableOpacity

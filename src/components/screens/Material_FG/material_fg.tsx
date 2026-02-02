@@ -127,6 +127,7 @@ const MaterialFGTransferScreen: React.FC = () => {
   const [location, setLocation] = useState("");
   const [soNumber, setSoNumber] = useState("");
   const [items, setItems] = useState<ScanItem[]>([]);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   // Refs
   const locationRef = useRef<TextInput>(null);
@@ -288,7 +289,8 @@ const MaterialFGTransferScreen: React.FC = () => {
     }
     if (!so) {
       showMessage("Missing SO number", "Please enter or scan a Sales Order number.", () => {
-        soRef.current?.focus();
+        setSoNumber("");
+        setTimeout(() => soRef.current?.focus(), 100);
       });
       return;
     }
@@ -426,6 +428,18 @@ const MaterialFGTransferScreen: React.FC = () => {
     }
   };
 
+
+
+  const sortedItems = React.useMemo(() => {
+    return [...items].sort((a, b) => {
+      if (sortOrder === "asc") {
+        return a.soNumber.localeCompare(b.soNumber);
+      } else {
+        return b.soNumber.localeCompare(a.soNumber);
+      }
+    });
+  }, [items, sortOrder]);
+
   const viewItem = (item: ScanItem) => {
     setMessageDlg({
       show: true,
@@ -510,12 +524,29 @@ const MaterialFGTransferScreen: React.FC = () => {
             <View style={styles.tableHeader}>
               <Text style={[styles.th, { flex: 0.6 }]}>S/No</Text>
               <Text style={[styles.th, { flex: 2 }]}>Location</Text>
-              <Text style={[styles.th, { flex: 2 }]}>SO Number</Text>
+              <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={styles.th}>SO Number</Text>
+                <TouchableOpacity 
+                    onPress={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                    style={{
+                        padding: 4,
+                        backgroundColor: '#E5E7EB', // slightly darker than #eff6ff to match this screen's theme
+                        borderRadius: 6,
+                        marginLeft: 6
+                    }}
+                >
+                    <MaterialCommunityIcons 
+                        name={sortOrder === 'asc' ? "sort-ascending" : "sort-descending"} 
+                        size={16} 
+                        color={COLORS.accent} 
+                    />
+                </TouchableOpacity>
+              </View>
               <Text style={[styles.th, { flex: 1.4, textAlign: "right" }]}>Time</Text>
             </View>
 
             <FlatList
-              data={items}
+              data={sortedItems}
               keyExtractor={(x) => x.id}
               style={styles.flatList}
               contentContainerStyle={{ paddingBottom: 8 }}
@@ -659,13 +690,13 @@ export default MaterialFGTransferScreen;
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   container: { flex: 1 },
-  content: { flex: 1, padding: 12 },
+  content: { flex: 1, padding: 8 },
 
   card: {
     backgroundColor: COLORS.card,
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
+    borderRadius: 8,
+    padding: 10,
+    gap: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
     shadowColor: "#000",
@@ -673,7 +704,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   field: {
     flexDirection: "row",
@@ -681,37 +712,37 @@ const styles = StyleSheet.create({
     backgroundColor: "#FAFAFA",
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 48,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    height: 40,
     gap: 8,
   },
-  input: { flex: 1, fontSize: 15, color: COLORS.text },
-  inputDivider: { width: 1, height: 22, backgroundColor: COLORS.border, marginHorizontal: 6 },
+  input: { flex: 1, fontSize: 13, color: COLORS.text },
+  inputDivider: { width: 1, height: 20, backgroundColor: COLORS.border, marginHorizontal: 4 },
   scanIconBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 32, height: 32, borderRadius: 16,
     alignItems: "center", justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.04)",
     borderWidth: 1, borderColor: COLORS.border,
   },
 
-  buttonsRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  buttonsRow: { flexDirection: "row", gap: 8, marginTop: 4 },
   btnPrimary: {
-    flex: 1, height: 44, borderRadius: 12, backgroundColor: COLORS.accent,
-    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8,
+    flex: 1, height: 40, borderRadius: 8, backgroundColor: COLORS.accent,
+    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6,
   },
-  btnPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
+  btnPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
   btnGhost: {
-    flex: 1, height: 44, borderRadius: 12, backgroundColor: "#F3F4F6",
-    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8,
+    flex: 1, height: 40, borderRadius: 8, backgroundColor: "#F3F4F6",
+    alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6,
     borderWidth: 1, borderColor: COLORS.border,
   },
-  btnGhostText: { color: COLORS.accent, fontWeight: "700", fontSize: 15 },
+  btnGhostText: { color: COLORS.accent, fontWeight: "700", fontSize: 14 },
 
   tableCard: {
     flex: 1,
     backgroundColor: COLORS.card,
-    borderRadius: 16,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
     shadowColor: "#000",
@@ -721,28 +752,28 @@ const styles = StyleSheet.create({
     elevation: 2,
     overflow: "hidden",
   },
-  metric: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 },
+  metric: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 },
   metricLabel: { color: COLORS.subtext, fontSize: 13, fontWeight: "600" },
-  metricValue: { color: COLORS.text, fontSize: 14, fontWeight: "800" },
+  metricValue: { color: COLORS.text, fontSize: 13, fontWeight: "800" },
   tableHeader: {
     flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     backgroundColor: "#F9FAFB",
   },
-  th: { fontWeight: "700", fontSize: 12, color: COLORS.subtext },
+  th: { fontWeight: "700", fontSize: 11, color: COLORS.subtext },
   flatList: { flex: 1 },
   tr: {
     flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
     alignItems: "center",
   },
-  td: { fontSize: 14, color: COLORS.text },
+  td: { fontSize: 12, color: COLORS.text },
   emptyWrap: { alignItems: "center", gap: 6, paddingVertical: 24 },
   emptyText: { fontWeight: "700", color: COLORS.text },
   emptySub: { color: COLORS.subtext, fontSize: 12 },

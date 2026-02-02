@@ -40,12 +40,15 @@ export default function App() {
           screenOptions={{
             headerTitleAlign: "center",
             headerTitleStyle: {
-              fontSize: 16,
+              fontSize: 18,
               fontWeight: "600",
+              color: "#0B0F19",
             },
             headerStyle: {
-              backgroundColor: "#F7F7F8",
+              backgroundColor: "#FFFFFF",
             },
+            headerTintColor: "#0B0F19",
+            headerShadowVisible: true, 
           }}
         >
           {/* Login */}
@@ -66,7 +69,7 @@ export default function App() {
           <Stack.Screen
             name="LabelPrint"
             component={LabelPrint}
-            options={{ title: "Label Print" }}
+            options={{ title: "Customer Label Print" }}
           />
 
           {/* Vehicle Entry */}

@@ -12,6 +12,7 @@ import {
   Pressable,
   Platform,
   Keyboard,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -223,27 +224,37 @@ const LocationScreen = () => {
   // --- Header Options ---
   useLayoutEffect(() => {
     navigation.setOptions({
+        title: isReportView ? 'Location Report' : 'Location Accuracy',
         headerRight: () => {
-             if (isReportView) {
-                return (
-                    <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
-                      <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
-                    </TouchableOpacity>
-                );
-             }
+             return (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {!isReportView && (
+                         <TouchableOpacity onPress={handleUploadExcel} style={{ marginRight: 16 }}>
+                           <MaterialCommunityIcons 
+                             name={excelData.length > 0 ? "file-replace-outline" : "cloud-upload-outline"} 
+                             size={28}
+                             color={excelData.length > 0 ? COLORS.text : '#10B981'} 
+                           />
+                         </TouchableOpacity>
+                    )}
 
-             if (excelData.length > 0) {
-                return (
-                    <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
-                        <MaterialCommunityIcons
-                          name="file-document-multiple"
-                          size={20}
-                          color="#2196F3"
-                        />
-                    </TouchableOpacity>
-                );
-             }
-             return null;
+                    {!isReportView && excelData.length > 0 && (
+                        <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
+                            <MaterialCommunityIcons
+                              name="file-document-multiple"
+                              size={20}
+                              color="#2196F3"
+                            />
+                        </TouchableOpacity>
+                    )}
+                    
+                    {isReportView && (
+                        <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
+                          <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
+                        </TouchableOpacity>
+                    )}
+                </View>
+             );
         },
     });
   }, [navigation, isReportView, excelData, scannedRecords, reportFiles]);
@@ -387,7 +398,9 @@ const LocationScreen = () => {
 
                  // Logic to clear and refocus
                  setScanSoYd('');
-                 if (!fromScanner) soYdInputRef.current?.focus();
+                 if (!fromScanner) {
+                     setTimeout(() => soYdInputRef.current?.focus(), 100);
+                 }
                  
                  // Do NOT add a duplicate record to the list
                  return 'DUPLICATE';
@@ -411,7 +424,9 @@ const LocationScreen = () => {
              
              // Cleanup input
              setScanSoYd('');
-             if (!fromScanner) soYdInputRef.current?.focus();
+             if (!fromScanner) {
+                 setTimeout(() => soYdInputRef.current?.focus(), 50);
+             }
              return 'ADDED';
 
         } else {
@@ -421,7 +436,7 @@ const LocationScreen = () => {
                  return 'INVALID';
              }
 
-             // Manual mode: Log as invalid (existing behavior)
+             // Manual mode: Log as invalid
              const newRecord: ScannedRecord = {
                  id: Date.now().toString(),
                  SO: match.SO, 
@@ -432,6 +447,12 @@ const LocationScreen = () => {
                  Timestamp: Date.now(),
              };
              setScannedRecords(prev => [newRecord, ...prev]);
+
+             // Clear and Focus for Invalid as well
+             setScanSoYd('');
+             if (!fromScanner) {
+                 setTimeout(() => soYdInputRef.current?.focus(), 100);
+             }
              return 'INVALID';
         }
     } else {
@@ -439,14 +460,23 @@ const LocationScreen = () => {
         if (!fromScanner) {
              showAlert('SO not found in Excel data.');
         }
+
+        // Logic to clear and refocus
+        setScanSoYd('');
+        if (!fromScanner) {
+             setTimeout(() => soYdInputRef.current?.focus(), 100);
+        }
         return 'NOT_FOUND';
     }
-    
-    setScanSoYd('');
-    if (!fromScanner) {
-        soYdInputRef.current?.focus();
-    }
-    return 'ERROR'; 
+  };
+
+  // --- Helper ---
+  const formatTimestamp = (timestamp?: number) => {
+    if (!timestamp) return '-';
+    // Format: DD/MM/YYYY HH:mm:ss
+    const date = new Date(timestamp);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   };
 
   const handleVerifyReport = () => {
@@ -489,7 +519,7 @@ const LocationScreen = () => {
             Location: item.Location,
             ScanLocation: '',
             Status: 'Missing',
-            Timestamp: Date.now()
+            Timestamp: 0 // Not scanned
         }));
 
         // Update scannedRecords to show these in the main table
@@ -523,7 +553,7 @@ const LocationScreen = () => {
         Location: item.Location,
         ScanLocation: '',
         Status: 'Missing',
-        Timestamp: Date.now()
+        Timestamp: 0 // Not scanned
     }));
 
     // Display: All manually scanned items (Valid/Invalid) + All calculated Missing items
@@ -549,7 +579,7 @@ const LocationScreen = () => {
           'System Location': r.Location,
           'Scanned Location': r.ScanLocation,
           Status: r.Status,
-          'Date & Time': r.Timestamp ? new Date(r.Timestamp).toLocaleString() : '-'
+          'Date & Time': formatTimestamp(r.Timestamp)
       }));
       
       const ws = XLSX.utils.json_to_sheet(sheetData);
@@ -675,32 +705,43 @@ const LocationScreen = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Valid': return { color: '#00E096', bg: 'rgba(0, 224, 150, 0.15)' }; // Green
-      case 'Missing': return { color: '#FFAA00', bg: 'rgba(255, 170, 0, 0.15)' }; // Orange
-      case 'Invalid': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
-      default: return { color: COLORS.text, bg: 'transparent' };
+      case 'Valid': return { color: '#16A34A', bg: '#DCFCE7', border: '#16A34A' }; // Green
+      case 'Missing': return { color: '#EA580C', bg: '#FFEDD5', border: '#F97316' }; // Orange
+      case 'Invalid': return { color: '#DC2626', bg: '#FEE2E2', border: '#EF4444' }; // Red
+      case 'Duplicate': return { color: '#7C3AED', bg: '#EDE9FE', border: '#8B5CF6' }; // Purple
+      default: return { color: COLORS.text, bg: 'transparent', border: 'transparent' };
     }
   };
 
   const renderItem = ({ item }: { item: ScannedRecord }) => {
-    const { color, bg } = getStatusColor(item.Status);
+    const { color, bg, border } = getStatusColor(item.Status);
 
     return (
-      <View style={styles.row}>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.SO || '-'}</Text>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.YD || '-'}</Text>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.Location || '-'}</Text>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.ScanLocation || '-'}</Text>
-        <View style={{ flex: 1.2, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ 
+          flexDirection: 'row', 
+          paddingVertical: 10,
+          paddingHorizontal: 4, 
+          borderBottomWidth: 1, 
+          borderBottomColor: '#F3F4F6',
+          backgroundColor: 'white',
+          alignItems: 'center'
+      }}>
+        <View style={{ width: 90 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO || '-'}</Text></View>
+        <View style={{ width: 90 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.YD || '-'}</Text></View>
+        <View style={{ width: 90 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location || '-'}</Text></View>
+        <View style={{ width: 90 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.ScanLocation || '-'}</Text></View>
+        <View style={{ width: 70, alignItems: 'center' }}>
             <View style={{ 
                 backgroundColor: bg, 
-                paddingHorizontal: 12, 
-                paddingVertical: 4, 
+                paddingHorizontal: 2, 
+                paddingVertical: 2, 
                 borderRadius: 4,
-                width: 80,
+                borderWidth: 1,
+                borderColor: border,
+                width: '100%',
                 alignItems: 'center'
             }}>
-                <Text style={{ color: color, fontWeight: '600', fontSize: 13 }}>{item.Status}</Text>
+                <Text style={{ fontSize: 8, color: color, fontWeight: '700' }}>{item.Status}</Text>
             </View>
         </View>
       </View>
@@ -712,31 +753,11 @@ const LocationScreen = () => {
       {/* Main Content */}
       <View style={styles.content}>
         
-        {!isReportView && (
-            <View style={{ 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                justifyContent: 'space-between', 
-                paddingVertical: 0,
-                marginBottom: 0
-            }}>
-               <Text style={{ color: fileName ? COLORS.text : COLORS.muted, flex: 1, marginRight: 8, fontSize: 15, fontWeight: fileName ? '600' : '400' }} numberOfLines={1}>
-                  {fileName || 'Select Excel File to Begin'}
+        {!isReportView && excelData.length === 0 && (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+               <Text style={{ color: COLORS.muted, fontSize: 16, fontWeight: '500' }}>
+                  Select Excel File to Begin
                </Text>
-               <TouchableOpacity onPress={handleUploadExcel} style={{ 
-                   width: 36, 
-                   height: 36, 
-                   borderRadius: 18, 
-                   backgroundColor: '#F3F4F6', 
-                   alignItems: 'center', 
-                   justifyContent: 'center' 
-               }}>
-                  <Ionicons 
-                    name={excelData.length > 0 ? "sync-outline" : "folder-open-outline"} 
-                    size={20} 
-                    color={COLORS.text} 
-                  />
-               </TouchableOpacity>
             </View>
         )}
 
@@ -827,39 +848,44 @@ const LocationScreen = () => {
 
         {/* Action Buttons & Table - Visible Only if Data Loaded or Report View */}
         {(excelData.length > 0 || isReportView) && (
-        <View style={{ flex: 1, marginTop: 4 }}>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-                {!isReportView ? (
-                    <>
-                        {/* Main Screen Buttons: Clear and Verify Only (Report in Header) */}
-                         <TouchableOpacity onPress={handleClearSession} style={styles.clearBtn}>
-                            <Text style={styles.clearBtnText}>Clear</Text>
-                        </TouchableOpacity>
+        <View style={{ flex: 1, marginTop: 0 }}>
+            {!isReportView && (
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 6 }}>
+                 <TouchableOpacity onPress={handleClearSession} style={styles.clearBtn}>
+                    <Text style={styles.clearBtnText}>Clear</Text>
+                </TouchableOpacity>
 
-                        <TouchableOpacity onPress={handleVerifyReport} style={[styles.reportBtn, { backgroundColor: COLORS.warning, flex: 1 }]}>
-                            <Text style={[styles.reportBtnText, { color: '#000' }]}>Verify</Text>
-                        </TouchableOpacity>
-                    </>
-                ) : null}
+                <TouchableOpacity onPress={handleVerifyReport} style={[styles.reportBtn, { backgroundColor: COLORS.warning, flex: 1 }]}>
+                    <Text style={[styles.reportBtnText, { color: '#000' }]}>Verify</Text>
+                </TouchableOpacity>
             </View>
+            )}
 
-            {/* Table - Always Visible below buttons */}
-            <View style={{ flex: 1, marginTop: 8 }}>
-                <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>SO</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>YD</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>Loc</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>Scan</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1.2, textAlign: 'center' }]}>Status</Text>
-                </View>
-                
-                <FlatList
-                    data={activeList}
-                    keyExtractor={item => item.id}
-                    renderItem={renderItem}
-                    contentContainerStyle={{ paddingBottom: 20 }}
-                    ListEmptyComponent={<Text style={{ color: COLORS.muted, textAlign: 'center', marginTop: 20 }}>No records yet.</Text>}
-                />
+            {/* Table - ContentAccuracy Style */}
+            <View style={{ flex: 1, marginTop: 0, backgroundColor: '#fff', borderRadius: 0, elevation: 0, marginHorizontal: -12, borderTopWidth: 1, borderTopColor: '#E5E7EB', overflow: 'hidden' }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                    <View style={{ minWidth: 360 }}>
+                        <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                            <View style={{ width: 90 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                            <View style={{ width: 90 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>YD</Text></View>
+                            <View style={{ width: 90 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
+                            <View style={{ width: 90 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scan</Text></View>
+                            <View style={{ width: 70, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                        </View>
+                        
+                        <FlatList
+                            data={activeList}
+                            keyExtractor={item => item.id}
+                            renderItem={renderItem}
+                            contentContainerStyle={{ paddingBottom: 20 }}
+                            ListEmptyComponent={
+                                <View style={{ padding: 20, alignItems: 'center' }}>
+                                    <Text style={{ color: COLORS.muted }}>No records yet.</Text>
+                                </View>
+                            }
+                        />
+                    </View>
+                </ScrollView>
             </View>
         </View>
         )}
@@ -994,18 +1020,18 @@ const styles = StyleSheet.create({
 
   statsContainer: {
     backgroundColor: '#F9FAFB',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: 8,
-    marginBottom: 8,
-    marginTop: 8,
+    marginBottom: 6,
+    marginTop: 6,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   statsText: {
-    fontSize: 14,
+    fontSize: 11,
     color: COLORS.text,
   },
 
@@ -1026,10 +1052,10 @@ const styles = StyleSheet.create({
   },
   inputInner: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 14,
   },
   scanIconBtnInside: {
       padding: 8,
@@ -1039,8 +1065,8 @@ const styles = StyleSheet.create({
       backgroundColor: '#F3F4F6'
   },
   actionBtn: {
-      width: 44,
-      height: 44,
+      width: 36,
+      height: 36,
       backgroundColor: COLORS.primary,
       borderRadius: 8,
       alignItems: 'center',
@@ -1066,25 +1092,25 @@ const styles = StyleSheet.create({
       borderWidth: 1,
       borderColor: COLORS.border,
       borderRadius: 8,
-      paddingVertical: 8,
+      paddingVertical: 6,
       alignItems: 'center',
   },
   clearBtnText: {
        color: COLORS.text,
        fontWeight: '600',
-       fontSize: 13,
+       fontSize: 12,
   },
   reportBtn: {
       flex: 1,
        backgroundColor: COLORS.primary,
       borderRadius: 8,
-      paddingVertical: 8,
+      paddingVertical: 6,
       alignItems: 'center',
   },
   reportBtnText: {
       color: COLORS.primaryText,
       fontWeight: '700',
-      fontSize: 13,
+      fontSize: 12,
   },
   
   // Table
@@ -1092,24 +1118,24 @@ const styles = StyleSheet.create({
       flexDirection: 'row',
       borderBottomWidth: 1,
       borderBottomColor: COLORS.border,
-      paddingBottom: 8,
-      marginBottom: 8,
+      paddingBottom: 4,
+      marginBottom: 4,
   },
   tableHeadText: {
       color: COLORS.muted,
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '600',
   },
   row: {
       flexDirection: 'row',
-      paddingVertical: 12,
+      paddingVertical: 6,
       borderBottomWidth: 1,
       borderBottomColor: COLORS.border,
       alignItems: 'center',
   },
   cell: {
       color: COLORS.text,
-      fontSize: 13,
+      fontSize: 12,
   },
   
   // Camera Styles

@@ -276,6 +276,7 @@ const MaterialDispatchScreen: React.FC = () => {
   /* ------------------- SALES ORDERS ------------------- */
   const [value, setValue] = useState("");
   const [items, setItems] = useState<SOEntry[]>([]);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const total = useMemo(() => items.length, [items]);
 
   function normalizeSO(raw: string) {
@@ -511,7 +512,7 @@ const MaterialDispatchScreen: React.FC = () => {
               <TextInput
                 ref={transporterRef}
                 style={[styles.input, styles.half]}
-                placeholder={keyboardDisabled ? "Scan Transporter..." : "Transporter"}
+                placeholder={keyboardDisabled ? "" : "Transporter"}
                 placeholderTextColor={C.hint}
                 value={form.transporter}
                 onChangeText={(t) => onChange("transporter", t)}
@@ -600,7 +601,24 @@ const MaterialDispatchScreen: React.FC = () => {
           <View style={[styles_sales.tableCard, { marginTop: 12 }]}>
             <View style={[styles_sales.row, styles_sales.headerRow]}>
               <Text style={[styles_sales.th, { width: 40 }]}>S/No</Text>
-              <Text style={[styles_sales.th, { flex: 1 }]}>SO Number</Text>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={styles_sales.th}>SO Number</Text>
+                <TouchableOpacity 
+                    onPress={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                    style={{
+                        padding: 4,
+                        backgroundColor: '#E5E7EB',
+                        borderRadius: 6,
+                        marginLeft: 6
+                    }}
+                >
+                    <MaterialCommunityIcons 
+                        name={sortOrder === 'asc' ? "sort-ascending" : "sort-descending"} 
+                        size={16} 
+                        color={C.accent} 
+                    />
+                </TouchableOpacity>
+              </View>
               <Text style={[styles_sales.th, { width: 80 }]}>Time</Text>
               <Text
                 style={[styles_sales.th, { width: 72, textAlign: "right" }]}
@@ -610,7 +628,11 @@ const MaterialDispatchScreen: React.FC = () => {
             </View>
             <FlatList
               style={{ flex: 1 }}
-              data={items}
+              data={items.slice().sort((a, b) => {
+                const valA = a.soId || "";
+                const valB = b.soId || "";
+                return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+              })}
               keyExtractor={(it) => it.linkId.toString()}
               contentContainerStyle={
                 items.length === 0 && { paddingVertical: 24 }
@@ -956,9 +978,9 @@ const styles_sales = StyleSheet.create({
   totalNum: { fontWeight: "700", color: C_sales.text },
   tableCard: {
     flex: 1,
-    marginTop: 12,
+    marginTop: 4,
     backgroundColor: C_sales.card,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: C_sales.border,
     overflow: "hidden",
@@ -966,20 +988,20 @@ const styles_sales = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   headerRow: {
     backgroundColor: "#F8FAFC",
     borderBottomWidth: 1,
     borderBottomColor: C_sales.border,
   },
-  th: { fontSize: 13, fontWeight: "700", color: C_sales.text },
-  td: { fontSize: 14, color: C_sales.text },
+  th: { fontSize: 11, fontWeight: "700", color: C_sales.text },
+  td: { fontSize: 12, color: C_sales.text },
   divider: { height: 1, backgroundColor: C_sales.border },
   iconBtn: {
-    height: 30,
-    width: 30,
+    height: 24,
+    width: 24,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",

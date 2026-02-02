@@ -157,7 +157,7 @@ const PutAwayScreen = () => {
     
     if (isSOLocked && scanSO.trim()) {
         const so = scanSO.trim().toUpperCase();
-        return data.filter(d => d.SO.toUpperCase() === so);
+        return data.filter(d => d.SO.toUpperCase() === so || (d.Cert && d.Cert.toUpperCase() === so));
     }
     
     return data;
@@ -289,12 +289,25 @@ const PutAwayScreen = () => {
         headerRight: () => {
              return (
                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                 {/* Clear Session Button (Keep existing) */}
                  {excelData.length > 0 && (
                     <TouchableOpacity onPress={handleClearSession} style={{ marginRight: 16, padding: 4 }}>
-                        <Ionicons name="trash-outline" size={22} color="#EF4444" />
+                        <MaterialCommunityIcons name="refresh" size={20} color="#EF4444" />
                     </TouchableOpacity>
                  )}
 
+                 {/* Upload/Exchange Icon (New) */}
+                 {!isReportView && (
+                      <TouchableOpacity onPress={handleUploadExcel} style={{ marginRight: 16 }}>
+                        <MaterialCommunityIcons 
+                          name={excelData.length > 0 ? "file-replace-outline" : "cloud-upload-outline"} 
+                          size={23}
+                          color={excelData.length > 0 ? COLORS.text : '#10B981'} 
+                        />
+                      </TouchableOpacity>
+                 )}
+
+                 {/* Report/Export Icons */}
                  {isReportView ? (
                     <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
                       <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
@@ -349,19 +362,19 @@ const PutAwayScreen = () => {
       const firstRow = jsonData[0];
       const keys = Object.keys(firstRow);
 
-      // Flexible Column Matching
+      // Flexible Column Matching - Prioritize exact matches from user image
       const getColumnName = (candidates: string[]) => 
         keys.find(key => candidates.some(c => key.toLowerCase().trim().startsWith(c.toLowerCase())));
 
-      const locKey = getColumnName(['Location', 'Storage Bin', 'Storage Bi']);
-      const soKey = getColumnName(['SO', 'Original S', 'Serial', 'Order']);
-      const ydKey = getColumnName(['YD', 'Material', 'Item']);
+      const locKey = getColumnName(['Storage Bi', 'Storage Bin', 'Location']);
+      const soKey = getColumnName(['Original S', 'SO', 'Serial', 'Order']);
+      const ydKey = getColumnName(['Material', 'YD', 'Item']);
 
-      const certKey = getColumnName(['Cert', 'Certificate']);
+      const certKey = getColumnName(['Cert. No.', 'Cert', 'Certificate']);
       const availKey = getColumnName(['Avail', 'Qty', 'Quantity']);
 
-      if (!locKey) {
-        showAlert('Invalid Excel format. Required column: Location or Storage Bin');
+      if (!locKey || !soKey) {
+        showAlert('Invalid Excel format. Required columns: "Storage Bi" (Location) and "Original S" (SO).');
         return;
       }
 
@@ -394,7 +407,15 @@ const PutAwayScreen = () => {
     const valueToCheck = overrideValue !== undefined ? overrideValue : scanLocation;
     
     if (!valueToCheck.trim()) {
-      showAlert('Please scan a location first.');
+      setScanLocation('');
+      showAlert('Please scan a location first.', [
+        {
+          text: 'OK',
+          onPress: () => {
+             setTimeout(() => locationInputRef.current?.focus(), 100);
+          }
+        }
+      ]);
       return;
     }
 
@@ -424,7 +445,15 @@ const PutAwayScreen = () => {
     const valueToCheck = overrideValue !== undefined ? overrideValue : scanSO;
     
     if (!valueToCheck.trim()) {
-      showAlert('Please scan SO first.');
+      setScanSO('');
+      showAlert('Please scan SO first.', [
+        {
+          text: 'OK',
+          onPress: () => {
+             setTimeout(() => soInputRef.current?.focus(), 100);
+          }
+        }
+      ]);
       return;
     }
 
@@ -433,11 +462,20 @@ const PutAwayScreen = () => {
     const hasPlan = planRows.length > 0;
     
     if (hasPlan) {
-        // Global search for SO
-        const match = planRows.find(d => d.SO.toUpperCase() === valueToCheck.trim().toUpperCase());
+        // Global search for SO or Cert
+        const match = planRows.find(d => 
+             d.SO.toUpperCase() === valueToCheck.trim().toUpperCase() ||
+             (d.Cert && d.Cert.toUpperCase() === valueToCheck.trim().toUpperCase())
+        );
         
         if (!match) {
-             showAlert(`SO '${valueToCheck}' not found in the plan.`);
+             setScanSO('');
+             showAlert(`SO or Cert '${valueToCheck}' not found in the plan.`, [
+                {
+                    text: 'OK',
+                    onPress: () => setTimeout(() => soInputRef.current?.focus(), 100)
+                }
+             ]);
              return;
         }
     }
@@ -489,7 +527,17 @@ const PutAwayScreen = () => {
     const rawValue = typeof valueOverride === 'string' ? valueOverride : scanMaterial;
     
     if (!rawValue.trim()) {
-      if (!fromScanner) showAlert('Please scan Material.');
+      if (!fromScanner) {
+        setScanMaterial('');
+        showAlert('Please scan Material.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              setTimeout(() => materialInputRef.current?.focus(), 100);
+            },
+          },
+        ]);
+      }
       return false;
     }
 
@@ -503,17 +551,17 @@ const PutAwayScreen = () => {
 
     if (hasPlan) {
         // Search for matches
-        // Prioritize: Match on SO + Material + Current Location
+        // Prioritize: Match on SO or Cert + Material + Current Location
         let specificMatch = planRows.find(d => 
-            d.SO.toUpperCase() === currentSO &&
+            (d.SO.toUpperCase() === currentSO || (d.Cert && d.Cert.toUpperCase() === currentSO)) &&
             d.Location.toUpperCase() === currentLoc &&
             (d.YD && d.YD.toString().trim().toUpperCase() === matVal)
         );
 
-        // Fallback: Match on SO + Material (Mismatch Location)
+        // Fallback: Match on SO or Cert + Material (Mismatch Location)
         if (!specificMatch) {
             specificMatch = planRows.find(d => 
-                d.SO.toUpperCase() === currentSO &&
+                (d.SO.toUpperCase() === currentSO || (d.Cert && d.Cert.toUpperCase() === currentSO)) &&
                 (d.YD && d.YD.toString().trim().toUpperCase() === matVal)
             );
         }
@@ -563,7 +611,9 @@ const PutAwayScreen = () => {
             return true;
 
         } else {
-            if (!fromScanner) showAlert(`Material mismatch. '${matVal}' is not valid for SO '${currentSO}'.`);
+            if (!fromScanner) showAlert(`Material mismatch. '${matVal}' is not valid for SO/Cert '${currentSO}'.`);
+            setScanMaterial('');
+            setTimeout(() => materialInputRef.current?.focus(), 100);
             return false;
         }
     } else {
@@ -826,31 +876,11 @@ const PutAwayScreen = () => {
       {/* Main Content */}
       <View style={styles.content}>
         
-        {!isReportView && (
-            <View style={{ 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                justifyContent: 'space-between', 
-                paddingVertical: 0,
-                marginBottom: 0
-            }}>
-               <Text style={{ color: fileName ? COLORS.text : COLORS.muted, flex: 1, marginRight: 8, fontSize: 15, fontWeight: fileName ? '600' : '400' }} numberOfLines={1}>
-                  {fileName || 'Select Excel File to Begin'}
+        {!isReportView && excelData.length === 0 && (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+               <Text style={{ color: COLORS.muted, fontSize: 16, fontWeight: '500' }}>
+                  Select Excel File to Begin
                </Text>
-               <TouchableOpacity onPress={handleUploadExcel} style={{ 
-                   width: 36, 
-                   height: 36, 
-                   borderRadius: 18, 
-                   backgroundColor: '#F3F4F6', 
-                   alignItems: 'center', 
-                   justifyContent: 'center' 
-               }}>
-                  <Ionicons 
-                    name={excelData.length > 0 ? "sync-outline" : "folder-open-outline"} 
-                    size={20} 
-                    color={COLORS.text} 
-                  />
-               </TouchableOpacity>
             </View>
         )}
 
@@ -862,7 +892,6 @@ const PutAwayScreen = () => {
           <>
 
 
-            {/* Scan Inputs */}
             {/* Scan Inputs */}
             <View style={styles.card}>
               
@@ -906,7 +935,7 @@ const PutAwayScreen = () => {
                   <TextInput
                     ref={soInputRef}
                     style={styles.inputInner}
-                    placeholder="Enter SO .."
+                    placeholder="Enter SO or Cert. No"
                     placeholderTextColor={COLORS.muted}
                     value={scanSO}
                     onChangeText={setScanSO}
@@ -971,17 +1000,19 @@ const PutAwayScreen = () => {
             {/* Table Section */}
             {excelData.length > 0 && !isReportView && (
                 <View style={{ flex: 1, marginTop: 12, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 4, overflow: 'hidden' }}>
-                    <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
-                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
-                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert</Text></View>
-                        <View style={{ width: 45 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
-                        <View style={{ width: 45 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScnLoc</Text></View>
-                        <View style={{ flex: 1, paddingHorizontal: 4 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat</Text></View>
-                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
-                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
-                        <View style={{ width: 55, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
-                    </View>
-                    <FlatList
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                        <View style={{ minWidth: 400 }}>
+                            <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                                <View style={{ width: 85 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                                <View style={{ width: 85 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert. No.</Text></View>
+                                <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
+                                <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScnLoc</Text></View>
+                                <View style={{ width: 85, paddingHorizontal: 2 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat Code</Text></View>
+                                <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
+                                <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
+                                <View style={{ width: 55, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                            </View>
+                            <FlatList
                         data={filteredData}
                         keyExtractor={(item, index) => `row-${index}`}
                         renderItem={({ item }) => {
@@ -1040,21 +1071,21 @@ const PutAwayScreen = () => {
                                 <View style={{ 
                                     flexDirection: 'row', 
                                     paddingVertical: 10,
-                                    paddingHorizontal: 4, 
+                                    paddingHorizontal: 2, 
                                     borderBottomWidth: 1, 
                                     borderBottomColor: '#F3F4F6',
                                     backgroundColor: 'white',
                                     alignItems: 'center'
                                 }}>
-                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
-                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Cert || '-'}</Text></View>
-                                    <View style={{ width: 45 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location}</Text></View>
-                                    <View style={{ width: 45 }}>
+                                    <View style={{ width: 85 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
+                                    <View style={{ width: 85 }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Cert || '-'}</Text></View>
+                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location}</Text></View>
+                                    <View style={{ width: 40 }}>
                                         <Text style={{ fontSize: 10, color: hasMismatch ? '#EF4444' : '#4B5563', fontWeight: '700' }} numberOfLines={1}>
                                             {displayScnLoc}
                                         </Text>
                                     </View>
-                                    <View style={{ flex: 1, paddingHorizontal: 4 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={2}>{item.YD || '-'}</Text></View>
+                                    <View style={{ width: 85, paddingHorizontal: 2 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={2}>{item.YD || '-'}</Text></View>
                                     <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Avail || '-'}</Text></View>
                                     <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: status === 'INVAL' ? '#EF4444' : '#10B981', fontWeight: 'bold' }}>{scannedQty}</Text></View>
                                     <View style={{ width: 55, alignItems: 'center' }}>
@@ -1082,6 +1113,8 @@ const PutAwayScreen = () => {
                             </View>
                         }
                     />
+                        </View>
+                    </ScrollView>
                 </View>
             )}
             {/* Report View Section (Show ALL Excel Data + Status) */}
@@ -1116,25 +1149,23 @@ const PutAwayScreen = () => {
                     <Text style={{ fontSize: 11, fontWeight: '700', color: '#EA580C' }}>Missing: {stats.missing}</Text>
                     <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
 
-                    
-                    
                     <Text style={{ fontSize: 11, fontWeight: '700', color: '#CA8A04' }}>Mismatch: {stats.mismatch}</Text>
-                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
-
                 </ScrollView>
 
                 <View style={{ flex: 1, marginTop: 2, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 4, overflow: 'hidden' }}>
-                    <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
-                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
-                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert</Text></View>
-                        <View style={{ width: 45 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
-                        <View style={{ width: 45 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScnLoc</Text></View>
-                        <View style={{ flex: 1, paddingHorizontal: 4 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat</Text></View>
-                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
-                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
-                        <View style={{ width: 55, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
-                    </View>
-                    <FlatList
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                        <View style={{ minWidth: 400 }}>
+                            <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                                <View style={{ width: 85 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                                <View style={{ width: 85 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert. No.</Text></View>
+                                <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
+                                <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScnLoc</Text></View>
+                                <View style={{ width: 85, paddingHorizontal: 2 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat Code</Text></View>
+                                <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
+                                <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
+                                <View style={{ width: 55, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                            </View>
+                            <FlatList
                         data={excelData}
                         keyExtractor={(item, index) => `rep-${index}`}
                         renderItem={({ item }) => {
@@ -1192,21 +1223,21 @@ const PutAwayScreen = () => {
                                 <View style={{ 
                                     flexDirection: 'row', 
                                     paddingVertical: 10,
-                                    paddingHorizontal: 4, 
+                                    paddingHorizontal: 2, 
                                     borderBottomWidth: 1, 
                                     borderBottomColor: '#F3F4F6',
                                     backgroundColor: 'white',
                                     alignItems: 'center'
                                 }}>
-                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
-                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Cert || '-'}</Text></View>
-                                    <View style={{ width: 45 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location}</Text></View>
-                                    <View style={{ width: 45 }}>
+                                    <View style={{ width: 85 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
+                                    <View style={{ width: 85 }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Cert || '-'}</Text></View>
+                                    <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location}</Text></View>
+                                    <View style={{ width: 40 }}>
                                          <Text style={{ fontSize: 10, color: hasMismatch ? '#EF4444' : '#4B5563', fontWeight: '700' }} numberOfLines={1}>
                                             {displayScnLoc}
                                         </Text>
                                     </View>
-                                    <View style={{ flex: 1, paddingHorizontal: 4 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={2}>{item.YD || '-'}</Text></View>
+                                    <View style={{ width: 85, paddingHorizontal: 2 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={2}>{item.YD || '-'}</Text></View>
                                     <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Avail || '-'}</Text></View>
                                     <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: status === 'MISS' ? '#EF4444' : '#10B981', fontWeight: 'bold' }}>{scannedQty}</Text></View>
                                     <View style={{ width: 55, alignItems: 'center' }}>
@@ -1229,6 +1260,8 @@ const PutAwayScreen = () => {
                             );
                         }}
                     />
+                        </View>
+                    </ScrollView>
                 </View>
               </>
             )}
@@ -1359,8 +1392,8 @@ const styles = StyleSheet.create({
   
   inputRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 6,
+    gap: 6,
+    marginTop: 4,
   },
   inputWrapper: {
     flex: 1,
@@ -1369,28 +1402,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 8,
-    paddingRight: 8,
+    borderRadius: 6,
+    paddingRight: 4,
   },
   inputInner: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 13,
   },
   scanIconBtnInside: {
-      padding: 8,
+      padding: 4,
   },
   inputLocked: {
       opacity: 0.7,
       backgroundColor: '#F3F4F6'
   },
   actionBtn: {
-      width: 44,
-      height: 44,
+      width: 36,
+      height: 36,
       backgroundColor: COLORS.primary,
-      borderRadius: 8,
+      borderRadius: 6,
       alignItems: 'center',
       justifyContent: 'center',
   },

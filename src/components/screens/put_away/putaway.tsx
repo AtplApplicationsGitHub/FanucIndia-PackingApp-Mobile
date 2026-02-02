@@ -10,6 +10,7 @@ import {
   StatusBar,
   Vibration,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -229,26 +230,35 @@ const PutAwayScreen = () => {
   useLayoutEffect(() => {
     navigation.setOptions({
         headerRight: () => {
-             if (isReportView) {
-                return (
-                    <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
-                      <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
-                    </TouchableOpacity>
-                );
-             }
+             return (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {!isReportView && (
+                         <TouchableOpacity onPress={handleUploadExcel} style={{ marginRight: 16 }}>
+                           <MaterialCommunityIcons 
+                             name={excelData.length > 0 ? "file-replace-outline" : "cloud-upload-outline"} 
+                             size={28}
+                             color={excelData.length > 0 ? COLORS.text : '#10B981'} 
+                           />
+                         </TouchableOpacity>
+                    )}
 
-             if (excelData.length > 0) {
-                return (
-                    <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
-                        <MaterialCommunityIcons
-                          name="file-document-multiple"
-                          size={20}
-                          color="#2196F3"
-                        />
-                    </TouchableOpacity>
-                );
-             }
-             return null;
+                    {!isReportView && excelData.length > 0 && (
+                        <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
+                            <MaterialCommunityIcons
+                              name="file-document-multiple"
+                              size={20}
+                              color="#2196F3"
+                            />
+                        </TouchableOpacity>
+                    )}
+                    
+                    {isReportView && (
+                        <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
+                          <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
+                        </TouchableOpacity>
+                    )}
+                </View>
+             );
         },
     });
   }, [navigation, isReportView, excelData, scannedRecords, reportFiles]);
@@ -384,23 +394,29 @@ const PutAwayScreen = () => {
     const planRows = excelData.filter(d => d.SO && d.SO.trim().length > 0);
     const hasPlan = planRows.length > 0;
 
-    // Check if match exists in Plan
-    const match = planRows.find(d => 
+    // Find ALL matches in Plan (because same SO might be in multiple locations)
+    const matches = planRows.filter(d => 
       (d.SO && d.SO.toUpperCase() === val) || 
       (d.YD && d.YD.toUpperCase() === val)
     );
 
     if (hasPlan) {
-        if (match) {
-            // Found in Excel Plan. Now check Location Match.
-            const isLocationMatch = match.Location && match.Location.toUpperCase() === currentLoc;
-    
-            if (isLocationMatch) {
-                 // Valid - Check Duplicate
-                 const isDuplicate = scannedRecords.some(r => r.SO === match.SO && r.Status === 'Valid');
+        if (matches.length > 0) {
+            // Check if ANY match corresponds to the current location
+            // We prioritize the match that fits the current location context
+            const locMatch = matches.find(m => m.Location && m.Location.toUpperCase() === currentLoc);
+            const anyMatch = matches[0]; // Fallback for data info if location mismatch
+
+            if (locMatch) {
+                 // Valid for THIS location - Check Duplicate AT THIS LOCATION
+                 const isDuplicate = scannedRecords.some(r => 
+                     r.SO === locMatch.SO && 
+                     (r.Location || r.ScanLocation) === currentLoc &&
+                     r.Status === 'Valid'
+                 );
     
                  if (isDuplicate) {
-                     showAlert('SO already added');
+                     showAlert('SO already added for this location');
                      setScanSoYd('');
                      if (!fromScanner) soYdInputRef.current?.focus();
                      return 'DUPLICATE';
@@ -408,32 +424,29 @@ const PutAwayScreen = () => {
      
                  const newRecord: ScannedRecord = {
                      id: Date.now().toString(),
-                     SO: match.SO, 
-                     YD: match.YD || '',
-                     Location: match.Location,
+                     SO: locMatch.SO, 
+                     YD: locMatch.YD || '',
+                     Location: locMatch.Location,
                      ScanLocation: currentLoc,
                      Status: 'Valid',
                      Timestamp: Date.now(),
                  };
      
-                 setScannedRecords(prev => {
-                    const filtered = prev.filter(r => r.SO !== match.SO);
-                    return [newRecord, ...filtered];
-                 });
+                 setScannedRecords(prev => [newRecord, ...prev]);
                  
                  setScanSoYd('');
                  if (!fromScanner) soYdInputRef.current?.focus();
                  return 'ADDED';
     
             } else {
-                 // Found SO but Wrong Location -> Invalid
+                 // Found SO matches but NONE at current Location -> Invalid
                  if (fromScanner) return 'INVALID';
     
                  const newRecord: ScannedRecord = {
                      id: Date.now().toString(),
-                     SO: match.SO, 
-                     YD: match.YD || '',
-                     Location: match.Location,
+                     SO: anyMatch.SO, 
+                     YD: anyMatch.YD || '',
+                     Location: anyMatch.Location, // Show expected location of first match
                      ScanLocation: currentLoc,
                      Status: 'Invalid',
                      Timestamp: Date.now(),
@@ -455,10 +468,15 @@ const PutAwayScreen = () => {
              return 'INVALID';
         }
 
-        // Check if SO duplicate
-        const isDuplicate = scannedRecords.some(r => r.SO === val && r.Status === 'Valid');
+        // Check if SO duplicate AT THIS LOCATION
+        const isDuplicate = scannedRecords.some(r => 
+            r.SO === val && 
+            (r.Location || r.ScanLocation) === currentLoc && 
+            r.Status === 'Valid'
+        );
+
         if (isDuplicate) {
-             showAlert('SO already added');
+             showAlert('SO already added for this location');
              setScanSoYd('');
              if (!fromScanner) soYdInputRef.current?.focus();
              return 'DUPLICATE';
@@ -823,11 +841,16 @@ const PutAwayScreen = () => {
   // --- Helper ---
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Valid': return { color: '#00E096', bg: 'rgba(0, 224, 150, 0.15)' }; // Green
-      case 'Scanned': return { color: '#00E096', bg: 'rgba(0, 224, 150, 0.15)' }; // Green
-      case 'Missing': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
-      case 'Empty': return { color: '#FF3B30', bg: 'rgba(255, 59, 48, 0.15)' }; // Red
-      default: return { color: COLORS.text, bg: 'transparent' };
+      case 'Valid': 
+      case 'Scanned':
+          return { color: '#16A34A', bg: '#DCFCE7', border: '#16A34A' }; // Green
+      case 'Missing':
+      case 'Empty': 
+          return { color: '#EA580C', bg: '#FFEDD5', border: '#F97316' }; // Orange
+      case 'Invalid': 
+          return { color: '#DC2626', bg: '#FEE2E2', border: '#EF4444' }; // Red
+      default: 
+          return { color: COLORS.text, bg: 'transparent', border: 'transparent' };
     }
   };
 
@@ -919,24 +942,39 @@ const PutAwayScreen = () => {
 
   const renderItem = ({ item, index }: { item: GroupedRecord, index: number }) => {
     // Map internal status 'Valid' to 'Scanned' for display, 'Invalid' to 'Empty', 'Missing' to 'Empty'
-    const displayStatus = item.Status === 'Valid' ? 'Scanned' : 'Empty';
-    const { color, bg } = getStatusColor(displayStatus);
+    const displayStatus = item.Status === 'Valid' ? 'Scanned' : 'Missing';
+    const { color, bg, border } = getStatusColor(displayStatus);
 
     return (
-      <View style={styles.row}>
-        <Text style={[styles.cell, { flex: 0.5, textAlign: 'center' }]}>{index + 1}</Text>
-        <Text style={[styles.cell, { flex: 1 }]}>{item.Location || '-'}</Text>
-        <Text style={[styles.cell, { flex: 2 }]}>{item.SOs || '-'}</Text>
-        <View style={{ flex: 1.2, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ 
+          flexDirection: 'row', 
+          paddingVertical: 6,
+          paddingHorizontal: 4, 
+          borderBottomWidth: 1, 
+          borderBottomColor: '#F3F4F6',
+          backgroundColor: 'white',
+          alignItems: 'center'
+      }}>
+        <View style={{ width: 40, alignItems: 'center' }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{index + 1}</Text></View>
+        <TouchableOpacity 
+            style={{ width: 100 }} 
+            onPress={() => item.Location && handleLockLocation(item.Location)}
+        >
+            <Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.Location || '-'}</Text>
+        </TouchableOpacity>
+        <View style={{ width: 120 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.SOs || '-'}</Text></View>
+        <View style={{ width: 70, alignItems: 'center' }}>
             <View style={{ 
                 backgroundColor: bg, 
-                paddingHorizontal: 8, 
-                paddingVertical: 4, 
+                paddingHorizontal: 2, 
+                paddingVertical: 2, 
                 borderRadius: 4,
-                width: 80,
+                borderWidth: 1,
+                borderColor: border,
+                width: '100%',
                 alignItems: 'center'
             }}>
-                <Text style={{ color: color, fontWeight: '600', fontSize: 12 }}>{displayStatus}</Text>
+                <Text style={{ fontSize: 8, color: color, fontWeight: '700' }}>{displayStatus}</Text>
             </View>
         </View>
       </View>
@@ -948,31 +986,11 @@ const PutAwayScreen = () => {
       {/* Main Content */}
       <View style={styles.content}>
         
-        {!isReportView && (
-            <View style={{ 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                justifyContent: 'space-between', 
-                paddingVertical: 0,
-                marginBottom: 0
-            }}>
-               <Text style={{ color: fileName ? COLORS.text : COLORS.muted, flex: 1, marginRight: 8, fontSize: 15, fontWeight: fileName ? '600' : '400' }} numberOfLines={1}>
-                  {fileName || 'Select Excel File to Begin'}
+        {!isReportView && excelData.length === 0 && (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+               <Text style={{ color: COLORS.muted, fontSize: 16, fontWeight: '500' }}>
+                  Select Excel File to Begin
                </Text>
-               <TouchableOpacity onPress={handleUploadExcel} style={{ 
-                   width: 36, 
-                   height: 36, 
-                   borderRadius: 18, 
-                   backgroundColor: '#F3F4F6', 
-                   alignItems: 'center', 
-                   justifyContent: 'center' 
-               }}>
-                  <Ionicons 
-                    name={excelData.length > 0 ? "sync-outline" : "folder-open-outline"} 
-                    size={20} 
-                    color={COLORS.text} 
-                  />
-               </TouchableOpacity>
             </View>
         )}
 
@@ -1059,10 +1077,9 @@ const PutAwayScreen = () => {
 
         {/* Action Buttons & Table - Visible Only if Data Loaded or Report View */}
         {(excelData.length > 0 || isReportView) && (
-        <View style={{ flex: 1, marginTop: 4 }}>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-                {!isReportView ? (
-                    <>
+        <View style={{ flex: 1, marginTop: 0 }}>
+            {!isReportView && (
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 6 }}>
                         {/* Main Screen Buttons: Clear and Verify Only (Report in Header) */}
                          <TouchableOpacity onPress={handleClearSession} style={styles.clearBtn}>
                             <Text style={styles.clearBtnText}>Clear</Text>
@@ -1072,26 +1089,30 @@ const PutAwayScreen = () => {
                             <Ionicons name="filter" size={16} color={COLORS.text} />
                             <Text style={styles.filterBtnText}>Filter: {filterType}</Text>
                         </TouchableOpacity>
-                    </>
-                ) : null}
             </View>
+            )}
 
-            {/* Table - Always Visible below buttons */}
-            <View style={{ flex: 1, marginTop: 8 }}>
-                <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeadText, { flex: 0.5, textAlign: 'center' }]}>S/No</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1 }]}>Location</Text>
-                    <Text style={[styles.tableHeadText, { flex: 2 }]}>SO</Text>
-                    <Text style={[styles.tableHeadText, { flex: 1.2, textAlign: 'center' }]}>Status</Text>
-                </View>
-                
-                <FlatList
-                    data={groupedList}
-                    keyExtractor={item => item.id}
-                    renderItem={renderItem}
-                    contentContainerStyle={{ paddingBottom: 20 }}
-                    ListEmptyComponent={<Text style={{ color: COLORS.muted, textAlign: 'center', marginTop: 20 }}>No records yet.</Text>}
-                />
+            {/* Table - ContentAccuracy Style */}
+            {/* Table - ContentAccuracy Style */}
+            <View style={{ flex: 1, marginTop: 0, backgroundColor: '#fff', borderRadius: 0, elevation: 0, marginHorizontal: -12, borderTopWidth: 1, borderTopColor: '#E5E7EB', overflow: 'hidden' }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={{ minWidth: '100%' }}>
+                    <View style={{ minWidth: '100%' }}>
+                        <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 6, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                            <View style={{ width: 40, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>S/No</Text></View>
+                            <View style={{ width: 100 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Location</Text></View>
+                            <View style={{ width: 120 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                            <View style={{ width: 70, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                        </View>
+                        
+                        <FlatList
+                            data={groupedList}
+                            keyExtractor={item => item.id}
+                            renderItem={renderItem}
+                            contentContainerStyle={{ paddingBottom: 20 }}
+                            ListEmptyComponent={<Text style={{ color: COLORS.muted, textAlign: 'center', marginTop: 20 }}>No records yet.</Text>}
+                        />
+                    </View>
+                </ScrollView>
             </View>
         </View>
         )}
@@ -1272,18 +1293,18 @@ const styles = StyleSheet.create({
 
   statsContainer: {
     backgroundColor: '#F9FAFB',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: 8,
-    marginBottom: 8,
-    marginTop: 8,
+    marginBottom: 6,
+    marginTop: 6,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   statsText: {
-    fontSize: 14,
+    fontSize: 11,
     color: COLORS.text,
   },
 
@@ -1305,20 +1326,20 @@ const styles = StyleSheet.create({
   inputInner: {
     flex: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 6,
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 14,
   },
   scanIconBtnInside: {
-      padding: 8,
+      padding: 6,
   },
   inputLocked: {
       opacity: 0.7,
       backgroundColor: '#F3F4F6'
   },
   actionBtn: {
-      width: 44,
-      height: 44,
+      width: 38,
+      height: 38,
       backgroundColor: COLORS.primary,
       borderRadius: 8,
       alignItems: 'center',
@@ -1344,7 +1365,7 @@ const styles = StyleSheet.create({
       borderWidth: 1,
       borderColor: COLORS.border,
       borderRadius: 8,
-      paddingVertical: 8,
+      paddingVertical: 6,
       alignItems: 'center',
   },
   clearBtnText: {
@@ -1358,7 +1379,7 @@ const styles = StyleSheet.create({
       borderWidth: 1,
       borderColor: COLORS.border,
       borderRadius: 8,
-      paddingVertical: 8,
+      paddingVertical: 6,
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'center',

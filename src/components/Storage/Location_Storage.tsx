@@ -9,8 +9,8 @@ class LocationStorage {
   static async saveSession(data: {
     excelData: any[];
     fileName: string | null;
-    scannedRecords: any[];
-    reportFiles: any[];
+    scannedRecords: any[]; // Array of ScannedRecord (includes Timestamp)
+    reportFiles: any[]; // Array of ScannedRecord (includes Timestamp)
     scanLocation: string;
     isLocationLocked: boolean;
     scanSoYd: string;
