@@ -2,9 +2,10 @@ import { API_ENDPOINTS } from "../Endpoints";
 const withTimeout = <T,>(p: Promise<T>, ms = 15000) =>
   Promise.race([
     p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
+    new Promise<T>((_, rej) =>
+      setTimeout(() => rej(new Error("Request timed out")), ms),
+    ),
   ]);
-  
 
 async function parseErrorBody(res: Response) {
   try {
@@ -28,6 +29,9 @@ export type UserData = {
   accessMaterialFgTransfer: boolean;
   accessMaterialDispatch: boolean;
   accessVehicleEntry: boolean;
+  accessLocationAccuracy: boolean;
+  accessContentAccuracy: boolean;
+  accessPutAway: boolean;
 };
 
 export type LoginResponse = {
@@ -43,7 +47,10 @@ export type LoginResponse = {
   user?: UserData; // Sometimes it might be at root
 };
 
-export async function loginApiWithEmail(email: string, password: string): Promise<LoginResponse> {
+export async function loginApiWithEmail(
+  email: string,
+  password: string,
+): Promise<LoginResponse> {
   const res = await withTimeout(
     fetch(API_ENDPOINTS.AUTH.MOBILE_LOGIN, {
       method: "POST",
@@ -52,7 +59,7 @@ export async function loginApiWithEmail(email: string, password: string): Promis
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ email, password }),
-    })
+    }),
   );
 
   if (!res.ok) {
@@ -76,6 +83,3 @@ export async function loginApiWithEmail(email: string, password: string): Promis
 
   return res.json();
 }
-
-
-

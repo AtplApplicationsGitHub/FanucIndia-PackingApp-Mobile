@@ -173,9 +173,11 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                 case "vehicle":
                   return !!parsedUser.accessVehicleEntry;
                 case "location_accuracy":
+                  return !!parsedUser.accessLocationAccuracy;
                 case "content_accuracy":
+                  return !!parsedUser.accessContentAccuracy;
                 case "put_away":
-                    return true;
+                  return !!parsedUser.accessPutAway;
                 default:
                   return false;
               }

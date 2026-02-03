@@ -58,7 +58,7 @@ export type ApiErr = {
 
 export type ApiResult<T = any> = ApiOk<T> | ApiErr;
 
-const TIMEOUT_MS = 15000;
+const TIMEOUT_MS = 300000;
 const TOKEN_KEYS = ["accessToken", "authToken", "token"] as const;
 let inMemoryToken: string | null = null;
 

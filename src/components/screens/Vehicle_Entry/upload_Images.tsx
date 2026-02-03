@@ -20,6 +20,9 @@ import { useVehicleEntry } from "../../Api/Hooks/UseVehicleEntry";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
+const MAX_FILE_SIZE_MB = 200;
+
 type Photo = {
   id: string;
   uri: string;
@@ -170,6 +173,16 @@ export default function UploadImages({
 
     if (!result.canceled && result.assets?.[0]) {
       const asset = result.assets[0];
+
+      if (asset.fileSize && asset.fileSize > MAX_FILE_SIZE) {
+        setMsgModal({
+          visible: true,
+          type: "error",
+          title: "File Too Large",
+          message: `Photo exceeds the ${MAX_FILE_SIZE_MB} MB limit.`,
+        });
+        return;
+      }
       
       const usedNames = new Set([
         ...existingAttachments.map((a) => a.fileName),
@@ -206,9 +219,16 @@ export default function UploadImages({
       ]);
 
       const newPhotos: Photo[] = [];
+      const tooBig: any[] = [];
       
       for (let i = 0; i < result.assets.length; i++) {
         const asset = result.assets[i];
+
+        if (asset.fileSize && asset.fileSize > MAX_FILE_SIZE) {
+          tooBig.push(asset);
+          continue;
+        }
+
         const nextName = getNextImageName(usedNames);
         usedNames.add(nextName);
 
@@ -221,8 +241,19 @@ export default function UploadImages({
         });
       }
 
-      setLocalPhotos((prev) => [...newPhotos, ...prev]);
-      setActionSheetVisible(false);
+      if (tooBig.length > 0) {
+        setMsgModal({
+          visible: true,
+          type: "error",
+          title: "Files Too Large",
+          message: `${tooBig.length} file(s) exceeded the ${MAX_FILE_SIZE_MB} MB limit and were skipped.`,
+        });
+      }
+
+      if (newPhotos.length > 0) {
+        setLocalPhotos((prev) => [...newPhotos, ...prev]);
+        setActionSheetVisible(false);
+      }
     }
   };
 

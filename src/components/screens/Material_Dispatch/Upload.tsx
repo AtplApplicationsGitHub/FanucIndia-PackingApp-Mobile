@@ -20,8 +20,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
-const MAX_FILE_SIZE_MB = 50;
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
+const MAX_FILE_SIZE_MB = 200;
 
 type Props = {
   visible: boolean;
