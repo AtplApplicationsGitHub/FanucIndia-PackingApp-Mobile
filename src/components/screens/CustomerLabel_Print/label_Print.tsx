@@ -217,6 +217,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [successModal, setSuccessModal] = useState({ visible: false, message: "", autoDismiss: true });
   const [printConfirmModal, setPrintConfirmModal] = useState(false);
   const [clearConfirmModal, setClearConfirmModal] = useState(false);
+  const [mismatchModal, setMismatchModal] = useState({ visible: false, newName: "", soToAdd: "" });
 
   const { verifySO, loading: verifyLoading, error: verifyError } = useVerifySO();
   const { printLabels, loading: printLoading, error: printError, success: printSuccess } = usePrintLabels();
@@ -251,7 +252,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   );
 
   useEffect(() => {
-    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal;
+    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible;
     if (keyboardDisabled && !anyModalOpen) {
       const timer = setTimeout(() => {
         if (navigation.isFocused()) {
@@ -267,11 +268,12 @@ export default function CustomerLabelPrint(): JSX.Element {
     successModal.visible, 
     printConfirmModal, 
     clearConfirmModal, 
+    mismatchModal.visible,
     navigation
   ]);
 
   const handleBlur = () => {
-    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal;
+    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible;
     if (keyboardDisabled && !anyModalOpen) {
       setTimeout(() => {
         if (navigation.isFocused() && !anyModalOpen) {
@@ -414,9 +416,8 @@ export default function CustomerLabelPrint(): JSX.Element {
              Vibration.vibrate(400); 
              return;
         }
-        showError("Customer Mismatch", `Expected: ${customerName}\nFound: ${newName}`, true);
         setSoNumber("");
-        if (!scanModalVisible) focusInput();
+        setMismatchModal({ visible: true, newName: newName || "Unknown", soToAdd: soToAdd });
         return;
       } else {
         if (fromScanner) setScanStatus({ message: "Added: " + soToAdd, color: COLORS.success });
@@ -446,6 +447,13 @@ export default function CustomerLabelPrint(): JSX.Element {
     } finally {
       verifyingRef.current = false;
     }
+  };
+
+  const handleMismatchConfirm = () => {
+    // Just close/reset. Do NOT add.
+    setMismatchModal({ visible: false, newName: "", soToAdd: "" });
+    setSoNumber("");
+    if (!scanModalVisible) focusInput();
   };
 
   const removeSO = (id: string) => {
@@ -657,6 +665,17 @@ export default function CustomerLabelPrint(): JSX.Element {
             type="danger"
             onConfirm={confirmClearAll}
             onCancel={() => setClearConfirmModal(false)}
+        />
+
+        <ConfirmModal
+            visible={mismatchModal.visible}
+            title="Customer Mismatch"
+            message={`Expected: ${customerName}\nFound: ${mismatchModal.newName}`}
+            confirmText="OK"
+            cancelText="Cancel"
+            type="primary"
+            onConfirm={handleMismatchConfirm}
+            onCancel={() => setMismatchModal({ ...mismatchModal, visible: false })}
         />
 
         <Modal

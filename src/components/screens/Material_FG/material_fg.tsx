@@ -127,7 +127,8 @@ const MaterialFGTransferScreen: React.FC = () => {
   const [location, setLocation] = useState("");
   const [soNumber, setSoNumber] = useState("");
   const [items, setItems] = useState<ScanItem[]>([]);
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  // sortMode: 'recent' (LIFO), 'asc' (A-Z), 'desc' (Z-A)
+  const [sortMode, setSortMode] = useState<"recent" | "asc" | "desc">("recent");
 
   // Refs
   const locationRef = useRef<TextInput>(null);
@@ -430,15 +431,35 @@ const MaterialFGTransferScreen: React.FC = () => {
 
 
 
+  // Sorting logic
+  const toggleSortMode = () => {
+      setSortMode(prev => {
+          if (prev === 'recent') return 'asc';
+          if (prev === 'asc') return 'desc';
+          return 'recent';
+      });
+  };
+
+  const getSortIcon = () => {
+      switch(sortMode) {
+          case 'asc': return 'sort-alphabetical-ascending';
+          case 'desc': return 'sort-alphabetical-descending';
+          default: return 'history';
+      }
+  };
+
   const sortedItems = React.useMemo(() => {
+    if (sortMode === 'recent') {
+        return items; // Already LIFO
+    }
     return [...items].sort((a, b) => {
-      if (sortOrder === "asc") {
+      if (sortMode === 'asc') {
         return a.soNumber.localeCompare(b.soNumber);
       } else {
         return b.soNumber.localeCompare(a.soNumber);
       }
     });
-  }, [items, sortOrder]);
+  }, [items, sortMode]);
 
   const viewItem = (item: ScanItem) => {
     setMessageDlg({
@@ -527,7 +548,7 @@ const MaterialFGTransferScreen: React.FC = () => {
               <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={styles.th}>SO Number</Text>
                 <TouchableOpacity 
-                    onPress={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                    onPress={toggleSortMode}
                     style={{
                         padding: 4,
                         backgroundColor: '#E5E7EB', // slightly darker than #eff6ff to match this screen's theme
@@ -536,7 +557,7 @@ const MaterialFGTransferScreen: React.FC = () => {
                     }}
                 >
                     <MaterialCommunityIcons 
-                        name={sortOrder === 'asc' ? "sort-ascending" : "sort-descending"} 
+                        name={getSortIcon()}
                         size={16} 
                         color={COLORS.accent} 
                     />
@@ -568,7 +589,9 @@ const MaterialFGTransferScreen: React.FC = () => {
                       { backgroundColor: index % 2 === 0 ? COLORS.tableStripe : "#FFFFFF" },
                     ]}
                   >
-                    <Text style={[styles.td, { flex: 0.6 }]}>{index + 1}</Text>
+                    <Text style={[styles.td, { flex: 0.6 }]}>
+                         {sortMode === 'desc' ? items.length - index : index + 1}
+                    </Text>
                     <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{item.location}</Text>
                     <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{item.soNumber}</Text>
                     <Text style={[styles.td, { flex: 1.4, textAlign: "right" }]}>{fmtTime(item.timeISO)}</Text>

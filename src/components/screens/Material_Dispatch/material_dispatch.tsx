@@ -276,7 +276,8 @@ const MaterialDispatchScreen: React.FC = () => {
   /* ------------------- SALES ORDERS ------------------- */
   const [value, setValue] = useState("");
   const [items, setItems] = useState<SOEntry[]>([]);
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  // sortMode: 'recent' (LIFO), 'asc' (A-Z), 'desc' (Z-A)
+  const [sortMode, setSortMode] = useState<"recent" | "asc" | "desc">("recent");
   const total = useMemo(() => items.length, [items]);
 
   function normalizeSO(raw: string) {
@@ -311,12 +312,12 @@ const MaterialDispatchScreen: React.FC = () => {
       if (result.ok) {
         const link = result.data;
         setItems((prev) => [
-          ...prev,
           {
             soId: so,
             linkId: link.id,
             createdAt: new Date(link.createdAt).getTime(),
           },
+          ...prev,
         ]);
         clearAndFocusSO();
       } else {
@@ -462,6 +463,38 @@ const MaterialDispatchScreen: React.FC = () => {
   }, [dispatchId]);
 
   /* ------------------- RENDER ------------------- */
+  // Sorting Logic
+  const toggleSortMode = () => {
+      setSortMode(prev => {
+          if (prev === 'recent') return 'asc';
+          if (prev === 'asc') return 'desc';
+          return 'recent';
+      });
+  };
+
+  const getSortIcon = () => {
+      switch(sortMode) {
+          case 'asc': return 'sort-alphabetical-ascending';
+          case 'desc': return 'sort-alphabetical-descending';
+          default: return 'history';
+      }
+  };
+
+  const sortedItems = useMemo(() => {
+    if (sortMode === 'recent') {
+        return items; // Already LIFO if we prepend
+    }
+    return [...items].sort((a, b) => {
+      const valA = a.soId || "";
+      const valB = b.soId || "";
+      if (sortMode === 'asc') {
+        return valA.localeCompare(valB);
+      } else {
+        return valB.localeCompare(valA);
+      }
+    });
+  }, [items, sortMode]);
+
   return (
     <View style={styles.safe}>
       <View style={styles.container}>
@@ -604,7 +637,7 @@ const MaterialDispatchScreen: React.FC = () => {
               <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={styles_sales.th}>SO Number</Text>
                 <TouchableOpacity 
-                    onPress={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                    onPress={toggleSortMode}
                     style={{
                         padding: 4,
                         backgroundColor: '#E5E7EB',
@@ -613,7 +646,7 @@ const MaterialDispatchScreen: React.FC = () => {
                     }}
                 >
                     <MaterialCommunityIcons 
-                        name={sortOrder === 'asc' ? "sort-ascending" : "sort-descending"} 
+                        name={getSortIcon()} 
                         size={16} 
                         color={C.accent} 
                     />
@@ -628,11 +661,8 @@ const MaterialDispatchScreen: React.FC = () => {
             </View>
             <FlatList
               style={{ flex: 1 }}
-              data={items.slice().sort((a, b) => {
-                const valA = a.soId || "";
-                const valB = b.soId || "";
-                return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-              })}
+              data={sortedItems}
+
               keyExtractor={(it) => it.linkId.toString()}
               contentContainerStyle={
                 items.length === 0 && { paddingVertical: 24 }
@@ -643,7 +673,7 @@ const MaterialDispatchScreen: React.FC = () => {
               renderItem={({ item, index }) => (
                 <View style={styles_sales.row}>
                   <Text style={[styles_sales.td, { width: 40 }]}>
-                    {index + 1}
+                    {sortMode === 'desc' ? items.length - index : index + 1}
                   </Text>
                   <Text style={[styles_sales.td, { flex: 1 }]}>
                     {item.soId}
