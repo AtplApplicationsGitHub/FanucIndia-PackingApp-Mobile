@@ -152,6 +152,8 @@ const PutAwayScreen = () => {
     message: '',
     buttons: [],
   });
+
+  const [menuVisible, setMenuVisible] = useState(false);
   
   const showAlert = (message: string, buttons?: AlertButton[]) => {
     setAlertConfig({
@@ -229,39 +231,20 @@ const PutAwayScreen = () => {
   // --- Header Options ---
   useLayoutEffect(() => {
     navigation.setOptions({
+        title: isReportView ? 'Put Away Report' : 'Put Away',
         headerRight: () => {
              return (
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    {!isReportView && (
-                         <TouchableOpacity onPress={handleUploadExcel} style={{ marginRight: 16 }}>
-                           <MaterialCommunityIcons 
-                             name={excelData.length > 0 ? "file-replace-outline" : "cloud-upload-outline"} 
-                             size={28}
-                             color={excelData.length > 0 ? COLORS.text : '#10B981'} 
-                           />
-                         </TouchableOpacity>
-                    )}
-
-                    {!isReportView && excelData.length > 0 && (
-                        <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
-                            <MaterialCommunityIcons
-                              name="file-document-multiple"
-                              size={20}
-                              color="#2196F3"
-                            />
-                        </TouchableOpacity>
-                    )}
-                    
-                    {isReportView && (
-                        <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
-                          <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
-                        </TouchableOpacity>
-                    )}
-                </View>
+                <TouchableOpacity 
+                   onPress={() => setMenuVisible(true)}
+                   style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8, padding: 4 }}
+                >
+                    <Text style={{ marginRight: 4, color: COLORS.primaryText, fontWeight: '600', fontSize: 14 }}></Text>
+                    <Ionicons name="chevron-down-circle-outline" size={22} color={COLORS.primaryText} />
+                </TouchableOpacity>
              );
         },
     });
-  }, [navigation, isReportView, excelData, scannedRecords, reportFiles]);
+  }, [navigation, isReportView]);
 
   // --- Refs ---
   const locationInputRef = useRef<TextInput>(null);
@@ -725,14 +708,42 @@ const PutAwayScreen = () => {
       XLSX.utils.book_append_sheet(wb, ws, "Report");
       
       const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-      const uri = FileSystem.cacheDirectory + 'PutAwayReport.xlsx';
+      const filename = 'PutAwayReport.xlsx';
       
-      await FileSystem.writeAsStringAsync(uri, b64, { encoding: 'base64' });
-      
-      if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri);
-      } else {
-          showAlert('Sharing is not available on this device.');
+      try {
+        if (Platform.OS === 'android') {
+          try {
+            const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+            if (permissions.granted) {
+              const uri = await FileSystem.StorageAccessFramework.createFileAsync(
+                permissions.directoryUri,
+                filename,
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+              );
+              await FileSystem.writeAsStringAsync(uri, b64, { encoding: 'base64' });
+              showAlert('Report saved successfully!');
+              return;
+            } else {
+               showAlert('Directory permission not granted.');
+               return;
+            }
+          } catch (e) {
+             console.log("SAF Error", e);
+             showAlert('Saving cancelled. Opening share options...');
+          }
+        }
+
+        const uri = FileSystem.cacheDirectory + filename;
+        await FileSystem.writeAsStringAsync(uri, b64, { encoding: 'base64' });
+        
+        if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(uri);
+        } else {
+            showAlert('Sharing is not available on this device.');
+        }
+      } catch (err) {
+        console.error(err);
+        showAlert('Failed to export file.');
       }
   };
 
@@ -1215,6 +1226,60 @@ const PutAwayScreen = () => {
         </View>
       </Modal>
 
+
+      {/* Dropdown Menu Modal */}
+      <Modal
+        visible={menuVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+         <TouchableOpacity 
+            style={styles.menuOverlay} 
+            activeOpacity={1} 
+            onPress={() => setMenuVisible(false)}
+         >
+            <View style={styles.menuContainer}>
+                {/* Header for Menu */}
+                <View style={styles.menuHeader}>
+                    <Text style={styles.menuTitle}>Actions</Text>
+                </View>
+
+                {excelData.length > 0 && (
+                     <TouchableOpacity onPress={() => { setMenuVisible(false); handleClearSession(); }} style={styles.menuItem}>
+                         <MaterialCommunityIcons name="refresh" size={20} color="#EF4444" />
+                         <Text style={[styles.menuItemText, { color: '#EF4444' }]}>Clear Session</Text>
+                     </TouchableOpacity>
+                )}
+
+                {!isReportView && (
+                    <TouchableOpacity onPress={() => { setMenuVisible(false); handleUploadExcel(); }} style={styles.menuItem}>
+                         <MaterialCommunityIcons 
+                             name={excelData.length > 0 ? "file-replace-outline" : "cloud-upload-outline"} 
+                             size={20} 
+                             color={excelData.length > 0 ? COLORS.text : '#10B981'} 
+                         />
+                         <Text style={styles.menuItemText}>{excelData.length > 0 ? "Replace Excel" : "Upload Excel"}</Text>
+                    </TouchableOpacity>
+                )}
+                
+                {!isReportView && excelData.length > 0 && (
+                     <TouchableOpacity onPress={() => { setMenuVisible(false); handleGenerateReport(); }} style={styles.menuItem}>
+                         <MaterialCommunityIcons name="file-document-multiple" size={20} color="#2196F3" />
+                         <Text style={styles.menuItemText}>Generate Report</Text>
+                     </TouchableOpacity>
+                )}
+
+                {isReportView && (
+                     <TouchableOpacity onPress={() => { setMenuVisible(false); handleExport(); }} style={styles.menuItem}>
+                         <MaterialCommunityIcons name="file-excel-outline" size={20} color={'#10B981'} />
+                         <Text style={styles.menuItemText}>Export Report</Text>
+                     </TouchableOpacity>
+                )}
+            </View>
+         </TouchableOpacity>
+      </Modal>
+
       {/* Filter Options Modal */}
       <Modal
         visible={filterModalVisible}
@@ -1547,5 +1612,51 @@ const styles = StyleSheet.create({
   },
   alertTextCancel: {
     color: '#374151',
+  },
+  
+  // Menu Styles
+  menuOverlay: {
+      flex: 1,
+      backgroundColor: 'transparent',
+  },
+  menuContainer: {
+      position: 'absolute',
+      top: Platform.OS === 'ios' ? 100 : 56, // Adjust based on header height
+      right: 12,
+      backgroundColor: 'white',
+      borderRadius: 12,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      paddingVertical: 4,
+      minWidth: 180,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+  },
+  menuHeader: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+  },
+  menuTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: COLORS.muted,
+      textTransform: 'uppercase',
+  },
+  menuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+  },
+  menuItemText: {
+      marginLeft: 12,
+      fontSize: 14,
+      fontWeight: '500',
+      color: COLORS.text,
   },
 });

@@ -97,6 +97,9 @@ const LocationScreen = () => {
     buttons: [],
   });
   
+  
+  const [menuVisible, setMenuVisible] = useState(false);
+
   const showAlert = (message: string, buttons?: AlertButton[]) => {
     setAlertConfig({
       visible: true,
@@ -227,37 +230,17 @@ const LocationScreen = () => {
         title: isReportView ? 'Location Report' : 'Location Accuracy',
         headerRight: () => {
              return (
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    {!isReportView && (
-                         <TouchableOpacity onPress={handleUploadExcel} style={{ marginRight: 16 }}>
-                           <MaterialCommunityIcons 
-                             name={excelData.length > 0 ? "file-replace-outline" : "cloud-upload-outline"} 
-                             size={28}
-                             color={excelData.length > 0 ? COLORS.text : '#10B981'} 
-                           />
-                         </TouchableOpacity>
-                    )}
-
-                    {!isReportView && excelData.length > 0 && (
-                        <TouchableOpacity onPress={handleGenerateReport} style={{ marginRight: 8, padding: 4 }}>
-                            <MaterialCommunityIcons
-                              name="file-document-multiple"
-                              size={20}
-                              color="#2196F3"
-                            />
-                        </TouchableOpacity>
-                    )}
-                    
-                    {isReportView && (
-                        <TouchableOpacity onPress={handleExport} style={{ marginRight: 8, padding: 4 }}>
-                          <MaterialCommunityIcons name="file-excel-outline" size={24} color={'#10B981'}/>
-                        </TouchableOpacity>
-                    )}
-                </View>
+                <TouchableOpacity 
+                   onPress={() => setMenuVisible(true)}
+                   style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8, padding: 4 }}
+                >
+                    <Text style={{ marginRight: 4, color: COLORS.primaryText, fontWeight: '600', fontSize: 14 }}></Text>
+                    <Ionicons name="chevron-down-circle-outline" size={22} color={COLORS.primaryText} />
+                </TouchableOpacity>
              );
         },
     });
-  }, [navigation, isReportView, excelData, scannedRecords, reportFiles]);
+  }, [navigation, isReportView]);// Removed unused deps for cleaner updates
 
   // --- Refs ---
   const locationInputRef = useRef<TextInput>(null);
@@ -268,7 +251,7 @@ const LocationScreen = () => {
   const handleUploadExcel = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'],
+        type: '*/*',
         copyToCacheDirectory: true,
       });
 
@@ -318,9 +301,9 @@ const LocationScreen = () => {
             locationInputRef.current?.focus();
         }
       }, 500);
-    } catch (err) {
-      console.error(err);
-      showAlert('Failed to parse Excel file.');
+    } catch (err: any) {
+      console.error('Excel Upload Error:', err);
+      showAlert(`Upload Failed: ${err.message || 'Check file and permissions.'}`);
     }
   };
 
@@ -568,34 +551,67 @@ const LocationScreen = () => {
   };
 
   const handleExport = async () => {
-      if (reportFiles.length === 0) {
-          showAlert('No data to export.');
-          return;
+    if (reportFiles.length === 0) {
+      showAlert('No data to export.');
+      return;
+    }
+
+    const sheetData = reportFiles.map(r => ({
+      SO: r.SO,
+      YD: r.YD,
+      'System Location': r.Location,
+      'Scanned Location': r.ScanLocation,
+      Status: r.Status,
+      'Date & Time': formatTimestamp(r.Timestamp)
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
+
+    const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+    const filename = "LocationReport.xlsx";
+
+    try {
+      if (Platform.OS === 'android') {
+        // Use StorageAccessFramework for Android to save directly to a folder
+        try {
+          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          
+          if (permissions.granted) {
+            const uri = await FileSystem.StorageAccessFramework.createFileAsync(
+              permissions.directoryUri,
+              filename,
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            );
+            
+            await FileSystem.writeAsStringAsync(uri, b64, { encoding: 'base64' });
+            showAlert('Report saved successfully!');
+            return;
+          } else {
+             showAlert('Directory permission not granted.');
+             return;
+          }
+        } catch (e) {
+           console.log("SAF Error or Cancelled", e);
+           // Fallback to Sharing if SAF fails or is cancelled/not supported
+           showAlert('Saving cancelled or failed. Taking you to spread options...');
+        }
       }
-      
-      const sheetData = reportFiles.map(r => ({
-          SO: r.SO,
-          YD: r.YD,
-          'System Location': r.Location,
-          'Scanned Location': r.ScanLocation,
-          Status: r.Status,
-          'Date & Time': formatTimestamp(r.Timestamp)
-      }));
-      
-      const ws = XLSX.utils.json_to_sheet(sheetData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Report");
-      
-      const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-      const uri = FileSystem.cacheDirectory + 'LocationReport.xlsx';
-      
+
+      // Fallback for iOS or if Android SAF flow was skipped/failed
+      const uri = FileSystem.cacheDirectory + filename;
       await FileSystem.writeAsStringAsync(uri, b64, { encoding: 'base64' });
-      
+
       if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri);
+        await Sharing.shareAsync(uri);
       } else {
-          showAlert('Sharing is not available on this device.');
+        showAlert('Sharing is not available on this device.');
       }
+    } catch (err: any) {
+        console.error("Export Error:", err);
+        showAlert("Failed to export file.");
+    }
   };
 
   // --- Scanner Logic ---
@@ -754,11 +770,18 @@ const LocationScreen = () => {
       <View style={styles.content}>
         
         {!isReportView && excelData.length === 0 && (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-               <Text style={{ color: COLORS.muted, fontSize: 16, fontWeight: '500' }}>
-                  Select Excel File to Begin
+            <TouchableOpacity 
+                style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 }}
+                onPress={handleUploadExcel}
+            >
+               <Ionicons name="folder-open-outline" size={80} color={COLORS.muted} style={{ marginBottom: 16, opacity: 0.5 }} />
+               <Text style={{ color: COLORS.muted, fontSize: 18, fontWeight: '600' }}>
+                  Open Local File Manager
                </Text>
-            </View>
+               <Text style={{ color: COLORS.muted, fontSize: 14, marginTop: 8, opacity: 0.8 }}>
+                  Select an Excel file to begin
+               </Text>
+            </TouchableOpacity>
         )}
 
         {/* --- Stats Header --- */}
@@ -944,6 +967,52 @@ const LocationScreen = () => {
              ]} />
           </View>
         </View>
+      </Modal>
+
+      {/* Dropdown Menu Modal */}
+      <Modal
+        visible={menuVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+         <TouchableOpacity 
+            style={styles.menuOverlay} 
+            activeOpacity={1} 
+            onPress={() => setMenuVisible(false)}
+         >
+            <View style={styles.menuContainer}>
+                {/* Header for Menu */}
+                <View style={styles.menuHeader}>
+                    <Text style={styles.menuTitle}>Actions</Text>
+                </View>
+
+                {!isReportView && (
+                    <TouchableOpacity onPress={() => { setMenuVisible(false); handleUploadExcel(); }} style={styles.menuItem}>
+                         <MaterialCommunityIcons 
+                             name={excelData.length > 0 ? "file-replace-outline" : "cloud-upload-outline"} 
+                             size={20} 
+                             color={excelData.length > 0 ? COLORS.text : '#10B981'} 
+                         />
+                         <Text style={styles.menuItemText}>{excelData.length > 0 ? "Replace Excel" : "Upload Excel"}</Text>
+                    </TouchableOpacity>
+                )}
+                
+                {!isReportView && excelData.length > 0 && (
+                     <TouchableOpacity onPress={() => { setMenuVisible(false); handleGenerateReport(); }} style={styles.menuItem}>
+                         <MaterialCommunityIcons name="file-document-multiple" size={20} color="#2196F3" />
+                         <Text style={styles.menuItemText}>Generate Report</Text>
+                     </TouchableOpacity>
+                )}
+
+                {isReportView && (
+                     <TouchableOpacity onPress={() => { setMenuVisible(false); handleExport(); }} style={styles.menuItem}>
+                         <MaterialCommunityIcons name="file-excel-outline" size={20} color={'#10B981'} />
+                         <Text style={styles.menuItemText}>Export Report</Text>
+                     </TouchableOpacity>
+                )}
+            </View>
+         </TouchableOpacity>
       </Modal>
 
       {/* Custom Alert Modal */}
@@ -1257,5 +1326,51 @@ const styles = StyleSheet.create({
   },
   alertTextCancel: {
     color: '#374151',
+  },
+  
+  // Menu Styles
+  menuOverlay: {
+      flex: 1,
+      backgroundColor: 'transparent',
+  },
+  menuContainer: {
+      position: 'absolute',
+      top: Platform.OS === 'ios' ? 100 : 56, // Adjust based on header height
+      right: 12,
+      backgroundColor: 'white',
+      borderRadius: 12,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      paddingVertical: 4,
+      minWidth: 180,
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+  },
+  menuHeader: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: '#F3F4F6',
+  },
+  menuTitle: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: COLORS.muted,
+      textTransform: 'uppercase',
+  },
+  menuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+  },
+  menuItemText: {
+      marginLeft: 12,
+      fontSize: 14,
+      fontWeight: '500',
+      color: COLORS.text,
   },
 });
