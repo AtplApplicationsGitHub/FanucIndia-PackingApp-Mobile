@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -197,7 +197,14 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     };
   }, [route?.params]);
 
+  const isNavigating = useRef(false);
   const onPressItem = (item: MenuItem) => () => {
+    if (isNavigating.current) return;
+    isNavigating.current = true;
+    setTimeout(() => {
+      isNavigating.current = false;
+    }, 1000);
+
     switch (item.id) {
       case "pick":
         break;
@@ -224,6 +231,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         break;
       default:
         console.warn("Unknown menu item:", item.id);
+        isNavigating.current = false;
     }
   };
 

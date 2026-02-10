@@ -21,15 +21,9 @@ import * as XLSX from 'xlsx';
 import * as Sharing from 'expo-sharing';
 import { useNavigation } from '@react-navigation/native';
 import { useKeyboardDisabled } from '../../utils/keyboard';
-import PutAwayStorage, { type ScannedRecord } from '../../Storage/putaway_Storage';
+import PutAwayStorage, { type ScannedRecord, type ExcelRow } from '../../Storage/putaway_Storage';
 
-// --- Types ---
-type ExcelRow = {
-  SO: string;
-  YD?: string;
-  Location: string; // System location
-  
-};
+
 
 type AlertButton = {
   text: string;
@@ -274,35 +268,79 @@ const PutAwayScreen = () => {
       const workbook = XLSX.read(b64, { type: 'base64' });
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet);
-
-      if (jsonData.length === 0) {
+      
+      // Get raw data as array of arrays to find headers flexibly
+      const rawData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+      
+      if (rawData.length === 0) {
         showAlert('Excel file is empty.');
         return;
       }
 
-      // Validate Headers
-      // Validate Headers
-      const firstRow = jsonData[0];
-      const hasLocation = 'Location' in firstRow;
+      // Find the header row (usually first row, but could be empty rows before)
+      let headerRowIndex = -1;
+      let locationColIndex = -1;
+      let soColIndex = -1;
+      let ydColIndex = -1;
 
-      if (!hasLocation) {
-        showAlert('Invalid Excel format. Required column: Location');
+      // Scan first 10 rows for headers
+      for (let i = 0; i < Math.min(rawData.length, 10); i++) {
+        const row = rawData[i];
+        if (!Array.isArray(row)) continue;
+        
+        // Filter out empty cells to count actual columns
+        const actualCells = row.filter(cell => cell !== null && cell !== undefined && String(cell).trim() !== '');
+        
+        const locIdx = row.findIndex(cell => cell && String(cell).trim().toUpperCase() === 'LOCATION');
+        
+        if (locIdx !== -1) {
+          // Check if it's ONLY 'Location'
+          if (actualCells.length > 1) {
+            showAlert('Invalid Excel format');
+            return;
+          }
+          
+          headerRowIndex = i;
+          locationColIndex = locIdx;
+          break;
+        }
+      }
+
+      if (locationColIndex === -1) {
+        showAlert('Invalid Excel format');
+        return;
+      }
+
+      // Process data starting from row after header
+      const dataRows = rawData.slice(headerRowIndex + 1);
+      const normalizedData = dataRows
+        .map((row): ExcelRow | null => {
+          if (!Array.isArray(row)) return null;
+          const loc = row[locationColIndex] ? String(row[locationColIndex]).trim() : '';
+          // Only include rows that have a location
+          if (!loc) return null;
+
+          return {
+            Location: loc,
+            SO: '', // Empty in Location-only mode
+            YD: undefined,
+          };
+        })
+        .filter((r): r is ExcelRow => r !== null);
+
+
+
+
+      if (normalizedData.length === 0) {
+        showAlert('No valid data found in Excel.');
         return;
       }
 
       setFileName(file.name);
-
-      // Basic Validation/Normalization
-      const normalizedData = jsonData.map(row => ({
-        SO: row.SO ? String(row.SO).trim() : '',
-        YD: row.YD ? String(row.YD).trim() : undefined,
-        Location: row.Location ? String(row.Location).trim() : '',
-      })).filter(r => r.Location); // Must have Location
-
       setExcelData(normalizedData);
+      showAlert(`Successfully uploaded ${normalizedData.length} locations.`);
       
-      // Auto focus the location input after data loads and UI renders
+      // Auto focus the location input after data loads
       setTimeout(() => {
         if (navigation.isFocused()) {
             locationInputRef.current?.focus();
@@ -313,6 +351,7 @@ const PutAwayScreen = () => {
       showAlert('Failed to parse Excel file.');
     }
   };
+
 
   const handleLockLocation = (overrideValue?: string) => {
     const valueToCheck = overrideValue !== undefined ? overrideValue : scanLocation;
@@ -370,6 +409,9 @@ const PutAwayScreen = () => {
     ]);
   };
 
+  // Debounce tracking
+  const lastProcessedRef = useRef({ code: '', time: 0 });
+
   // Internal logic for saving
   const coreSaveEntry = async (valueOverride: string, fromScanner: boolean): Promise<'ADDED' | 'DUPLICATE' | 'INVALID' | 'NOT_FOUND' | 'ERROR'> => {
     const rawValue = valueOverride;
@@ -380,6 +422,20 @@ const PutAwayScreen = () => {
     }
 
     const val = rawValue.trim().toUpperCase();
+
+    // --- Debounce Mechanism ---
+    const now = Date.now();
+    if (val === lastProcessedRef.current.code && now - lastProcessedRef.current.time < 1500) {
+      console.log("Debounced duplicate scan:", val);
+      if (!fromScanner) {
+        setScanSoYd('');
+        soYdInputRef.current?.focus();
+      }
+      return 'DUPLICATE';
+    }
+    lastProcessedRef.current = { code: val, time: now };
+    // --------------------------
+
     const currentLoc = scanLocation.trim().toUpperCase();
     
     // Check mode: Plan (has SOs) or Free (only Locations)
@@ -1056,11 +1112,18 @@ const PutAwayScreen = () => {
       <View style={styles.content}>
         
         {!isReportView && excelData.length === 0 && (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-               <Text style={{ color: COLORS.muted, fontSize: 16, fontWeight: '500' }}>
-                  Select Excel File to Begin
+            <TouchableOpacity 
+                style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 }}
+                onPress={handleUploadExcel}
+            >
+               <Ionicons name="folder-open-outline" size={80} color={COLORS.muted} style={{ marginBottom: 16, opacity: 0.5 }} />
+               <Text style={{ color: COLORS.muted, fontSize: 18, fontWeight: '600' }}>
+                  Open Local File Manager
                </Text>
-            </View>
+               <Text style={{ color: COLORS.muted, fontSize: 14, marginTop: 8, opacity: 0.8 }}>
+                  Select an Excel file to begin
+               </Text>
+            </TouchableOpacity>
         )}
 
         {/* --- Stats Header --- */}
@@ -1301,13 +1364,6 @@ const PutAwayScreen = () => {
                 <View style={styles.menuHeader}>
                     <Text style={styles.menuTitle}>Actions</Text>
                 </View>
-
-                {excelData.length > 0 && (
-                     <TouchableOpacity onPress={() => { setMenuVisible(false); handleClearSession(); }} style={styles.menuItem}>
-                         <MaterialCommunityIcons name="refresh" size={20} color="#EF4444" />
-                         <Text style={[styles.menuItemText, { color: '#EF4444' }]}>Clear Session</Text>
-                     </TouchableOpacity>
-                )}
 
                 {!isReportView && (
                     <TouchableOpacity onPress={() => { setMenuVisible(false); handleUploadExcel(); }} style={styles.menuItem}>
