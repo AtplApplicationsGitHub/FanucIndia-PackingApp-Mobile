@@ -12,6 +12,7 @@ import {
   Platform,
   Vibration,
   KeyboardAvoidingView,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -150,7 +151,7 @@ const ConfirmModal = ({
   title: string;
   message: string;
   onConfirm: () => void;
-  onCancel: () => void;
+  onCancel?: () => void;
   confirmText?: string;
   cancelText?: string;
   type?: "danger" | "primary";
@@ -169,9 +170,11 @@ const ConfirmModal = ({
           </View>
           <Text style={styles.modalDescription}>{message}</Text>
           <View style={styles.modalFooter}>
-            <TouchableOpacity style={styles.secondaryBtn} onPress={onCancel}>
-              <Text style={styles.secondaryBtnText}>{cancelText}</Text>
-            </TouchableOpacity>
+            {onCancel && (
+              <TouchableOpacity style={styles.secondaryBtn} onPress={onCancel}>
+                <Text style={styles.secondaryBtnText}>{cancelText}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.primaryBtn, { backgroundColor: btnColor }]}
               onPress={onConfirm}
@@ -187,6 +190,8 @@ const ConfirmModal = ({
 
 export default function CustomerLabelPrint(): JSX.Element {
   const navigation = useNavigation();
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const [soNumber, setSoNumber] = useState<string>("");
   const [sos, setSos] = useState<SOItem[]>([]);
   // sortMode: 'recent' (LIFO), 'asc' (A-Z), 'desc' (Z-A)
@@ -211,6 +216,8 @@ export default function CustomerLabelPrint(): JSX.Element {
 
   // Local verifying lock
   const verifyingRef = useRef(false);
+  const pendingScansRef = useRef<string[]>([]);
+  const [queueTrigger, setQueueTrigger] = useState(0);
 
   // Modals
   const [errorModal, setErrorModal] = useState({ visible: false, title: "", message: "", autoDismiss: true });
@@ -332,6 +339,7 @@ export default function CustomerLabelPrint(): JSX.Element {
       }
 
       sessionCodesRef.current.clear();
+      pendingScansRef.current = [];
       setLastScannedCode(null);
       setSessionCount(0);
       setScanModalVisible(true);
@@ -364,10 +372,38 @@ export default function CustomerLabelPrint(): JSX.Element {
   const addSO = async (value?: string, fromScanner = false) => {
     const soToAdd = (value || soNumber).trim().toUpperCase();
     if (!soToAdd) {
-        if (!value) showError("Empty Input", "Please enter or scan a Sales Order.");
+        if (!value) {
+            showError("Empty Input", "Please enter or scan a Sales Order.");
+            setSoNumber("");
+            focusInput();
+        }
         return;
     }
 
+    if (fromScanner) {
+        pendingScansRef.current.push(soToAdd);
+        setQueueTrigger(c => c + 1);
+        return;
+    }
+
+    // Manual input flow
+    if (verifyingRef.current) {
+        showError("Please wait", "Processing...", true);
+        return;
+    }
+
+    verifyingRef.current = true;
+    try {
+        await coreAddSO(soToAdd, false);
+    } finally {
+        verifyingRef.current = false;
+        // Check if queue has built up during manual processing
+        setQueueTrigger(c => c + 1);
+    }
+  };
+
+  const coreAddSO = async (soToAdd: string, fromScanner: boolean) => {
+    // 1. Check duplicates in UI list
     if (sos.some((i) => i.soNumber === soToAdd)) {
       if (fromScanner) {
         setScanStatus({ message: "Duplicate: " + soToAdd, color: COLORS.warning });
@@ -378,13 +414,6 @@ export default function CustomerLabelPrint(): JSX.Element {
       if (!scanModalVisible) focusInput();
       return;
     }
-
-    if (verifyingRef.current) {
-      if (!fromScanner) showError("Please wait", "Verification in progress...", true);
-      return;
-    }
-
-    verifyingRef.current = true;
 
     try {
       const result = await verifySO(soToAdd);
@@ -444,10 +473,33 @@ export default function CustomerLabelPrint(): JSX.Element {
       showError("Invalid SO", msg || "Sales Order not found.", true);
       setSoNumber("");
       if (!scanModalVisible) focusInput();
-    } finally {
-      verifyingRef.current = false;
     }
   };
+
+  useEffect(() => {
+    const processQueue = async () => {
+        // If already processing, let it finish.
+        if (verifyingRef.current) return;
+        // If queue is empty, stop.
+        if (pendingScansRef.current.length === 0) return;
+
+        verifyingRef.current = true;
+        const soToAdd = pendingScansRef.current.shift();
+
+        try {
+            if (soToAdd) await coreAddSO(soToAdd, true);
+        } catch (err) {
+            console.error("Queue process error:", err);
+        } finally {
+            verifyingRef.current = false;
+            // Trigger next if items remain
+            if (pendingScansRef.current.length > 0) {
+                setQueueTrigger(c => c + 1);
+            }
+        }
+    };
+    processQueue();
+  }, [queueTrigger, sos, customerName, isCustomerLocked, verifyError, scanModalVisible]);
 
   const handleMismatchConfirm = () => {
     // Just close/reset. Do NOT add.
@@ -540,64 +592,74 @@ export default function CustomerLabelPrint(): JSX.Element {
   return (
     <SafeAreaView style={styles.safe} edges={["left", "right", "bottom"]}>
       <KeyboardAvoidingView
-        style={styles.container}
+        style={[styles.container, isLandscape && { flexDirection: "row", gap: 12 }]}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
 
-        <View style={styles.inputCard}>
+        <View style={isLandscape ? { width: "35%", gap: 4 } : { width: "100%" }}>
+          <View style={[styles.inputCard, isLandscape && { marginTop: 0 }]}>
             <View style={styles.inputRow}>
-            <View style={styles.inputFieldWrapper}>
+              <View style={styles.inputFieldWrapper}>
                 <TextInput
-                    ref={inputRef}
-                    value={soNumber}
-                    onChangeText={setSoNumber}
-                    placeholder={keyboardDisabled ? "Scan SO..." : "Enter or scan"}
-                    placeholderTextColor={COLORS.muted}
-                    style={styles.input}
-                    autoCapitalize="characters"
-                    returnKeyType="done"
-                    onSubmitEditing={() => addSO()}
-                    editable={!isLoading}
-                    autoFocus={true}
-                    showSoftInputOnFocus={!keyboardDisabled}
-                    onBlur={handleBlur}
+                  ref={inputRef}
+                  value={soNumber}
+                  onChangeText={setSoNumber}
+                  placeholder={keyboardDisabled ? "Scan SO..." : "Enter or scan"}
+                  placeholderTextColor={COLORS.muted}
+                  style={styles.input}
+                  autoCapitalize="characters"
+                  returnKeyType="done"
+                  onSubmitEditing={() => addSO()}
+                  editable={!isLoading}
+                  autoFocus={true}
+                  showSoftInputOnFocus={!keyboardDisabled}
+                  onBlur={handleBlur}
                 />
                 <Pressable onPress={openScanner} disabled={isLoading} style={styles.scanBtn}>
-                <MaterialCommunityIcons name="qrcode-scan" size={20} color={isLoading ? "#ccc" : COLORS.accent} />
+                  <MaterialCommunityIcons name="qrcode-scan" size={20} color={isLoading ? "#ccc" : COLORS.accent} />
                 </Pressable>
-            </View>
-            <TouchableOpacity
+              </View>
+              <TouchableOpacity
                 onPress={() => addSO()}
                 disabled={isLoading || !soNumber.trim()}
-                style={[styles.iconBtn, { backgroundColor: COLORS.success }, (isLoading || !soNumber.trim()) && styles.btnDisabled]}
-            >
+                style={[
+                  styles.iconBtn,
+                  { backgroundColor: COLORS.success },
+                  (isLoading || !soNumber.trim()) && styles.btnDisabled,
+                ]}
+              >
                 <Ionicons name="add" size={20} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity
+              </TouchableOpacity>
+              <TouchableOpacity
                 onPress={onPrint}
                 disabled={isLoading || sos.length === 0}
-                style={[styles.iconBtn, { backgroundColor: COLORS.primary }, (isLoading || sos.length === 0) && styles.btnDisabled]}
-            >
+                style={[
+                  styles.iconBtn,
+                  { backgroundColor: COLORS.primary },
+                  (isLoading || sos.length === 0) && styles.btnDisabled,
+                ]}
+              >
                 <Ionicons name="print" size={20} color="#fff" />
-            </TouchableOpacity>
+              </TouchableOpacity>
             </View>
-        </View>
+          </View>
 
-        {isCustomerLocked && customerName && (
+          {isCustomerLocked && customerName && (
             <View style={styles.customerCard}>
-            <View style={styles.fixedField}>
+              <View style={styles.fixedField}>
                 <Text style={styles.fixedLabel}>Customer:</Text>
                 <Text style={styles.fixedValue}>{customerName}</Text>
-            </View>
-            <View style={[styles.fixedField, { marginTop: 2 }]}>
+              </View>
+              <View style={[styles.fixedField, { marginTop: 2 }]}>
                 <Text style={styles.fixedLabel}>Address:</Text>
                 <Text style={styles.fixedValue}>{customerAddress}</Text>
+              </View>
             </View>
-            </View>
-        )}
+          )}
+        </View>
 
-        <View style={styles.tableCard}>
+        <View style={[styles.tableCard, isLandscape && { marginTop: 0 }]}>
             <View style={styles.tableHeader}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1}}>
                 <Text style={styles.headerText}>SOs {sos.length > 0 && `(${sos.length})`}</Text>
@@ -672,10 +734,8 @@ export default function CustomerLabelPrint(): JSX.Element {
             title="Customer Mismatch"
             message={`Expected: ${customerName}\nFound: ${mismatchModal.newName}`}
             confirmText="OK"
-            cancelText="Cancel"
             type="primary"
             onConfirm={handleMismatchConfirm}
-            onCancel={() => setMismatchModal({ ...mismatchModal, visible: false })}
         />
 
         <Modal

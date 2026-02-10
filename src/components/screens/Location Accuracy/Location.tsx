@@ -123,6 +123,11 @@ const LocationScreen = () => {
   // Multi-scan tracking
   const [sessionCount, setSessionCount] = useState(0);
   const sessionCodesRef = useRef<Set<string>>(new Set());
+  
+  // -- Queue --
+  const pendingScansRef = useRef<string[]>([]);
+  const [queueTrigger, setQueueTrigger] = useState(0);
+  const processingRef = useRef(false);
 
   // --- Persistence ---
   
@@ -265,33 +270,57 @@ const LocationScreen = () => {
       const workbook = XLSX.read(b64, { type: 'base64' });
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(worksheet);
+      
+      // Use header: 1 to get raw array of arrays for reliable column indexing
+      const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
-      if (jsonData.length === 0) {
+      if (!rawData || rawData.length === 0) {
         showAlert('Excel file is empty.');
         return;
       }
 
-      // Validate Headers
-      const firstRow = jsonData[0];
-      const hasSO = 'SO' in firstRow;
-      const hasLocation = 'Location' in firstRow;
-      // YD might be optional or required column presence? User said "on that excel file SO YD Location this data dont allow another excel"
-      // Let's check for SO and Location as critical. YD often optional but column should likely be there if template is strict.
-      // We will check for SO and Location keys.
-      if (!hasSO || !hasLocation) {
-        showAlert('Invalid Excel format. Required columns: SO, Location, YD');
+      // Find Header Row (first row with data)
+      const headerRowIndex = rawData.findIndex(row => row && row.length > 0);
+      if (headerRowIndex === -1) {
+          showAlert('Excel file appears empty.');
+          return;
+      }
+
+      const headers = rawData[headerRowIndex].map((h: any) => String(h).trim().toUpperCase());
+      
+      const soIndex = headers.findIndex(h => h === 'SO');
+      // Support LOC or LOCATION
+      const locationIndex = headers.findIndex(h => h === 'LOCATION' || h === 'LOC');
+      const ydIndex = headers.findIndex(h => h === 'YD');
+
+      if (soIndex === -1 || locationIndex === -1) {
+        showAlert('Invalid Excel format. Required columns: SO, Location');
         return;
       }
 
       setFileName(file.name);
 
-      // Basic Validation/Normalization
-      const normalizedData = jsonData.map(row => ({
-        SO: row.SO ? String(row.SO).trim() : '',
-        YD: row.YD ? String(row.YD).trim() : undefined,
-        Location: row.Location ? String(row.Location).trim() : '',
-      })).filter(r => r.SO && r.Location); // Must have SO and Location
+      // Process Data Rows
+      const dataRows = rawData.slice(headerRowIndex + 1);
+      
+      const normalizedData = dataRows.map(row => {
+        if (!row) return null;
+        
+        const soVal = row[soIndex] ? String(row[soIndex]).trim() : '';
+        const locVal = row[locationIndex] ? String(row[locationIndex]).trim() : '';
+        const ydVal = (ydIndex !== -1 && row[ydIndex]) ? String(row[ydIndex]).trim() : '';
+
+        return {
+            SO: soVal,
+            YD: ydVal,
+            Location: locVal,
+        };
+      }).filter(r => r !== null && !!r.SO && !!r.Location) as ExcelRow[]; // Must have SO and Location
+
+      if (normalizedData.length === 0) {
+          showAlert('No valid records found.');
+          return;
+      }
 
       setExcelData(normalizedData);
       
@@ -311,13 +340,21 @@ const LocationScreen = () => {
     const valueToCheck = overrideValue !== undefined ? overrideValue : scanLocation;
     
     if (!valueToCheck.trim()) {
-      showAlert('Please scan a location first.');
+      showAlert('Please scan a location first.', [{
+        text: 'OK',
+        onPress: () => {
+             setTimeout(() => locationInputRef.current?.focus(), 100);
+        }
+      }]);
       return;
     }
 
     if (overrideValue !== undefined) {
         setScanLocation(overrideValue);
     }
+  
+    // Clear any pending queue
+    pendingScansRef.current = [];
 
     setIsLocationLocked(true);
     // Auto focus next field
@@ -350,11 +387,20 @@ const LocationScreen = () => {
     ]);
   };
 
-  const handleSaveEntry = (valueOverride?: string, fromScanner: boolean = false): 'ADDED' | 'DUPLICATE' | 'INVALID' | 'NOT_FOUND' | 'ERROR' => {
-    const rawValue = typeof valueOverride === 'string' ? valueOverride : scanSoYd;
+  // Internal logic for saving
+  const coreSaveEntry = async (valueOverride: string, fromScanner: boolean) => {
+    const rawValue = valueOverride;
     
     if (!rawValue.trim()) {
-      if (!fromScanner) showAlert('Please scan SO or YD.');
+      if (!fromScanner) {
+          showAlert('Please scan SO or YD.', [{
+              text: 'OK',
+              onPress: () => {
+                  setScanSoYd('');
+                  setTimeout(() => soYdInputRef.current?.focus(), 100);
+              }
+          }]);
+      }
       return 'ERROR';
     }
 
@@ -376,21 +422,21 @@ const LocationScreen = () => {
              const isDuplicate = scannedRecords.some(r => r.SO === match.SO && r.Status === 'Valid');
 
              if (isDuplicate) {
-                 // Show Popup for Duplicate
-                 showAlert('SO already added');
-
-                 // Logic to clear and refocus
-                 setScanSoYd('');
                  if (!fromScanner) {
-                     setTimeout(() => soYdInputRef.current?.focus(), 100);
+                     showAlert('SO already added', [{
+                         text: 'OK',
+                         onPress: () => {
+                             setScanSoYd('');
+                             setTimeout(() => soYdInputRef.current?.focus(), 100);
+                         }
+                     }]);
                  }
-                 
                  // Do NOT add a duplicate record to the list
                  return 'DUPLICATE';
              }
  
              const newRecord: ScannedRecord = {
-                 id: Date.now().toString(),
+                 id: Date.now().toString() + Math.random().toString().slice(2,5),
                  SO: match.SO, 
                  YD: match.YD || '',
                  Location: match.Location,
@@ -406,8 +452,8 @@ const LocationScreen = () => {
              });
              
              // Cleanup input
-             setScanSoYd('');
              if (!fromScanner) {
+                 setScanSoYd('');
                  setTimeout(() => soYdInputRef.current?.focus(), 50);
              }
              return 'ADDED';
@@ -421,7 +467,7 @@ const LocationScreen = () => {
 
              // Manual mode: Log as invalid
              const newRecord: ScannedRecord = {
-                 id: Date.now().toString(),
+                 id: Date.now().toString() + Math.random().toString().slice(2,5),
                  SO: match.SO, 
                  YD: match.YD || '',
                  Location: match.Location,
@@ -432,8 +478,8 @@ const LocationScreen = () => {
              setScannedRecords(prev => [newRecord, ...prev]);
 
              // Clear and Focus for Invalid as well
-             setScanSoYd('');
              if (!fromScanner) {
+                 setScanSoYd('');
                  setTimeout(() => soYdInputRef.current?.focus(), 100);
              }
              return 'INVALID';
@@ -441,16 +487,45 @@ const LocationScreen = () => {
     } else {
         // Not in Excel
         if (!fromScanner) {
-             showAlert('SO not found in Excel data.');
-        }
-
-        // Logic to clear and refocus
-        setScanSoYd('');
-        if (!fromScanner) {
-             setTimeout(() => soYdInputRef.current?.focus(), 100);
+             showAlert('SO not found in Excel data.', [{
+                 text: 'OK',
+                 onPress: () => {
+                     setScanSoYd('');
+                     setTimeout(() => soYdInputRef.current?.focus(), 100);
+                 }
+             }]);
         }
         return 'NOT_FOUND';
     }
+  };
+
+  // Queue Processor
+  useEffect(() => {
+    const processQueue = async () => {
+        if (processingRef.current) return;
+        if (pendingScansRef.current.length === 0) return;
+
+        processingRef.current = true;
+        const nextVal = pendingScansRef.current.shift();
+
+        if (nextVal) {
+             await coreSaveEntry(nextVal, true);
+        }
+
+        processingRef.current = false;
+
+        if (pendingScansRef.current.length > 0) {
+            setQueueTrigger(c => c + 1);
+        }
+    };
+    processQueue();
+  }, [queueTrigger, scanLocation, excelData]);
+
+
+  // Public wrapper
+  const handleSaveEntry = (valueOverride?: string) => {
+       const rawValue = typeof valueOverride === 'string' ? valueOverride : scanSoYd;
+       coreSaveEntry(rawValue, false);
   };
 
   // --- Helper ---
@@ -495,8 +570,8 @@ const LocationScreen = () => {
         showAlert('All items for this location have been scanned!');
     } else {
         // Create "Missing" records
-        const newMissingRecords: ScannedRecord[] = missingItems.map(item => ({
-            id: `missing-${item.SO}-${Date.now()}`,
+        const newMissingRecords: ScannedRecord[] = missingItems.map((item, index) => ({
+            id: `missing-${item.SO}-${Date.now()}-${index}`,
             SO: item.SO,
             YD: item.YD,
             Location: item.Location,
@@ -529,8 +604,8 @@ const LocationScreen = () => {
     // Find items in Excel that are NOT in the valid scanned list
     const globalMissing = excelData.filter(d => !scannedValidSOs.has(d.SO));
 
-    const missingRecords: ScannedRecord[] = globalMissing.map(item => ({
-        id: `global-missing-${item.SO}-${Date.now()}`,
+    const missingRecords: ScannedRecord[] = globalMissing.map((item, index) => ({
+        id: `global-missing-${item.SO}-${Date.now()}-${index}`,
         SO: item.SO,
         YD: item.YD,
         Location: item.Location,
@@ -639,6 +714,7 @@ const LocationScreen = () => {
       
       // Reset session state
       sessionCodesRef.current.clear();
+      pendingScansRef.current = [];
       setSessionCount(0);
       setLastScannedCode(null);
       setLastScanStatus(null);
@@ -685,22 +761,14 @@ const LocationScreen = () => {
         // Always provide feedback
         setLastScannedCode(value);
         
-        // Try to save
-        // remove setScanSoYd(value) to prevent input box flickering/persistence
-
-        const status = handleSaveEntry(value, true);
-        setLastScanStatus(status);
+        // Push scan to queue
+        pendingScansRef.current.push(value);
+        setQueueTrigger(c => c + 1);
         
-        if (status === 'ADDED') {
-             Vibration.vibrate();
-             setSessionCount(prev => prev + 1);
-        } else if (status === 'DUPLICATE') {
-             // Maybe a different vibration or none?
-             Vibration.vibrate([0, 50, 50, 50]); // Short double blip
-        } else {
-             // Invalid
-             Vibration.vibrate([0, 200]); // Long buzz for error
-        }
+        // Immediate Feedback
+        Vibration.vibrate();
+        setSessionCount(prev => prev + 1);
+        setLastScanStatus('ADDED'); 
         
         // Do NOT close modal
     }
@@ -714,7 +782,8 @@ const LocationScreen = () => {
     const valid = activeList.filter(r => r.Status === 'Valid').length;
     const invalid = activeList.filter(r => r.Status === 'Invalid').length;
     const missing = activeList.filter(r => r.Status === 'Missing').length;
-    return { total, valid, invalid, missing };
+    const totalScanned = valid + invalid;
+    return { total, valid, invalid, missing, totalScanned };
   }, [activeList]);
 
   // --- Render ---
@@ -730,7 +799,7 @@ const LocationScreen = () => {
   };
 
   const renderItem = ({ item }: { item: ScannedRecord }) => {
-    const { color, bg, border } = getStatusColor(item.Status);
+    const { color } = getStatusColor(item.Status);
 
     return (
       <View style={{ 
@@ -742,24 +811,13 @@ const LocationScreen = () => {
           backgroundColor: 'white',
           alignItems: 'center'
       }}>
-        <View style={{ width: 90 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO || '-'}</Text></View>
-        <View style={{ width: 90 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.YD || '-'}</Text></View>
-        <View style={{ width: 90 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location || '-'}</Text></View>
-        <View style={{ width: 90 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.ScanLocation || '-'}</Text></View>
-        <View style={{ width: 70, alignItems: 'center' }}>
-            <View style={{ 
-                backgroundColor: bg, 
-                paddingHorizontal: 2, 
-                paddingVertical: 2, 
-                borderRadius: 4,
-                borderWidth: 1,
-                borderColor: border,
-                width: '100%',
-                alignItems: 'center'
-            }}>
-                <Text style={{ fontSize: 8, color: color, fontWeight: '700' }}>{item.Status}</Text>
-            </View>
+        <View style={{ flex: 0.8, alignItems: 'center' }}>
+            <Text style={{ fontSize: 10, color: color, fontWeight: '700' }}>{item.Status}</Text>
         </View>
+        <View style={{ flex: 1 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO || '-'}</Text></View>
+        <View style={{ flex: 1 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.YD || '-'}</Text></View>
+        <View style={{ flex: 1 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location || '-'}</Text></View>
+        <View style={{ flex: 1 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.ScanLocation || '-'}</Text></View>
       </View>
     );
   };
@@ -788,13 +846,15 @@ const LocationScreen = () => {
         {isReportView && (
             <View style={styles.statsContainer}>
                  <Text style={styles.statsText}>
-                    <Text style={{ color: '#0284C7', fontWeight: 'bold' }}>Total: {stats.total}</Text>
+                    <Text style={{ color: '#0284C7', fontWeight: 'bold' }}>Total: {excelData.length}</Text>
                     <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
                     <Text style={{ color: '#00E096', fontWeight: 'bold' }}>Valid: {stats.valid}</Text>
                     <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
                     <Text style={{ color: '#FF3B30', fontWeight: 'bold' }}>Invalid: {stats.invalid}</Text>
                     <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
                     <Text style={{ color: '#FFAA00', fontWeight: 'bold' }}>Missing: {stats.missing}</Text>
+                    <Text style={{ color: COLORS.muted }}>{'  /  '}</Text>
+                    <Text style={{ color: '#ff002bff', fontWeight: 'bold' }}>Total Scn: {stats.totalScanned}</Text>
                 </Text>
             </View>
         )}
@@ -886,29 +946,25 @@ const LocationScreen = () => {
 
             {/* Table - ContentAccuracy Style */}
             <View style={{ flex: 1, marginTop: 0, backgroundColor: '#fff', borderRadius: 0, elevation: 0, marginHorizontal: -12, borderTopWidth: 1, borderTopColor: '#E5E7EB', overflow: 'hidden' }}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-                    <View style={{ minWidth: 360 }}>
-                        <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
-                            <View style={{ width: 90 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
-                            <View style={{ width: 90 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>YD</Text></View>
-                            <View style={{ width: 90 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
-                            <View style={{ width: 90 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scan</Text></View>
-                            <View style={{ width: 70, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                    <View style={{ flex: 0.8, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                    <View style={{ flex: 1 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                    <View style={{ flex: 1 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>YD</Text></View>
+                    <View style={{ flex: 1 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
+                    <View style={{ flex: 1 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScannedLoc</Text></View>
+                </View>
+                
+                <FlatList
+                    data={activeList}
+                    keyExtractor={item => item.id}
+                    renderItem={renderItem}
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                    ListEmptyComponent={
+                        <View style={{ padding: 20, alignItems: 'center' }}>
+                            <Text style={{ color: COLORS.muted }}>No records yet.</Text>
                         </View>
-                        
-                        <FlatList
-                            data={activeList}
-                            keyExtractor={item => item.id}
-                            renderItem={renderItem}
-                            contentContainerStyle={{ paddingBottom: 20 }}
-                            ListEmptyComponent={
-                                <View style={{ padding: 20, alignItems: 'center' }}>
-                                    <Text style={{ color: COLORS.muted }}>No records yet.</Text>
-                                </View>
-                            }
-                        />
-                    </View>
-                </ScrollView>
+                    }
+                />
             </View>
         </View>
         )}

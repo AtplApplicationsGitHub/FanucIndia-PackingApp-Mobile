@@ -1003,20 +1003,17 @@ const PutAwayScreen = () => {
 
             {/* Table Section */}
             {excelData.length > 0 && !isReportView && (
-                <View style={{ flex: 1, marginTop: 12, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 4, overflow: 'hidden' }}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-                        <View style={{ minWidth: 400 }}>
-                            <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
-                                <View style={{ width: 85 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
-                                <View style={{ width: 85 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert. No.</Text></View>
-                                <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
-                                <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScnLoc</Text></View>
-                                <View style={{ width: 85, paddingHorizontal: 2 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat Code</Text></View>
-                                <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
-                                <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
-                                <View style={{ width: 55, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
-                            </View>
-                            <FlatList
+                <View style={{ flex: 1, marginTop: 12, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 0, overflow: 'hidden' }}>
+                    <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                        <View style={{ width: 50, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                        <View style={{ flex: 1, paddingRight: 8 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
+                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>S.Loc</Text></View>
+                        <View style={{ flex: 1, paddingHorizontal: 2 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat</Text></View>
+                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
+                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
+                    </View>
+                    <FlatList
                         data={filteredData}
                         keyExtractor={(item, index) => `row-${index}`}
                         renderItem={({ item }) => {
@@ -1081,33 +1078,21 @@ const PutAwayScreen = () => {
                                     backgroundColor: 'white',
                                     alignItems: 'center'
                                 }}>
-                                    <View style={{ width: 85 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
-                                    <View style={{ width: 85 }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Cert || '-'}</Text></View>
+                                    <View style={{ width: 50, alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 9, color: statusColor, fontWeight: '700' }} numberOfLines={1}>
+                                            {status}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flex: 1, paddingRight: 8 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
                                     <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location}</Text></View>
                                     <View style={{ width: 40 }}>
                                         <Text style={{ fontSize: 10, color: hasMismatch ? '#EF4444' : '#4B5563', fontWeight: '700' }} numberOfLines={1}>
                                             {displayScnLoc}
                                         </Text>
                                     </View>
-                                    <View style={{ width: 85, paddingHorizontal: 2 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={2}>{item.YD || '-'}</Text></View>
+                                    <View style={{ flex: 1, paddingHorizontal: 2 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.YD || '-'}</Text></View>
                                     <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Avail || '-'}</Text></View>
                                     <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: status === 'INVAL' ? '#EF4444' : '#10B981', fontWeight: 'bold' }}>{scannedQty}</Text></View>
-                                    <View style={{ width: 55, alignItems: 'center' }}>
-                                        <View style={{ 
-                                            backgroundColor: badgeBg, 
-                                            paddingHorizontal: 2, 
-                                            paddingVertical: 2, 
-                                            borderRadius: 4,
-                                            borderWidth: 1,
-                                            borderColor: borderColor,
-                                            width: '100%',
-                                            alignItems: 'center'
-                                        }}>
-                                            <Text style={{ fontSize: 8, color: statusColor, fontWeight: '700' }}>
-                                                {status}
-                                            </Text>
-                                        </View>
-                                    </View>
                                 </View>
                             );
                         }}
@@ -1117,59 +1102,52 @@ const PutAwayScreen = () => {
                             </View>
                         }
                     />
-                        </View>
-                    </ScrollView>
                 </View>
             )}
             {/* Report View Section (Show ALL Excel Data + Status) */}
             {isReportView && (
               <>
-                 <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false}
+                <View 
                     style={{ 
                         backgroundColor: '#F3F4F6', 
                         borderRadius: 8, 
-                        marginBottom: 2,
-                        flexGrow: 0,
-                    }}
-                    contentContainerStyle={{
-                        flexDirection: 'row', 
+                        marginBottom: 4,
+                        marginTop: 10,
+                        flexDirection: 'row',
                         alignItems: 'center',
+                        justifyContent: 'center',
                         paddingVertical: 8,
-                        paddingHorizontal: 8, 
-                        columnGap: 5,
+                        paddingHorizontal: 4,
+                        flexWrap: 'wrap',
+                        gap: 8,
                     }}
                 >
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#2563EB' }}>Total: {stats.total}</Text>
-                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#2563EB' }}>Total: {stats.total}</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
                     
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#16A34A' }}>Valid: {stats.valid}</Text>
-                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#16A34A' }}>Valid: {stats.valid}</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
 
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#DC2626' }}>Invalid: {stats.invalid}</Text>
-                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#DC2626' }}>Invalid: {stats.invalid}</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
 
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#EA580C' }}>Missing: {stats.missing}</Text>
-                    <Text style={{ fontSize: 11, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#EA580C' }}>Missing: {stats.missing}</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '400', color: '#9CA3AF' }}>/</Text>
 
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#CA8A04' }}>Mismatch: {stats.mismatch}</Text>
-                </ScrollView>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#CA8A04' }}>Mismatch: {stats.mismatch}</Text>
+                </View>
 
-                <View style={{ flex: 1, marginTop: 2, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 4, overflow: 'hidden' }}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-                        <View style={{ minWidth: 400 }}>
-                            <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
-                                <View style={{ width: 85 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
-                                <View style={{ width: 85 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Cert. No.</Text></View>
-                                <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
-                                <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>ScnLoc</Text></View>
-                                <View style={{ width: 85, paddingHorizontal: 2 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat Code</Text></View>
-                                <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
-                                <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
-                                <View style={{ width: 55, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
-                            </View>
-                            <FlatList
+                <View style={{ flex: 1, marginTop: 2, backgroundColor: '#fff', borderRadius: 8, elevation: 2, marginHorizontal: 0, overflow: 'hidden' }}>
+                    <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', paddingVertical: 10, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', alignItems: 'center' }}>
+                        <View style={{ width: 50, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Status</Text></View>
+                        <View style={{ flex: 1, paddingRight: 8 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>SO</Text></View>
+                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Loc</Text></View>
+                        <View style={{ width: 40 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>S.Loc</Text></View>
+                        <View style={{ flex: 1, paddingHorizontal: 2 }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Mat</Text></View>
+                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Qty</Text></View>
+                        <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontWeight: '700', fontSize: 10, color: '#374151' }}>Scn</Text></View>
+                    </View>
+                    <FlatList
                         data={excelData}
                         keyExtractor={(item, index) => `rep-${index}`}
                         renderItem={({ item }) => {
@@ -1233,39 +1211,25 @@ const PutAwayScreen = () => {
                                     backgroundColor: 'white',
                                     alignItems: 'center'
                                 }}>
-                                    <View style={{ width: 85 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
-                                    <View style={{ width: 85 }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Cert || '-'}</Text></View>
+                                    <View style={{ width: 50, alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 9, color: statusColor, fontWeight: '700' }} numberOfLines={1}>
+                                            {status}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flex: 1, paddingRight: 8 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.SO}</Text></View>
                                     <View style={{ width: 40 }}><Text style={{ fontSize: 10, color: '#4B5563' }} numberOfLines={1}>{item.Location}</Text></View>
                                     <View style={{ width: 40 }}>
-                                         <Text style={{ fontSize: 10, color: hasMismatch ? '#EF4444' : '#4B5563', fontWeight: '700' }} numberOfLines={1}>
+                                        <Text style={{ fontSize: 10, color: hasMismatch ? '#EF4444' : '#4B5563', fontWeight: '700' }} numberOfLines={1}>
                                             {displayScnLoc}
                                         </Text>
                                     </View>
-                                    <View style={{ width: 85, paddingHorizontal: 2 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={2}>{item.YD || '-'}</Text></View>
+                                    <View style={{ flex: 1, paddingHorizontal: 2 }}><Text style={{ fontSize: 10, color: '#1F2937' }} numberOfLines={1}>{item.YD || '-'}</Text></View>
                                     <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: '#4B5563' }}>{item.Avail || '-'}</Text></View>
-                                    <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: status === 'MISS' ? '#EF4444' : '#10B981', fontWeight: 'bold' }}>{scannedQty}</Text></View>
-                                    <View style={{ width: 55, alignItems: 'center' }}>
-                                        <View style={{ 
-                                            backgroundColor: badgeBg, 
-                                            paddingHorizontal: 2, 
-                                            paddingVertical: 2, 
-                                            borderRadius: 4,
-                                            borderWidth: 1,
-                                            borderColor: borderColor,
-                                            width: '100%',
-                                            alignItems: 'center'
-                                        }}>
-                                            <Text style={{ fontSize: 8, color: statusColor, fontWeight: '700' }}>
-                                                {status}
-                                            </Text>
-                                        </View>
-                                    </View>
+                                    <View style={{ width: 30, alignItems: 'center' }}><Text style={{ fontSize: 10, color: status === 'INVAL' ? '#EF4444' : '#10B981', fontWeight: 'bold' }}>{scannedQty}</Text></View>
                                 </View>
                             );
                         }}
                     />
-                        </View>
-                    </ScrollView>
                 </View>
               </>
             )}
@@ -1434,7 +1398,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 12,
+    paddingHorizontal: 0,
     paddingBottom: 4,
     paddingTop: 0,
   },

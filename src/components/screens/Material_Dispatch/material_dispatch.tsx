@@ -109,6 +109,10 @@ const MaterialDispatchScreen: React.FC = () => {
   // Keyboard & Scan State
   const [keyboardDisabled] = useKeyboardDisabled();
   const sessionCodesRef = useRef<Set<string>>(new Set());
+  const pendingScansRef = useRef<string[]>([]);
+  const [queueTrigger, setQueueTrigger] = useState(0);
+  const processingRef = useRef(false);
+
   const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
 
@@ -289,19 +293,23 @@ const MaterialDispatchScreen: React.FC = () => {
     focusSOInput();
   };
 
-  async function addSO(raw: string, isScan = false) {
+  async function coreAddSO(raw: string, isScan = false) {
     const so = normalizeSO(raw);
     if (!so || !dispatchId) {
-      clearAndFocusSO();
+      if (!isScan) clearAndFocusSO();
       return;
     }
 
+    // Check duplicates locally first
     if (items.some((x) => x.soId === so)) {
       if (!isScan) {
         setErrorMessage(`SO ${so} already added.`);
         setShowError(true);
+        clearAndFocusSO();
+      } else {
+        // Scanner feedback for duplicate?
+        // We can just ignore or show toast.
       }
-      clearAndFocusSO();
       return;
     }
 
@@ -319,21 +327,65 @@ const MaterialDispatchScreen: React.FC = () => {
           },
           ...prev,
         ]);
-        clearAndFocusSO();
+        
+        if (!isScan) clearAndFocusSO();
+        else {
+             // Update feedback if scanning
+             setLastScannedCode(so);
+             setSessionCount(prev => prev + 1);
+        }
       } else {
         if (!isScan) {
-          setErrorMessage(result.error || "Failed to link SO.");
-          setShowError(true);
+           setErrorMessage(result.error || "Failed to link SO.");
+           setShowError(true);
+           clearAndFocusSO();
+        } else {
+           console.log("Scan add failed:", result.error);
+           // Maybe show toast?
         }
-        clearAndFocusSO();
       }
     } catch {
-      if (!isScan) {
-        setErrorMessage("Failed to link SO.");
-        setShowError(true);
-      }
-      clearAndFocusSO();
+       if (!isScan) {
+         setErrorMessage("Failed to link SO.");
+         setShowError(true);
+         clearAndFocusSO();
+       }
     }
+  }
+
+  // Queue Processor
+  useEffect(() => {
+    const process = async () => {
+        if (processingRef.current) return;
+        if (pendingScansRef.current.length === 0) return;
+
+        processingRef.current = true;
+        const nextSo = pendingScansRef.current.shift();
+
+        if (nextSo) {
+            await coreAddSO(nextSo, true);
+        }
+
+        processingRef.current = false;
+        
+        if (pendingScansRef.current.length > 0) {
+            setQueueTrigger(c => c + 1);
+        }
+    };
+    process();
+  }, [queueTrigger, items, dispatchId]);
+
+  // Public entry point
+  function addSO(raw: string, isScan = false) {
+      if (isScan) {
+          pendingScansRef.current.push(raw);
+          setQueueTrigger(c => c + 1);
+      } else {
+          // Manual entry - run direct or via queue? 
+          // Better direct if we want immediate feedback, but coreAddSO is async.
+          // Let's use coreAddSO directly for manual to handle errors in UI.
+          coreAddSO(raw, false);
+      }
   }
 
   async function removeSO(linkId: number) {
@@ -381,6 +433,7 @@ const MaterialDispatchScreen: React.FC = () => {
     
     // Reset session
     sessionCodesRef.current.clear();
+    pendingScansRef.current = [];
     setLastScannedCode(null);
     setSessionCount(0);
     setScanVisible(true);
@@ -401,10 +454,11 @@ const MaterialDispatchScreen: React.FC = () => {
     sessionCodesRef.current.add(value);
     Vibration.vibrate();
     
+    // Add to queue
     addSO(value, true);
     
-    setLastScannedCode(value);
-    setSessionCount(prev => prev + 1);
+    // Update local feedback immediately so user knows scan was registered
+    // Actual success count updates when API returns in coreAddSO
   };
 
   const canSubmit = value.trim().length > 0;

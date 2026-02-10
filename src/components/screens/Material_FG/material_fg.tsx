@@ -152,6 +152,11 @@ const MaterialFGTransferScreen: React.FC = () => {
   
   // Lock for Location scanning single-shot
   const scanLockRef = useRef(false);
+  
+  // -- Queue / Lock for SO scanning --
+  const processingRef = useRef(false);
+  const pendingScansRef = useRef<string[]>([]);
+  const [queueTrigger, setQueueTrigger] = useState(0);
 
   // Ref to track location value without triggering re-renders in effects
   const locationValueRef = useRef(location);
@@ -278,7 +283,68 @@ const MaterialFGTransferScreen: React.FC = () => {
       return updatedItems;
   };
 
-  const addItem = async () => {
+  // 3. Core Async Logic (verification + API)
+  const coreAddItem = async (soVal: string, locVal: string) => {
+    try {
+      await performAddItem(soVal, locVal);
+      // For manual flow, we might want to clear/focus. 
+      // But if we are in a rapid scan loop, we just move to next.
+      
+      // Update Feedback for Scanner (if standard UI is open, this might be invisible, but harmless)
+      if (scanModal.visible && scanModal.target === "so") {
+          setLastScannedCode(soVal);
+          setSessionCount(prev => prev + 1);
+          setScanError(null);
+      } else {
+         // Manual mode success
+         setSoNumber("");
+         requestAnimationFrame(() => {
+             soRef.current?.focus();
+         });
+      }
+
+    } catch (error: any) {
+       console.log("Add failed:", error);
+       if (scanModal.visible && scanModal.target === "so") {
+          setScanError(error.message || "Invalid SO");
+          // On error in scan mode, we DO NOT clear the session code ref 
+          // because we don't want to infinite loop-retry the same bad code.
+       } else {
+          // Manual mode error
+          showMessage("SO Number Not Found", error.message, () => {
+             // on OK
+             soRef.current?.focus();
+          });
+       }
+    }
+  };
+
+  // 4. Effect to process the queue
+  useEffect(() => {
+    const process = async () => {
+        if (processingRef.current) return;
+        if (pendingScansRef.current.length === 0) return;
+
+        processingRef.current = true;
+        const nextSo = pendingScansRef.current.shift();
+        const currentLoc = locationValueRef.current; // Use ref for latest location
+
+        if (nextSo && currentLoc) {
+            await coreAddItem(nextSo, currentLoc);
+        }
+
+        processingRef.current = false;
+        
+        // Trigger next if items remain
+        if (pendingScansRef.current.length > 0) {
+            setQueueTrigger(c => c + 1);
+        }
+    };
+    process();
+  }, [queueTrigger, items /* deps */]);
+
+  // 5. Public entry point (Manual Button / Enter Key)
+  const addItem = () => {
     const loc = location.trim();
     const so = soNumber.trim();
 
@@ -296,27 +362,10 @@ const MaterialFGTransferScreen: React.FC = () => {
       return;
     }
 
-    try {
-      await performAddItem(so, loc);
-      
-      setSoNumber("");
-      
-      // Focus SO again
-      requestAnimationFrame(() => {
-         soRef.current?.focus();
-      });
-
-    } catch (error: any) {
-      setSoNumber("");
-      showMessage(
-        "SO Number Not Found",
-        error.message,
-        () => {
-          setMessageDlg({ show: false, title: "" });
-          soRef.current?.focus();
-        }
-      );
-    }
+    // Manual add -> push to queue
+    pendingScansRef.current.push(so);
+    setSoNumber(""); // Clear UI immediately
+    setQueueTrigger(c => c + 1);
   };
 
   const clearForm = async () => {
@@ -358,6 +407,7 @@ const MaterialFGTransferScreen: React.FC = () => {
       // Reset Multi-scan state if scanning SO
       if (target === "so") {
           sessionCodesRef.current.clear();
+          pendingScansRef.current = [];
           setSessionCount(0);
           setLastScannedCode(null);
           setScanError(null);
@@ -396,9 +446,8 @@ const MaterialFGTransferScreen: React.FC = () => {
         if (sessionCodesRef.current.has(value)) return;
 
         // Verify Location exists
-        const currentLoc = location.trim();
+        const currentLoc = locationValueRef.current; // Use ref
         if (!currentLoc) {
-            // Should not happen if UX is followed, but if it does:
             setScanError("No Location Set!");
             Vibration.vibrate();
             return;
@@ -408,24 +457,9 @@ const MaterialFGTransferScreen: React.FC = () => {
         sessionCodesRef.current.add(value);
         Vibration.vibrate();
 
-        try {
-            setScanError(null);
-            
-            // Call API and update state
-            await performAddItem(value, currentLoc);
-
-            // Update Feedback
-            setLastScannedCode(value);
-            setSessionCount(prev => prev + 1);
-            
-        } catch (error: any) {
-            console.log("Scan failed for", value, error);
-            setScanError(error.message || "Invalid SO");
-            // Optionally remove from sessionRefs to allow retry? 
-            // Better to keep it blocked to prevent spamming the error. 
-            // User can close re-open to clear session if really needed, 
-            // or we could use a timeout to remove it.
-        }
+        // Push to queue
+        pendingScansRef.current.push(value);
+        setQueueTrigger(c => c + 1);
     }
   };
 
