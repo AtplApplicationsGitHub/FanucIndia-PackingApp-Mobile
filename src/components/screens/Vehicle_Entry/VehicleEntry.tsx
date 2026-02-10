@@ -410,9 +410,9 @@ export default function VehicleEntryScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: 16,
+    padding: 5,
     backgroundColor: '#f8f9fa',
-    paddingBottom: 40,
+    paddingBottom: 0,
   },
   input: {
     backgroundColor: '#fff',
