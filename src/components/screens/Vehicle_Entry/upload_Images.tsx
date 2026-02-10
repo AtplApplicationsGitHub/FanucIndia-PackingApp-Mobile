@@ -210,6 +210,7 @@ export default function UploadImages({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 1,
       allowsMultipleSelection: true,
+      selectionLimit: 5,
     });
 
     if (!result.canceled && result.assets) {
@@ -220,9 +221,10 @@ export default function UploadImages({
 
       const newPhotos: Photo[] = [];
       const tooBig: any[] = [];
+      const selectedAssets = result.assets.slice(0, 5);
       
-      for (let i = 0; i < result.assets.length; i++) {
-        const asset = result.assets[i];
+      for (let i = 0; i < selectedAssets.length; i++) {
+        const asset = selectedAssets[i];
 
         if (asset.fileSize && asset.fileSize > MAX_FILE_SIZE) {
           tooBig.push(asset);
@@ -295,24 +297,9 @@ export default function UploadImages({
         .map((item: any) => item?.fileName || item?.name)
         .filter(Boolean);
 
-      let successfullyUploadedCount = 0;
+      const successfullyUploadedCount = uploadedFileNames.length;
 
-      setLocalPhotos((prev) => {
-        return prev
-          .filter((photo) => {
-            if (photo.status !== "uploading") return true;
-
-            const wasUploaded = uploadedFileNames.includes(photo.name);
-            if (wasUploaded) {
-              successfullyUploadedCount++;
-              return false; // Remove successful
-            }
-            return true; // Keep for retry
-          })
-          .map((photo) =>
-            photo.status === "uploading" ? { ...photo, status: "failed" } : photo
-          );
-      });
+      setLocalPhotos((prev) => prev.filter((p) => p.status !== "uploading"));
 
       // Refresh attachments from server
       await loadExistingAttachments();
@@ -336,8 +323,9 @@ export default function UploadImages({
       }
     } catch (err: any) {
       // Mark all uploading as failed on error
+      // Remove all uploading files on error (disappear)
       setLocalPhotos((prev) =>
-        prev.map((p) => (p.status === "uploading" ? { ...p, status: "failed" } : p))
+        prev.filter((p) => p.status !== "uploading")
       );
 
       let title = "Upload Failed";

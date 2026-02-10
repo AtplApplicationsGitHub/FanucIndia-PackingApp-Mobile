@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 
 import {
   uploadAttachments,
@@ -171,6 +172,23 @@ const UploadModal: React.FC<Props> = ({
     }
   };
 
+  const compressImage = async (uri: string, fileName?: string) => {
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      return {
+        uri: result.uri,
+        name: fileName,
+        type: "image/jpeg",
+      };
+    } catch (err) {
+      return { uri, name: fileName, type: "image/jpeg" };
+    }
+  };
+
   const pickFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -185,12 +203,16 @@ const UploadModal: React.FC<Props> = ({
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsMultipleSelection: true,
+      selectionLimit: 5,
       quality: 0.8,
     });
+    
     if (!result.canceled && result.assets) {
       const existing = getAllExistingNames();
+      const processedAssets = [];
+      const selectedAssets = result.assets.slice(0, 5);
 
-      const formattedAssets = result.assets.map((a) => {
+      for (const a of selectedAssets) {
         let i = 1;
         let candidate = "";
         // Find the next available IMG_X.jpg
@@ -203,15 +225,26 @@ const UploadModal: React.FC<Props> = ({
           i++;
         }
 
-        return {
-          uri: a.uri,
-          name: candidate,
-          type: a.mimeType || "image/jpeg",
-          size: a.fileSize,
-        };
-      });
+        // Compress if it's an image
+        if (a.type === 'image' || (a.mimeType && a.mimeType.startsWith('image/'))) {
+          const compressed = await compressImage(a.uri, candidate);
+          processedAssets.push({
+            uri: compressed.uri,
+            name: compressed.name || candidate,
+            type: compressed.type,
+            size: null, // Size check bypassed for compressed images
+          });
+        } else {
+          processedAssets.push({
+            uri: a.uri,
+            name: candidate,
+            type: a.mimeType || "image/jpeg",
+            size: a.fileSize,
+          });
+        }
+      }
 
-      handlePickedFiles(formattedAssets);
+      handlePickedFiles(processedAssets);
     }
     setActionSheetVisible(false);
   };
@@ -234,12 +267,14 @@ const UploadModal: React.FC<Props> = ({
       // Force 'photoX.jpg' naming for camera
       const name = getNextPhotoName();
       
+      const compressed = await compressImage(a.uri, name);
+
       handlePickedFiles([
         {
-          uri: a.uri,
-          name: name,
-          type: a.mimeType || "image/jpeg",
-          size: a.fileSize,
+          uri: compressed.uri,
+          name: compressed.name || name,
+          type: compressed.type || "image/jpeg",
+          size: null, // Size check bypassed
         },
       ]);
     }
@@ -326,9 +361,7 @@ const UploadModal: React.FC<Props> = ({
     } catch (err: any) {
       // Mark uploading files as failed
       setLocalFiles((prev) =>
-        prev.map((f) =>
-          f.status === "uploading" ? { ...f, status: "failed" } : f
-        )
+        prev.filter((f) => f.status !== "uploading")
       );
 
       let title = "Upload Failed";
