@@ -10,7 +10,7 @@ import {
   Pressable,
 } from "react-native";
 import { CameraView, BarcodeScanningResult } from "expo-camera";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 
 const COLORS = {
   accent: "#3b82f6",

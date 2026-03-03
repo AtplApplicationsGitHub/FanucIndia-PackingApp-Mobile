@@ -7,9 +7,6 @@ import React, {
   useCallback,
 } from "react";
 import {
-  Animated,
-  Easing,
-  LayoutAnimation,
   StyleSheet,
   Text,
   TextInput,
@@ -48,7 +45,7 @@ import {
   clearDispatchData,
 } from "../../Storage/material_dispatch_storage";
 
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import UploadModal from "./Upload";
 
 type DispatchForm = {
@@ -98,7 +95,6 @@ const MaterialDispatchScreen: React.FC = () => {
   const [uploadedAttachments, setUploadedAttachments] = useState<
     DispatchAttachment[]
   >([]);
-  const [expanded, setExpanded] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -115,10 +111,6 @@ const MaterialDispatchScreen: React.FC = () => {
 
   const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
-
-  const animatedHeight = useState(new Animated.Value(1))[0];
-  const salesOpacity = useState(new Animated.Value(0))[0];
-  const formHeight = 260; // reduced height because fewer fields
 
   const transporterRef = useRef<TextInput>(null);
   const soRef = useRef<TextInput>(null);
@@ -149,34 +141,8 @@ const MaterialDispatchScreen: React.FC = () => {
   const confirmNewForm = async () => {
     await clearDispatchData();
     handleClear();
-    if (!expanded) toggleExpand();
     setShowNewFormModal(false);
     setTimeout(() => transporterRef.current?.focus(), 100);
-  };
-
-  const toggleExpand = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const toValue = expanded ? 0 : 1;
-    Animated.timing(animatedHeight, {
-      toValue,
-      duration: 300,
-      easing: Easing.ease,
-      useNativeDriver: false,
-    }).start();
-    const salesToValue = expanded ? 1 : 0;
-    Animated.timing(salesOpacity, {
-      toValue: salesToValue,
-      duration: 300,
-      easing: Easing.ease,
-      useNativeDriver: false,
-    }).start();
-    setExpanded(!expanded);
-
-    if (!expanded) {
-      setTimeout(() => {
-        transporterRef.current?.focus();
-      }, 350);
-    }
   };
 
   const focusSOInput = useCallback(() => {
@@ -200,7 +166,6 @@ const MaterialDispatchScreen: React.FC = () => {
       if (result.ok) {
         const id = (result.data as any).id;
         setDispatchId(id);
-        if (expanded) toggleExpand();
         focusSOInput();
       } else {
         setErrorMessage(result.error || "Failed to save.");
@@ -269,13 +234,6 @@ const MaterialDispatchScreen: React.FC = () => {
       setShowError(true);
     }
   };
-
-  const formHeightInterpolate = animatedHeight.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, formHeight],
-  });
-
-  const scaleInterpolate = animatedHeight;
 
   /* ------------------- SALES ORDERS ------------------- */
   const [value, setValue] = useState("");
@@ -477,9 +435,6 @@ const MaterialDispatchScreen: React.FC = () => {
         setDispatchId(data.dispatchId);
         setItems(data.items || []);
         if (data.dispatchId) {
-          setExpanded(false);
-          animatedHeight.setValue(0);
-          salesOpacity.setValue(1);
           await loadAttachments();
         }
       }
@@ -490,19 +445,19 @@ const MaterialDispatchScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       const timeoutId = setTimeout(() => {
-        if (dispatchId && !expanded) {
+        if (dispatchId) {
           soRef.current?.focus();
         } else {
           transporterRef.current?.focus();
         }
       }, 200);
       return () => clearTimeout(timeoutId);
-    }, [dispatchId, expanded])
+    }, [dispatchId])
   );
 
   useEffect(() => {
-    if (!expanded && dispatchId) focusSOInput();
-  }, [expanded, dispatchId, focusSOInput]);
+    if (dispatchId) focusSOInput();
+  }, [dispatchId, focusSOInput]);
 
   useEffect(() => {
     saveDispatchData({
@@ -549,51 +504,37 @@ const MaterialDispatchScreen: React.FC = () => {
     });
   }, [items, sortMode]);
 
+  const navigation = useNavigation();
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={{ flexDirection: "row", alignItems: "center", marginRight: 5 }}>
+          <TouchableOpacity onPress={handleAddNew} style={styles.addNewBtn}>
+            <Text style={styles.addNewText}>Add New</Text>
+          </TouchableOpacity>
+          {dispatchId ? (
+            <TouchableOpacity onPress={openFilePicker} style={[styles.attachBtn, { marginLeft: 10 }]}>
+              <Ionicons name="attach" size={22} color={C.blue} />
+              {totalAttachments > 0 && (
+                <View style={styles.attachmentBadge}>
+                  <Text style={styles.attachmentBadgeText}>
+                    {totalAttachments}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ),
+    });
+  }, [navigation, handleAddNew, dispatchId, openFilePicker, totalAttachments]);
+
   return (
     <View style={styles.safe}>
       <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.headerRow}>
-          {dispatchId && (
-            <TouchableOpacity onPress={toggleExpand} style={styles.arrowBtn}>
-              <Ionicons
-                name={expanded ? "chevron-up-outline" : "chevron-down-outline"}
-                size={24}
-                color={C.text}
-              />
-            </TouchableOpacity>
-          )}
-          <View style={styles.headerActions}>
-            <TouchableOpacity onPress={handleAddNew} style={styles.addNewBtn}>
-              <Text style={styles.addNewText}>Add New</Text>
-            </TouchableOpacity>
-            {dispatchId && (
-              <TouchableOpacity
-                onPress={openFilePicker}
-                style={styles.attachBtn}
-              >
-                <Ionicons name="attach" size={22} color={C.blue} />
-                {totalAttachments > 0 && (
-                  <View style={styles.attachmentBadge}>
-                    <Text style={styles.attachmentBadgeText}>
-                      {totalAttachments}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
         {/* Form */}
-        <Animated.View
-          style={{
-            overflow: "hidden",
-            height: formHeightInterpolate,
-            opacity: animatedHeight,
-            transform: [{ scaleY: scaleInterpolate }],
-          }}
-        >
+        <View style={{ marginBottom: 12 }}>
           <View style={styles.card}>
             <View style={styles.row2}>
               <TextInput
@@ -637,128 +578,130 @@ const MaterialDispatchScreen: React.FC = () => {
               )}
             </TouchableOpacity>
           </View>
-        </Animated.View>
+        </View>
 
-        {/* SO & Attachments Section */}
-        <Animated.View style={{ opacity: salesOpacity, flex: 1 }}>
-          <View style={styles_sales.inputRow}>
-            <View style={styles_sales.inputWrap}>
-              <TextInput
-                ref={soRef}
-                value={value}
-                onChangeText={setValue}
-                placeholder={keyboardDisabled ? "Scan SO..." : "Scan or enter SO"}
-                placeholderTextColor={C_sales.sub}
-                style={[styles_sales.input, { paddingRight: 44 }]}
-                returnKeyType="done"
-                onSubmitEditing={() => addSO(value)}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                showSoftInputOnFocus={!keyboardDisabled}
-              />
-              <Pressable onPress={openScanner} style={styles_sales.scanBtn}>
-                <MaterialCommunityIcons
-                  name="qrcode-scan"
-                  size={20}
-                  color={C.accent}
+        {/* SO & Attachments Section - ONLY RENDER IF DISPATCH ID EXISTS */}
+        {dispatchId ? (
+          <View style={{ flex: 1 }}>
+            <View style={styles_sales.inputRow}>
+              <View style={styles_sales.inputWrap}>
+                <TextInput
+                  ref={soRef}
+                  value={value}
+                  onChangeText={setValue}
+                  placeholder={keyboardDisabled ? "Scan SO..." : "Scan or enter SO"}
+                  placeholderTextColor={C_sales.sub}
+                  style={[styles_sales.input, { paddingRight: 44 }]}
+                  returnKeyType="done"
+                  onSubmitEditing={() => addSO(value)}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  showSoftInputOnFocus={!keyboardDisabled}
                 />
-              </Pressable>
-            </View>
-            <TouchableOpacity
-              onPress={() => addSO(value)}
-              disabled={!canSubmit || !dispatchId}
-              style={[
-                styles_sales.submitBtnOuter,
-                (!canSubmit || !dispatchId) && { opacity: 0.5 },
-              ]}
-            >
-              <Text style={styles_sales.submitTextOuter}>Submit</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles_sales.totalPill}>
-            <Text style={styles_sales.totalText}>
-              Total SOs: <Text style={styles_sales.totalNum}>{total}</Text> |
-              Attachments:{" "}
-              <Text style={styles_sales.totalNum}>{totalAttachments}</Text>
-            </Text>
-          </View>
-
-          {/* SO List */}
-          <View style={[styles_sales.tableCard, { marginTop: 12 }]}>
-            <View style={[styles_sales.row, styles_sales.headerRow]}>
-              <Text style={[styles_sales.th, { width: 40 }]}>S/No</Text>
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={styles_sales.th}>SO Number</Text>
-                <TouchableOpacity 
-                    onPress={toggleSortMode}
-                    style={{
-                        padding: 4,
-                        backgroundColor: '#E5E7EB',
-                        borderRadius: 6,
-                        marginLeft: 6
-                    }}
-                >
-                    <MaterialCommunityIcons 
-                        name={getSortIcon()} 
-                        size={16} 
-                        color={C.accent} 
-                    />
-                </TouchableOpacity>
+                <Pressable onPress={openScanner} style={styles_sales.scanBtn}>
+                  <MaterialCommunityIcons
+                    name="qrcode-scan"
+                    size={20}
+                    color={C.accent}
+                  />
+                </Pressable>
               </View>
-              <Text style={[styles_sales.th, { width: 80 }]}>Time</Text>
-              <Text
-                style={[styles_sales.th, { width: 72, textAlign: "right" }]}
+              <TouchableOpacity
+                onPress={() => addSO(value)}
+                disabled={!canSubmit || !dispatchId}
+                style={[
+                  styles_sales.submitBtnOuter,
+                  (!canSubmit || !dispatchId) && { opacity: 0.5 },
+                ]}
               >
-                Action
+                <Text style={styles_sales.submitTextOuter}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles_sales.totalPill}>
+              <Text style={styles_sales.totalText}>
+                Total SOs: <Text style={styles_sales.totalNum}>{total}</Text> |
+                Attachments:{" "}
+                <Text style={styles_sales.totalNum}>{totalAttachments}</Text>
               </Text>
             </View>
-            <FlatList
-              style={{ flex: 1 }}
-              data={sortedItems}
 
-              keyExtractor={(it) => it.linkId.toString()}
-              contentContainerStyle={
-                items.length === 0 && { paddingVertical: 24 }
-              }
-              ItemSeparatorComponent={() => (
-                <View style={styles_sales.divider} />
-              )}
-              renderItem={({ item, index }) => (
-                <View style={styles_sales.row}>
-                  <Text style={[styles_sales.td, { width: 40 }]}>
-                    {sortMode === 'desc' ? items.length - index : index + 1}
-                  </Text>
-                  <Text style={[styles_sales.td, { flex: 1 }]}>
-                    {item.soId}
-                  </Text>
-                  <Text style={[styles_sales.td, { width: 80 }]}>
-                    {formatTime(item.createdAt)}
-                  </Text>
-                  <View
-                    style={[
-                      { width: 72, alignItems: "flex-end" },
-                    ]}
+            {/* SO List */}
+            <View style={[styles_sales.tableCard, { marginTop: 12 }]}>
+              <View style={[styles_sales.row, styles_sales.headerRow]}>
+                <Text style={[styles_sales.th, { width: 40 }]}>S/No</Text>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles_sales.th}>SO Number</Text>
+                  <TouchableOpacity 
+                      onPress={toggleSortMode}
+                      style={{
+                          padding: 4,
+                          backgroundColor: '#E5E7EB',
+                          borderRadius: 6,
+                          marginLeft: 6
+                      }}
                   >
-                    <Pressable
-                      onPress={() => removeSO(item.linkId)}
-                      style={({ pressed }) => [
-                        styles_sales.iconBtn,
-                        pressed && { backgroundColor: C_sales.hover },
+                      <MaterialCommunityIcons 
+                          name={getSortIcon()} 
+                          size={16} 
+                          color={C.accent} 
+                      />
+                  </TouchableOpacity>
+                </View>
+                <Text style={[styles_sales.th, { width: 80 }]}>Time</Text>
+                <Text
+                  style={[styles_sales.th, { width: 72, textAlign: "right" }]}
+                >
+                  Action
+                </Text>
+              </View>
+              <FlatList
+                style={{ flex: 1 }}
+                data={sortedItems}
+
+                keyExtractor={(it) => it.linkId.toString()}
+                contentContainerStyle={
+                  items.length === 0 && { paddingVertical: 24 }
+                }
+                ItemSeparatorComponent={() => (
+                  <View style={styles_sales.divider} />
+                )}
+                renderItem={({ item, index }) => (
+                  <View style={styles_sales.row}>
+                    <Text style={[styles_sales.td, { width: 40 }]}>
+                      {sortMode === 'desc' ? items.length - index : index + 1}
+                    </Text>
+                    <Text style={[styles_sales.td, { flex: 1 }]}>
+                      {item.soId}
+                    </Text>
+                    <Text style={[styles_sales.td, { width: 80 }]}>
+                      {formatTime(item.createdAt)}
+                    </Text>
+                    <View
+                      style={[
+                        { width: 72, alignItems: "flex-end" },
                       ]}
                     >
-                      <Ionicons
-                        name="trash-outline"
-                        size={18}
-                        color={C_sales.danger}
-                      />
-                    </Pressable>
+                      <Pressable
+                        onPress={() => removeSO(item.linkId)}
+                        style={({ pressed }) => [
+                          styles_sales.iconBtn,
+                          pressed && { backgroundColor: C_sales.hover },
+                        ]}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={18}
+                          color={C_sales.danger}
+                        />
+                      </Pressable>
+                    </View>
                   </View>
-                </View>
-              )}
-            />
+                )}
+              />
+            </View>
           </View>
-        </Animated.View>
+        ) : null}
       </View>
 
       {/* ---------- MODALS ---------- */}

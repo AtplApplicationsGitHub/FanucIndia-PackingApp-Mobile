@@ -224,6 +224,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [successModal, setSuccessModal] = useState({ visible: false, message: "", autoDismiss: true });
   const [printConfirmModal, setPrintConfirmModal] = useState(false);
   const [clearConfirmModal, setClearConfirmModal] = useState(false);
+  const [limitModalVisible, setLimitModalVisible] = useState(false);
   const [mismatchModal, setMismatchModal] = useState({ visible: false, newName: "", soToAdd: "" });
 
   const { verifySO, loading: verifyLoading, error: verifyError } = useVerifySO();
@@ -259,7 +260,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   );
 
   useEffect(() => {
-    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible;
+    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible || limitModalVisible;
     if (keyboardDisabled && !anyModalOpen) {
       const timer = setTimeout(() => {
         if (navigation.isFocused()) {
@@ -280,7 +281,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   ]);
 
   const handleBlur = () => {
-    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible;
+    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible || limitModalVisible;
     if (keyboardDisabled && !anyModalOpen) {
       setTimeout(() => {
         if (navigation.isFocused() && !anyModalOpen) {
@@ -380,6 +381,18 @@ export default function CustomerLabelPrint(): JSX.Element {
         return;
     }
 
+    if (sos.length >= 15) {
+        pendingScansRef.current = [];
+        if (fromScanner) {
+            setScanStatus({ message: "Max 15 reached", color: COLORS.danger });
+            Vibration.vibrate(400);
+            closeScanner();
+        }
+        setSoNumber("");
+        setLimitModalVisible(true);
+        return;
+    }
+
     if (fromScanner) {
         pendingScansRef.current.push(soToAdd);
         setQueueTrigger(c => c + 1);
@@ -403,6 +416,18 @@ export default function CustomerLabelPrint(): JSX.Element {
   };
 
   const coreAddSO = async (soToAdd: string, fromScanner: boolean) => {
+    if (sos.length >= 15) {
+      pendingScansRef.current = [];
+      if (fromScanner) {
+        setScanStatus({ message: "Max 15 reached", color: COLORS.danger });
+        Vibration.vibrate(400);
+        closeScanner();
+      }
+      setSoNumber("");
+      setLimitModalVisible(true);
+      return;
+    }
+
     // 1. Check duplicates in UI list
     if (sos.some((i) => i.soNumber === soToAdd)) {
       if (fromScanner) {
@@ -736,6 +761,23 @@ export default function CustomerLabelPrint(): JSX.Element {
             confirmText="OK"
             type="primary"
             onConfirm={handleMismatchConfirm}
+        />
+
+        <ConfirmModal
+            visible={limitModalVisible}
+            title="Limit Exceeded"
+            message="Maximum 15 SOs allowed. Please print and start a new session."
+            confirmText="Print"
+            cancelText="Close"
+            type="primary"
+            onConfirm={() => {
+                setLimitModalVisible(false);
+                if (scanModalVisible) closeScanner();
+                confirmPrint();
+            }}
+            onCancel={() => {
+                setLimitModalVisible(false);
+            }}
         />
 
         <Modal
