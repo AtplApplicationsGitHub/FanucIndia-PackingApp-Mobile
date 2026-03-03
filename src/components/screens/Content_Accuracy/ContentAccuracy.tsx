@@ -499,6 +499,9 @@ const PutAwayScreen = () => {
     ]);
   };
 
+  // Debounce tracking
+  const lastProcessedRef = useRef({ code: '', time: 0 });
+
   const handleSaveEntry = (valueOverride?: string, fromScanner: boolean = false): boolean => {
     const rawValue = typeof valueOverride === 'string' ? valueOverride : scanMaterial;
     
@@ -518,6 +521,20 @@ const PutAwayScreen = () => {
     }
 
     const matVal = rawValue.trim().toUpperCase();
+
+    // --- Debounce Mechanism ---
+    const now = Date.now();
+    if (matVal === lastProcessedRef.current.code && now - lastProcessedRef.current.time < 1500) {
+      console.log("Debounced duplicate scan:", matVal);
+      if (!fromScanner) {
+        setScanMaterial('');
+        setTimeout(() => materialInputRef.current?.focus(), 50);
+      }
+      return false;
+    }
+    lastProcessedRef.current = { code: matVal, time: now };
+    // --------------------------
+
     const currentLoc = scanLocation.trim().toUpperCase();
     const currentSO = scanSO.trim().toUpperCase();
     
@@ -881,11 +898,18 @@ const PutAwayScreen = () => {
       <View style={styles.content}>
         
         {!isReportView && excelData.length === 0 && (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-               <Text style={{ color: COLORS.muted, fontSize: 16, fontWeight: '500' }}>
-                  Select Excel File to Begin
+            <TouchableOpacity 
+                style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 }}
+                onPress={handleUploadExcel}
+            >
+               <Ionicons name="folder-open-outline" size={80} color={COLORS.muted} style={{ marginBottom: 16, opacity: 0.5 }} />
+               <Text style={{ color: COLORS.muted, fontSize: 18, fontWeight: '600' }}>
+                  Open Local File Manager
                </Text>
-            </View>
+               <Text style={{ color: COLORS.muted, fontSize: 14, marginTop: 8, opacity: 0.8 }}>
+                  Select an Excel file to begin
+               </Text>
+            </TouchableOpacity>
         )}
 
         {/* --- Stats Header --- */}

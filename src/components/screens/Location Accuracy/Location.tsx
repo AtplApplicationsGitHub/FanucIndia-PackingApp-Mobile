@@ -387,6 +387,9 @@ const LocationScreen = () => {
     ]);
   };
 
+  // Debounce tracking
+  const lastProcessedRef = useRef({ code: '', time: 0 });
+
   // Internal logic for saving
   const coreSaveEntry = async (valueOverride: string, fromScanner: boolean) => {
     const rawValue = valueOverride;
@@ -405,6 +408,20 @@ const LocationScreen = () => {
     }
 
     const val = rawValue.trim().toUpperCase();
+
+    // --- Debounce Mechanism ---
+    const now = Date.now();
+    if (val === lastProcessedRef.current.code && now - lastProcessedRef.current.time < 1500) {
+      console.log("Debounced duplicate scan:", val);
+      if (!fromScanner) {
+        setScanSoYd('');
+        setTimeout(() => soYdInputRef.current?.focus(), 50);
+      }
+      return 'DUPLICATE';
+    }
+    lastProcessedRef.current = { code: val, time: now };
+    // --------------------------
+
     const currentLoc = scanLocation.trim().toUpperCase();
     
     // Check if match exists in Excel

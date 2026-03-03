@@ -70,10 +70,12 @@ const ErrorModal = ({
     <Modal transparent visible={visible} animationType="fade">
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Ionicons name="alert-circle" size={30} color={COLORS.danger} />
-            <Text style={styles.modalTitle}>{title}</Text>
-          </View>
+          {title ? (
+            <View style={styles.modalHeader}>
+              <Ionicons name="alert-circle" size={30} color={COLORS.danger} />
+              <Text style={styles.modalTitle}>{title}</Text>
+            </View>
+          ) : null}
           <Text style={styles.modalDescription}>{message}</Text>
           {!autoDismiss && (
             <View style={styles.modalFooter}>
@@ -370,6 +372,9 @@ export default function CustomerLabelPrint(): JSX.Element {
     addSO(value, true);
   };
 
+  // Debounce tracking
+  const lastProcessedRef = useRef({ code: "", time: 0 });
+
   const addSO = async (value?: string, fromScanner = false) => {
     const soToAdd = (value || soNumber).trim().toUpperCase();
     if (!soToAdd) {
@@ -381,25 +386,11 @@ export default function CustomerLabelPrint(): JSX.Element {
         return;
     }
 
-    if (sos.length >= 15) {
-        pendingScansRef.current = [];
-        if (fromScanner) {
-            setScanStatus({ message: "Max 15 reached", color: COLORS.danger });
-            Vibration.vibrate(400);
-            closeScanner();
-        }
-        setSoNumber("");
-        setLimitModalVisible(true);
-        return;
-    }
-
     if (fromScanner) {
         pendingScansRef.current.push(soToAdd);
         setQueueTrigger(c => c + 1);
         return;
     }
-
-    // Manual input flow
     if (verifyingRef.current) {
         showError("Please wait", "Processing...", true);
         return;
@@ -434,7 +425,7 @@ export default function CustomerLabelPrint(): JSX.Element {
         setScanStatus({ message: "Duplicate: " + soToAdd, color: COLORS.warning });
         return;
       }
-      showError("Duplicate", `"${soToAdd}" is already in the list.`);
+      showError("", `"${soToAdd}" is already in the list.`, false);
       setSoNumber("");
       if (!scanModalVisible) focusInput();
       return;
@@ -768,7 +759,7 @@ export default function CustomerLabelPrint(): JSX.Element {
             title="Limit Exceeded"
             message="Maximum 15 SOs allowed. Please print and start a new session."
             confirmText="Print"
-            cancelText="Close"
+            cancelText="Cancel"
             type="primary"
             onConfirm={() => {
                 setLimitModalVisible(false);

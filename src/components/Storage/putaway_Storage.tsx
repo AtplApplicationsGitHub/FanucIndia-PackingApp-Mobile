@@ -12,9 +12,15 @@ export type ScannedRecord = {
   Timestamp: number;
 };
 
+export type ExcelRow = {
+  SO: string;
+  YD: string | undefined;
+  Location: string;
+};
+
 // Define the shape of the full session
 export type PutAwaySessionData = {
-    excelData: any[]; // We can be specific if we want, but 'any[]' allows flex for now
+    excelData: ExcelRow[];
     fileName: string | null;
     scannedRecords: ScannedRecord[];
     reportFiles: ScannedRecord[];
@@ -25,6 +31,7 @@ export type PutAwaySessionData = {
     isReportView: boolean;
     filterType: 'ALL' | 'Scanned' | 'Empty';
 };
+
 
 class PutAwayStorage {
   /**
