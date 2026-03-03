@@ -713,14 +713,20 @@ export default function CustomerLabelPrint(): JSX.Element {
             title={errorModal.title}
             message={errorModal.message}
             autoDismiss={errorModal.autoDismiss}
-            onClose={() => setErrorModal({ ...errorModal, visible: false })}
+            onClose={() => {
+                setErrorModal({ ...errorModal, visible: false });
+                focusInput();
+            }}
         />
 
         <SuccessModal
             visible={successModal.visible}
             message={successModal.message}
             autoDismiss={successModal.autoDismiss}
-            onClose={() => setSuccessModal({ visible: false, message: "", autoDismiss: true })}
+            onClose={() => {
+                setSuccessModal({ visible: false, message: "", autoDismiss: true });
+                focusInput();
+            }}
         />
 
         <ConfirmModal
@@ -731,7 +737,10 @@ export default function CustomerLabelPrint(): JSX.Element {
             cancelText="Cancel"
             type="primary"
             onConfirm={confirmPrint}
-            onCancel={() => setPrintConfirmModal(false)}
+            onCancel={() => {
+                setPrintConfirmModal(false);
+                focusInput();
+            }}
         />
 
         <ConfirmModal
@@ -742,7 +751,10 @@ export default function CustomerLabelPrint(): JSX.Element {
             cancelText="No"
             type="danger"
             onConfirm={confirmClearAll}
-            onCancel={() => setClearConfirmModal(false)}
+            onCancel={() => {
+                setClearConfirmModal(false);
+                focusInput();
+            }}
         />
 
         <ConfirmModal
@@ -768,6 +780,7 @@ export default function CustomerLabelPrint(): JSX.Element {
             }}
             onCancel={() => {
                 setLimitModalVisible(false);
+                focusInput();
             }}
         />
 

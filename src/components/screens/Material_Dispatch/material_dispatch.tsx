@@ -535,7 +535,7 @@ const MaterialDispatchScreen: React.FC = () => {
       <View style={styles.container}>
         {/* Form */}
         <View style={{ marginBottom: 12 }}>
-          <View style={styles.card}>
+
             <View style={styles.row2}>
               <TextInput
                 ref={transporterRef}
@@ -559,25 +559,32 @@ const MaterialDispatchScreen: React.FC = () => {
                   onChange("vehicleNo", cleaned);
                 }}
               />
+              <TouchableOpacity
+                onPress={dispatchId ? handleUpdateHeader : handleSaveHeader}
+                disabled={!isFormValid || savingHeader}
+                style={[
+                  styles.saveBtn,
+                  { 
+                    paddingVertical: 0, 
+                    paddingHorizontal: 16, 
+                    justifyContent: "center",
+                    alignItems: "center",
+                    height: 44, // Match input height roughly
+                  },
+                  (!isFormValid || savingHeader) && styles.disabledBtn,
+                ]}
+              >
+                {savingHeader ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Ionicons
+                    name={dispatchId ? "sync-outline" : "save-outline"}
+                    size={24}
+                    color="#fff"
+                  />
+                )}
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-              onPress={dispatchId ? handleUpdateHeader : handleSaveHeader}
-              disabled={!isFormValid || savingHeader}
-              style={[
-                styles.saveBtn,
-                (!isFormValid || savingHeader) && styles.disabledBtn,
-              ]}
-            >
-              {savingHeader ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.saveBtnText}>
-                  {dispatchId ? "Update" : "Save"}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* SO & Attachments Section - ONLY RENDER IF DISPATCH ID EXISTS */}
@@ -860,13 +867,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   attachmentBadgeText: { color: "#fff", fontSize: 10, fontWeight: "bold" },
-  card: {
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 10,
-    padding: 10,
-  },
   input: {
     borderWidth: 1,
     borderColor: C.border,
