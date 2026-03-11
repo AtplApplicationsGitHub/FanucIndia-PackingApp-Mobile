@@ -7,6 +7,8 @@ export type StoredLabelPrintData = {
   sos: { id: string; soNumber: string }[];
   customerName: string | null;
   customerAddress: string | null;
+  mobileNumber: string | null;
+  boxNumber: string | null;
   isCustomerLocked: boolean;
 };
 
@@ -14,6 +16,8 @@ const defaultData: StoredLabelPrintData = {
   sos: [],
   customerName: null,
   customerAddress: null,
+  mobileNumber: null,
+  boxNumber: "1/1",
   isCustomerLocked: false,
 };
 
@@ -36,6 +40,8 @@ export const labelPrintStorage = {
         sos: Array.isArray(parsed.sos) ? parsed.sos : [],
         customerName: parsed.customerName || null,
         customerAddress: parsed.customerAddress || null,
+        mobileNumber: parsed.mobileNumber || null,
+        boxNumber: parsed.boxNumber || "1/1",
         isCustomerLocked: !!parsed.isCustomerLocked,
       };
     } catch (error) {

@@ -84,6 +84,9 @@ export const API_ENDPOINTS = {
     get HEADER() {
       return `${BASE_URL}/dispatch/mobile/header`;
     },
+    get FETCH_TRANSPORTERS() {
+      return `${BASE_URL}/lookup/transporters`;
+    },
     SO(dispatchId: string) {
       return `${BASE_URL}/dispatch/mobile/${dispatchId}/so`;
     },

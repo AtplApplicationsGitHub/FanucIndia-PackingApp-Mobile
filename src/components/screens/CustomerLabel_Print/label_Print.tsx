@@ -190,6 +190,91 @@ const ConfirmModal = ({
   );
 };
 
+const EditCustomerModal = ({
+  visible,
+  initialData,
+  onSave,
+  onClose,
+}: {
+  visible: boolean;
+  initialData: { name: string; address: string; mobile: string; box: string };
+  onSave: (data: { name: string; address: string; mobile: string; box: string }) => void;
+  onClose: () => void;
+}) => {
+  const [data, setData] = useState(initialData);
+
+  useEffect(() => {
+    if (visible) setData(initialData);
+  }, [visible, initialData]);
+
+  return (
+    <Modal transparent visible={visible} animationType="slide">
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { maxWidth: 400 }]}>
+          <View style={styles.modalHeader}>
+            <Ionicons name="create" size={24} color={COLORS.accent} />
+            <Text style={styles.modalTitle}>Edit Customer Info</Text>
+          </View>
+          
+          <View style={styles.editField}>
+            <Text style={styles.fieldLabel}>Customer Name</Text>
+            <TextInput 
+              style={styles.fieldInput} 
+              value={data.name} 
+              onChangeText={(v) => setData({...data, name: v})} 
+              showSoftInputOnFocus={true}
+            />
+          </View>
+          
+          <View style={styles.editField}>
+            <Text style={styles.fieldLabel}>Address</Text>
+            <TextInput 
+              style={[styles.fieldInput, { minHeight: 60 }]} 
+              value={data.address} 
+              onChangeText={(v) => setData({...data, address: v})} 
+              multiline
+              showSoftInputOnFocus={true}
+            />
+          </View>
+          
+          <View style={styles.editField}>
+            <Text style={styles.fieldLabel}>Mobile Number</Text>
+            <TextInput 
+              style={styles.fieldInput} 
+              value={data.mobile} 
+              onChangeText={(v) => setData({...data, mobile: v})} 
+              keyboardType="phone-pad"
+              showSoftInputOnFocus={true}
+            />
+          </View>
+
+          <View style={styles.editField}>
+            <Text style={styles.fieldLabel}>Box Number</Text>
+            <TextInput 
+              style={styles.fieldInput} 
+              value={data.box} 
+              onChangeText={(v) => setData({...data, box: v})} 
+              showSoftInputOnFocus={true}
+            />
+          </View>
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={onClose}>
+              <Text style={styles.secondaryBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.primaryBtn, { backgroundColor: COLORS.success }]} 
+              onPress={() => onSave(data)}
+            >
+              <Text style={styles.primaryBtnText}>Save Changes</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export default function CustomerLabelPrint(): JSX.Element {
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
@@ -200,7 +285,16 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [sortMode, setSortMode] = useState<"recent" | "asc" | "desc">("recent"); 
   const [customerName, setCustomerName] = useState<string | null>(null);
   const [customerAddress, setCustomerAddress] = useState<string | null>(null);
+  const [mobileNumber, setMobileNumber] = useState<string>("");
+  const [boxNumber, setBoxNumber] = useState<string>("1/1");
   const [isCustomerLocked, setIsCustomerLocked] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [tempCustomerData, setTempCustomerData] = useState({
+    name: "",
+    address: "",
+    mobile: "",
+    box: "1/1"
+  });
   const inputRef = useRef<TextInput>(null);
 
   // Custom hook for global keyboard state 
@@ -240,6 +334,8 @@ export default function CustomerLabelPrint(): JSX.Element {
         setSos(saved.sos);
         setCustomerName(saved.customerName);
         setCustomerAddress(saved.customerAddress);
+        setMobileNumber(saved.mobileNumber || "");
+        setBoxNumber(saved.boxNumber || "1/1");
         setIsCustomerLocked(saved.isCustomerLocked);
       }
     };
@@ -248,8 +344,15 @@ export default function CustomerLabelPrint(): JSX.Element {
 
   // Auto-save session
   useEffect(() => {
-    labelPrintStorage.save({ sos, customerName, customerAddress, isCustomerLocked });
-  }, [sos, customerName, customerAddress, isCustomerLocked]);
+    labelPrintStorage.save({ 
+      sos, 
+      customerName, 
+      customerAddress, 
+      mobileNumber, 
+      boxNumber, 
+      isCustomerLocked 
+    });
+  }, [sos, customerName, customerAddress, mobileNumber, boxNumber, isCustomerLocked]);
 
   // Focus Management
   useFocusEffect(
@@ -262,7 +365,7 @@ export default function CustomerLabelPrint(): JSX.Element {
   );
 
   useEffect(() => {
-    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible || limitModalVisible;
+    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible || limitModalVisible || editModalVisible;
     if (keyboardDisabled && !anyModalOpen) {
       const timer = setTimeout(() => {
         if (navigation.isFocused()) {
@@ -279,11 +382,12 @@ export default function CustomerLabelPrint(): JSX.Element {
     printConfirmModal, 
     clearConfirmModal, 
     mismatchModal.visible,
+    editModalVisible,
     navigation
   ]);
 
   const handleBlur = () => {
-    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible || limitModalVisible;
+    const anyModalOpen = scanModalVisible || errorModal.visible || successModal.visible || printConfirmModal || clearConfirmModal || mismatchModal.visible || limitModalVisible || editModalVisible;
     if (keyboardDisabled && !anyModalOpen) {
       setTimeout(() => {
         if (navigation.isFocused() && !anyModalOpen) {
@@ -296,16 +400,6 @@ export default function CustomerLabelPrint(): JSX.Element {
   useEffect(() => {
     if (printSuccess) {
       setSuccessModal({ visible: true, message: printSuccess, autoDismiss: true });
-      const clearAfterPrint = async () => {
-        setSos([]);
-        setCustomerName(null);
-        setCustomerAddress(null);
-        setIsCustomerLocked(false);
-        setSoNumber("");
-        await labelPrintStorage.clear();
-      };
-      const timer = setTimeout(clearAfterPrint, 800);
-      return () => clearTimeout(timer);
     }
   }, [printSuccess]);
 
@@ -558,6 +652,8 @@ export default function CustomerLabelPrint(): JSX.Element {
     setSos([]);
     setCustomerName(null);
     setCustomerAddress(null);
+    setMobileNumber("");
+    setBoxNumber("1/1");
     setIsCustomerLocked(false);
     setSoNumber("");
     await labelPrintStorage.clear();
@@ -663,6 +759,21 @@ export default function CustomerLabelPrint(): JSX.Element {
 
           {isCustomerLocked && customerName && (
             <View style={styles.customerCard}>
+              <TouchableOpacity 
+                style={styles.editIconBtn}
+                onPress={() => {
+                   setTempCustomerData({
+                      name: customerName || "",
+                      address: customerAddress || "",
+                      mobile: mobileNumber,
+                      box: boxNumber
+                   });
+                   setEditModalVisible(true);
+                }}
+              >
+                <Ionicons name="create-outline" size={18} color={COLORS.accent} />
+              </TouchableOpacity>
+
               <View style={styles.fixedField}>
                 <Text style={styles.fixedLabel}>Customer:</Text>
                 <Text style={styles.fixedValue}>{customerName}</Text>
@@ -670,6 +781,26 @@ export default function CustomerLabelPrint(): JSX.Element {
               <View style={[styles.fixedField, { marginTop: 2 }]}>
                 <Text style={styles.fixedLabel}>Address:</Text>
                 <Text style={styles.fixedValue}>{customerAddress}</Text>
+              </View>
+              <View style={[styles.fixedField, { marginTop: 2 }]}>
+                <Text style={styles.fixedLabel}>Mobile:</Text>
+                <Text style={styles.fixedValue}>{mobileNumber || "N/A"}</Text>
+              </View>
+
+              <View style={styles.divider} />
+
+              <Text style={styles.cardHeading}>CNC Package</Text>
+
+              <View style={[styles.fixedField, { marginTop: 4, alignItems: "center" }]}>
+                <Text style={styles.fixedLabel}>Box No:</Text>
+                <TextInput
+                  style={styles.boxInput}
+                  value={boxNumber}
+                  onChangeText={setBoxNumber}
+                  placeholder="1/1"
+                  placeholderTextColor={COLORS.muted}
+                  showSoftInputOnFocus={true}
+                />
               </View>
             </View>
           )}
@@ -784,6 +915,19 @@ export default function CustomerLabelPrint(): JSX.Element {
             }}
         />
 
+        <EditCustomerModal
+            visible={editModalVisible}
+            initialData={tempCustomerData}
+            onClose={() => setEditModalVisible(false)}
+            onSave={(data) => {
+               setCustomerName(data.name);
+               setCustomerAddress(data.address);
+               setMobileNumber(data.mobile);
+               setBoxNumber(data.box);
+               setEditModalVisible(false);
+            }}
+        />
+
         <Modal
             visible={scanModalVisible}
             onRequestClose={closeScanner}
@@ -880,6 +1024,55 @@ const styles = StyleSheet.create({
     elevation: 1,
     borderLeftWidth: 3,
     borderLeftColor: COLORS.success,
+    position: 'relative'
+  },
+  editIconBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    padding: 4,
+    backgroundColor: '#eff6ff',
+    borderRadius: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 6,
+  },
+  cardHeading: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: COLORS.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  boxInput: {
+    fontSize: 12,
+    color: COLORS.accent,
+    fontWeight: '700',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingVertical: 0,
+    minWidth: 60,
+  },
+  editField: {
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 4,
+  },
+  fieldInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: '#1e293b',
+    backgroundColor: '#f8fafc',
   },
   fixedField: { flexDirection: "row", alignItems: "flex-start" },
   fixedLabel: { fontSize: 12, color: "#64748b", width: 60, fontWeight: "600" },

@@ -1,6 +1,7 @@
 // material_dispatch_server.tsx
 import * as SecureStore from "expo-secure-store";
 import * as DocumentPicker from "expo-document-picker";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { API_ENDPOINTS } from "../Endpoints"; // Adjust path if needed
 
 let AsyncStorage: any = null;
@@ -41,6 +42,11 @@ export type DispatchAttachment = {
   path: string;
   mimeType: string;
   size: number;
+};
+
+export type Transporter = {
+  id: number;
+  name: string;
 };
 
 export type ApiOk<T = any> = {
@@ -358,14 +364,107 @@ export async function getAttachments(
       })
     );
 
-    if (!res.ok) {
-      const err = await parseErrorBody(res);
-      return { ok: false, status: res.status, error: err };
-    }
-
     const data: DispatchAttachment[] = await res.json();
     return { ok: true, status: res.status, data };
   } catch (e: any) {
     return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
   }
 }
+
+// 🔹 NEW: Transporter Lookup Hook
+export const useTransportersLookup = () => {
+    const [transporters, setTransporters] = useState<Transporter[]>([]);
+    const [loadingTransporters, setLoadingTransporters] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const searchControllerRef = useRef<AbortController | null>(null);
+
+    const clearTransporters = useCallback(() => setTransporters([]), []);
+
+    const searchTransporters = useCallback(
+        async (query: string) => {
+            const trimmed = query?.trim() ?? "";
+            if (trimmed.length < 3) {
+                setTransporters([]);
+                return;
+            }
+
+            if (searchControllerRef.current) {
+                searchControllerRef.current.abort();
+            }
+            const controller = new AbortController();
+            searchControllerRef.current = controller;
+
+            setLoadingTransporters(true);
+            setError(null);
+
+            try {
+                const token = await getToken();
+                if (!token) throw new Error("Missing access token.");
+
+                const url = `${API_ENDPOINTS.DISPATCH.FETCH_TRANSPORTERS}?search=${encodeURIComponent(trimmed)}`;
+
+                const res = await fetch(url, {
+                    method: "GET",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                        Accept: "application/json",
+                    },
+                    signal: controller.signal,
+                });
+
+                if (!res.ok) {
+                    if (res.status === 404) {
+                        setTransporters([]);
+                        return;
+                    }
+                    const body = await parseErrorBody(res);
+                    throw new Error(body || `Failed to fetch transporters (${res.status})`);
+                }
+
+                const data = (await res.json()) as Transporter[];
+                if (!Array.isArray(data)) throw new Error("Invalid response format from server");
+                setTransporters(data);
+            } catch (err: any) {
+                if (err?.name === "AbortError") {
+                    // ignored
+                } else {
+                    console.error("searchTransporters error:", err);
+                    setError(err?.message ?? "Failed to load transporters");
+                    setTransporters([]);
+                }
+            } finally {
+                setLoadingTransporters(false);
+                if (searchControllerRef.current === controller) searchControllerRef.current = null;
+            }
+        },
+        []
+    );
+
+    const debouncedSearchTransporters = useCallback(
+        (query: string) => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => {
+                searchTransporters(query);
+            }, 400);
+        },
+        [searchTransporters]
+    );
+
+    useEffect(() => {
+        return () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            searchControllerRef.current?.abort();
+        };
+    }, []);
+
+    return {
+        transporters,
+        loadingTransporters,
+        error,
+        debouncedSearchTransporters,
+        clearTransporters,
+    };
+};

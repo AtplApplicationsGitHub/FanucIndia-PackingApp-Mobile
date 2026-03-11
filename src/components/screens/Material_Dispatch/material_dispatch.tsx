@@ -33,6 +33,8 @@ import {
   linkSalesOrder,
   deleteSalesOrderLink,
   getAttachments,
+  useTransportersLookup,
+  type Transporter,
   type CreateDispatchHeaderRequest,
   type UpdateDispatchHeaderRequest,
   type LinkDispatchSORequest,
@@ -101,6 +103,33 @@ const MaterialDispatchScreen: React.FC = () => {
   const [showNewFormModal, setShowNewFormModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
   const [savingHeader, setSavingHeader] = useState(false);
+
+  // Transporter Lookup
+  const {
+    transporters,
+    loadingTransporters,
+    debouncedSearchTransporters,
+    clearTransporters,
+  } = useTransportersLookup();
+
+  // Filter and sort transporters: ensure matches starting with query appear at the top
+  const sortedTransporters = useMemo(() => {
+    if (!transporters || transporters.length === 0) return [];
+    
+    const query = form.transporter.trim().toLowerCase();
+    if (!query) return transporters;
+
+    return [...transporters].sort((a, b) => {
+      const nameA = a.name.toLowerCase();
+      const nameB = b.name.toLowerCase();
+      const startsWithA = nameA.startsWith(query);
+      const startsWithB = nameB.startsWith(query);
+
+      if (startsWithA && !startsWithB) return -1;
+      if (!startsWithA && startsWithB) return 1;
+      return 0; 
+    });
+  }, [transporters, form.transporter]);
 
   // Keyboard & Scan State
   const [keyboardDisabled] = useKeyboardDisabled();
@@ -534,43 +563,77 @@ const MaterialDispatchScreen: React.FC = () => {
     <View style={styles.safe}>
       <View style={styles.container}>
         {/* Form */}
-        <View style={{ marginBottom: 12 }}>
+            <View style={[styles.row2, { zIndex: 1000, alignItems: 'flex-start' }]}>
+              <View style={{ flex: 1, position: 'relative' }}>
+                <TextInput
+                  ref={transporterRef}
+                  style={styles.input}
+                  placeholder={keyboardDisabled ? "" : "Transporter"}
+                  placeholderTextColor={C.hint}
+                  value={form.transporter}
+                  onChangeText={(t) => {
+                    onChange("transporter", t);
+                    if (t.trim().length >= 3) {
+                      debouncedSearchTransporters(t);
+                    } else {
+                      clearTransporters();
+                    }
+                  }}
+                  showSoftInputOnFocus={!keyboardDisabled}
+                />
+                
+                {loadingTransporters && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color={C.blue} 
+                    style={{ position: 'absolute', right: 10, top: 14 }} 
+                  />
+                )}
 
-            <View style={styles.row2}>
-              <TextInput
-                ref={transporterRef}
-                style={[styles.input, styles.half]}
-                placeholder={keyboardDisabled ? "" : "Transporter"}
-                placeholderTextColor={C.hint}
-                value={form.transporter}
-                onChangeText={(t) => onChange("transporter", t)}
-                showSoftInputOnFocus={!keyboardDisabled}
-              />
-              <TextInput
-                style={[styles.input, styles.half]}
-                placeholder={keyboardDisabled ? "Scan Vehicle..." : "Vehicle Number"}
-                placeholderTextColor={C.hint}
-                autoCapitalize="characters"
-                showSoftInputOnFocus={!keyboardDisabled}
-                value={form.vehicleNo}
-                onChangeText={(t) => {
-                  // No spaces allowed, always uppercase
-                  const cleaned = t.replace(/\s+/g, "").toUpperCase();
-                  onChange("vehicleNo", cleaned);
-                }}
-              />
+                {sortedTransporters.length > 0 && (
+                  <View style={styles.dropdownContainer}>
+                    <FlatList
+                      data={sortedTransporters}
+                      keyExtractor={(item) => item.id.toString()}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled={true}
+                      style={{ maxHeight: 200 }}
+                      renderItem={({ item }) => (
+                        <TouchableOpacity
+                          style={styles.dropdownItem}
+                          onPress={() => {
+                            onChange("transporter", item.name);
+                            clearTransporters();
+                          }}
+                        >
+                          <Text style={styles.transporterName}>{item.name}</Text>
+                        </TouchableOpacity>
+                      )}
+                    />
+                  </View>
+                )}
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  style={styles.input}
+                  placeholder={keyboardDisabled ? "Scan..." : "Vehicle Number"}
+                  placeholderTextColor={C.hint}
+                  autoCapitalize="characters"
+                  showSoftInputOnFocus={!keyboardDisabled}
+                  value={form.vehicleNo}
+                  onChangeText={(t) => {
+                    const cleaned = t.replace(/\s+/g, "").toUpperCase();
+                    onChange("vehicleNo", cleaned);
+                  }}
+                />
+              </View>
+
               <TouchableOpacity
                 onPress={dispatchId ? handleUpdateHeader : handleSaveHeader}
                 disabled={!isFormValid || savingHeader}
                 style={[
                   styles.saveBtn,
-                  { 
-                    paddingVertical: 0, 
-                    paddingHorizontal: 16, 
-                    justifyContent: "center",
-                    alignItems: "center",
-                    height: 44, // Match input height roughly
-                  },
                   (!isFormValid || savingHeader) && styles.disabledBtn,
                 ]}
               >
@@ -585,7 +648,6 @@ const MaterialDispatchScreen: React.FC = () => {
                 )}
               </TouchableOpacity>
             </View>
-        </View>
 
         {/* SO & Attachments Section - ONLY RENDER IF DISPATCH ID EXISTS */}
         {dispatchId ? (
@@ -872,19 +934,20 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
     fontSize: 15,
     color: C.text,
-    marginBottom: 10,
     backgroundColor: "#fff",
+    height: 48,
   },
   textArea: { minHeight: 90, textAlignVertical: "top" },
-  row2: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  row2: { flexDirection: "row", gap: 8, marginBottom: 10 },
   half: { flex: 1, marginBottom: 0 },
   saveBtn: {
     backgroundColor: C.blue,
-    borderRadius: 10,
-    paddingVertical: 14,
+    borderRadius: 8,
+    height: 48,
+    paddingHorizontal: 16,
+    justifyContent: "center",
     alignItems: "center",
   },
   disabledBtn: { opacity: 0.6 },
@@ -960,6 +1023,34 @@ const styles = StyleSheet.create({
   confirmButton: { backgroundColor: "#2151F5" },
   cancelButtonText: { color: "#374151", fontWeight: "600", fontSize: 15 },
   confirmButtonText: { color: "#fff", fontWeight: "600", fontSize: 15 },
+  dropdownContainer: {
+    position: 'absolute',
+    top: 52,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    zIndex: 9999,
+    borderWidth: 1,
+    borderColor: '#eee',
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  transporterName: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#333',
+  },
 });
 
 const styles_sales = StyleSheet.create({
