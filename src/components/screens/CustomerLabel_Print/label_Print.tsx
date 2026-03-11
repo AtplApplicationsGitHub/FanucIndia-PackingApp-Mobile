@@ -197,8 +197,8 @@ const EditCustomerModal = ({
   onClose,
 }: {
   visible: boolean;
-  initialData: { name: string; address: string; mobile: string; box: string };
-  onSave: (data: { name: string; address: string; mobile: string; box: string }) => void;
+  initialData: { name: string; address: string; contactNumber: string; box: string };
+  onSave: (data: { name: string; address: string; contactNumber: string; box: string }) => void;
   onClose: () => void;
 }) => {
   const [data, setData] = useState(initialData);
@@ -238,11 +238,11 @@ const EditCustomerModal = ({
           </View>
           
           <View style={styles.editField}>
-            <Text style={styles.fieldLabel}>Mobile Number</Text>
+            <Text style={styles.fieldLabel}>Contact Number</Text>
             <TextInput 
               style={styles.fieldInput} 
-              value={data.mobile} 
-              onChangeText={(v) => setData({...data, mobile: v})} 
+              value={data.contactNumber} 
+              onChangeText={(v) => setData({...data, contactNumber: v})} 
               keyboardType="phone-pad"
               showSoftInputOnFocus={true}
             />
@@ -282,17 +282,17 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [soNumber, setSoNumber] = useState<string>("");
   const [sos, setSos] = useState<SOItem[]>([]);
   // sortMode: 'recent' (LIFO), 'asc' (A-Z), 'desc' (Z-A)
-  const [sortMode, setSortMode] = useState<"recent" | "asc" | "desc">("recent"); 
+  const [sortMode, setSortMode] = useState<"recent" | "asc" | "desc">("asc"); 
   const [customerName, setCustomerName] = useState<string | null>(null);
   const [customerAddress, setCustomerAddress] = useState<string | null>(null);
-  const [mobileNumber, setMobileNumber] = useState<string>("");
+  const [contactNumber, setContactNumber] = useState<string>("");
   const [boxNumber, setBoxNumber] = useState<string>("1/1");
   const [isCustomerLocked, setIsCustomerLocked] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [tempCustomerData, setTempCustomerData] = useState({
     name: "",
     address: "",
-    mobile: "",
+    contactNumber: "",
     box: "1/1"
   });
   const inputRef = useRef<TextInput>(null);
@@ -334,7 +334,7 @@ export default function CustomerLabelPrint(): JSX.Element {
         setSos(saved.sos);
         setCustomerName(saved.customerName);
         setCustomerAddress(saved.customerAddress);
-        setMobileNumber(saved.mobileNumber || "");
+        setContactNumber(saved.contactNumber || "");
         setBoxNumber(saved.boxNumber || "1/1");
         setIsCustomerLocked(saved.isCustomerLocked);
       }
@@ -348,11 +348,11 @@ export default function CustomerLabelPrint(): JSX.Element {
       sos, 
       customerName, 
       customerAddress, 
-      mobileNumber, 
+      contactNumber, 
       boxNumber, 
       isCustomerLocked 
     });
-  }, [sos, customerName, customerAddress, mobileNumber, boxNumber, isCustomerLocked]);
+  }, [sos, customerName, customerAddress, contactNumber, boxNumber, isCustomerLocked]);
 
   // Focus Management
   useFocusEffect(
@@ -540,13 +540,14 @@ export default function CustomerLabelPrint(): JSX.Element {
         return;
       }
 
-      const { customerName: newName, address: newAddress } = result;
+      const { customerName: newName, address: newAddress, contactNumber: newMobile } = result;
       const currentNameNorm = customerName ? customerName.trim().toLowerCase() : "";
       const newNameNorm = newName ? newName.trim().toLowerCase() : "";
 
       if (sos.length === 0) {
         setCustomerName(newName);
         setCustomerAddress(newAddress);
+        setContactNumber(newMobile || "");
         setIsCustomerLocked(true);
         if (fromScanner) setScanStatus({ message: "Added: " + soToAdd, color: COLORS.success });
       } else if (currentNameNorm !== newNameNorm) {
@@ -638,7 +639,8 @@ export default function CustomerLabelPrint(): JSX.Element {
 
   const confirmPrint = async () => {
     setPrintConfirmModal(false);
-    const soNumbers = sos.map((item) => item.soNumber);
+    // Sort in ascending alphanumeric order
+    const soNumbers = sos.map((item) => item.soNumber).sort((a, b) => a.localeCompare(b));
     await printLabels(soNumbers);
   };
 
@@ -652,7 +654,7 @@ export default function CustomerLabelPrint(): JSX.Element {
     setSos([]);
     setCustomerName(null);
     setCustomerAddress(null);
-    setMobileNumber("");
+    setContactNumber("");
     setBoxNumber("1/1");
     setIsCustomerLocked(false);
     setSoNumber("");
@@ -765,7 +767,7 @@ export default function CustomerLabelPrint(): JSX.Element {
                    setTempCustomerData({
                       name: customerName || "",
                       address: customerAddress || "",
-                      mobile: mobileNumber,
+                      contactNumber: contactNumber,
                       box: boxNumber
                    });
                    setEditModalVisible(true);
@@ -783,8 +785,8 @@ export default function CustomerLabelPrint(): JSX.Element {
                 <Text style={styles.fixedValue}>{customerAddress}</Text>
               </View>
               <View style={[styles.fixedField, { marginTop: 2 }]}>
-                <Text style={styles.fixedLabel}>Mobile:</Text>
-                <Text style={styles.fixedValue}>{mobileNumber || "N/A"}</Text>
+                <Text style={styles.fixedLabel}>Contact No:</Text>
+                <Text style={styles.fixedValue}>{contactNumber || "N/A"}</Text>
               </View>
 
               <View style={styles.divider} />
@@ -922,7 +924,7 @@ export default function CustomerLabelPrint(): JSX.Element {
             onSave={(data) => {
                setCustomerName(data.name);
                setCustomerAddress(data.address);
-               setMobileNumber(data.mobile);
+               setContactNumber(data.contactNumber);
                setBoxNumber(data.box);
                setEditModalVisible(false);
             }}

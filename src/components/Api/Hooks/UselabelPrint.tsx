@@ -7,6 +7,7 @@ type VerifyResponse = {
   valid: boolean;
   saleOrderNumber: string;
   customerName: string;
+  contactNumber: string;
   address: string;
   // add other fields your API returns if any
 };
