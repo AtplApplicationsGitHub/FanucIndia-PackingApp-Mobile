@@ -100,4 +100,14 @@ export const API_ENDPOINTS = {
       return `${BASE_URL}/dispatch/mobile/${dispatchId}`;
     },
   },
+
+  // 🔹 NEW: App versioning and update endpoints
+  APP: {
+    get LATEST_VERSION() {
+      return `${BASE_URL}/app-update/app-b/latest-version`;
+    },
+    get DOWNLOAD() {
+      return `${BASE_URL}/app-update/app-b/download`;
+    },
+  },
 };

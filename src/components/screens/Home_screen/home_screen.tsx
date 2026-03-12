@@ -17,6 +17,8 @@ import * as SecureStore from "expo-secure-store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useKeyboardDisabled } from "../../utils/keyboard";
+import { APP_VERSION } from "../../utils/Version";
+
 
 type MenuItem = {
   id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle" | "location_accuracy" | "content_accuracy" | "put_away";
@@ -373,7 +375,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             }}
           >
             <Text style={{ fontSize: 12, color: "#6B7280", fontWeight: "600" }}>
-              Vr:0.02
+              {APP_VERSION}
             </Text>
           </TouchableOpacity>
         </View>

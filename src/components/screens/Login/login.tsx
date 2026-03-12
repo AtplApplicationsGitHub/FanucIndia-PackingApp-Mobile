@@ -18,6 +18,10 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { loginApiWithEmail } from "../../Api/Hooks/Auth";
 import { getBaseUrl, setBaseUrl } from "../../Api/Endpoints";
+import { useUpdate } from "../../Api/Hooks/UseUpdate";
+import Toast from "react-native-toast-message";
+import { APP_VERSION } from "../../utils/Version";
+
 
 type NavProps = NativeStackScreenProps<RootStackParamList, "Login">;
 
@@ -33,12 +37,26 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
   const [pwd, setPwd] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [currentVersion, setCurrentVersion] = useState("Vr.0.02");
+  const [currentVersion] = useState(APP_VERSION);
 
   const [modal, setModal] = useState<{ visible: boolean; title: string; message: string }>({
     visible: false,
     title: "",
     message: "",
+  });
+
+  // 🔹 App Update States
+  const { checkUpdate, downloadAndInstall, triggerInstall, downloading, downloaded, downloadProgress } =
+    useUpdate(currentVersion);
+  const [updateModal, setUpdateModal] = useState<{
+    visible: boolean;
+    version: string;
+    force: boolean;
+    downloadUrl?: string;
+  }>({
+    visible: false,
+    version: "",
+    force: false,
   });
 
   // Settings modal for API URL
@@ -72,6 +90,24 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
     };
     initApiUrl();
   }, []);
+
+  // 🔹 Check for updates whenever apiUrl changes and is valid
+  useEffect(() => {
+    if (apiUrl && !settingsVisible) {
+      const checkForUpdates = async () => {
+        const info = await checkUpdate();
+        if (info) {
+          setUpdateModal({
+            visible: true,
+            version: info.latestVersion,
+            force: !!info.forceUpdate,
+            downloadUrl: info.downloadUrl,
+          });
+        }
+      };
+      checkForUpdates();
+    }
+  }, [apiUrl, settingsVisible]);
 
   const handleSaveApiUrl = async () => {
     const trimmed = apiUrl.trim().replace(/\/+$/, "");
@@ -271,6 +307,62 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
         </View>
       </Modal>
       {/* --------------------------------- */}
+
+      {/* ---------- App Update Modal ---------- */}
+      <Modal animationType="slide" transparent visible={updateModal.visible}>
+        <View style={mstyles.backdrop}>
+          <View style={mstyles.sheet}>
+            <View style={mstyles.headerRow}>
+              <MaterialCommunityIcons name="update" size={24} color={ACCENT} />
+              <Text style={mstyles.title}>Update Available</Text>
+            </View>
+            <Text style={mstyles.message}>
+              {downloaded 
+                ? "Download complete! Please click the button below to install the update and restart the app."
+                : `A new version of the Fanuc Packing App (${updateModal.version}) is available. Please update to the new version to continue.`}
+            </Text>
+
+            {downloading ? (
+              <View style={{ marginTop: 20, width: "100%" }}>
+                <View style={styles.progressBarBg}>
+                  <View style={[styles.progressBarFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
+                </View>
+                <Text style={{ marginTop: 8, color: MUTED, textAlign: "center", fontSize: 13 }}>
+                  Downloading: {Math.round(downloadProgress * 100)}%
+                </Text>
+              </View>
+            ) : downloaded ? (
+              <View style={mstyles.actions}>
+                <TouchableOpacity
+                  style={[mstyles.primaryBtn, { backgroundColor: "#16A34A", width: "100%" }]}
+                  onPress={triggerInstall}
+                >
+                  <Text style={mstyles.primaryBtnText}>Install & Restart</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={mstyles.actions}>
+                {!updateModal.force && (
+                  <TouchableOpacity
+                    style={[mstyles.primaryBtn, styles.cancelBtn]}
+                    onPress={() => setUpdateModal((v) => ({ ...v, visible: false }))}
+                  >
+                    <Text style={[mstyles.primaryBtnText, styles.cancelBtnText]}>Later</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={mstyles.primaryBtn}
+                  onPress={() => downloadAndInstall(updateModal.downloadUrl)}
+                >
+                  <Text style={mstyles.primaryBtnText}>Download Now</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+      {/* -------------------------------------- */}
     </SafeAreaView>
   );
 };
@@ -420,6 +512,20 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     color: ACCENT,
+  },
+
+  // Progress Bar Styles
+  progressBarBg: {
+    width: "100%",
+    height: 10,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 5,
+    overflow: "hidden",
+    marginTop: 10,
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: PRIMARY_YELLOW,
   },
 });
 
