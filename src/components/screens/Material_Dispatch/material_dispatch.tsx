@@ -93,10 +93,10 @@ const MaterialDispatchScreen: React.FC = () => {
   });
   const [dispatchId, setDispatchId] = useState<string | null>(null);
 
-  // now we only track attachments that are already uploaded on server
   const [uploadedAttachments, setUploadedAttachments] = useState<
     DispatchAttachment[]
   >([]);
+  const [trWidth, setTrWidth] = useState(0);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -563,108 +563,114 @@ const MaterialDispatchScreen: React.FC = () => {
     <View style={styles.safe}>
       <View style={styles.container}>
         {/* Form */}
-            <View style={[styles.row2, { zIndex: 2000, alignItems: 'flex-start' }]}>
-              <View style={{ flex: 1, position: 'relative', zIndex: 3000 }}>
-                <View style={styles.inputContainer}>
-                  <TextInput
-                    ref={transporterRef}
-                    style={[styles.input, { flex: 1, paddingRight: form.transporter ? 40 : 12 }]}
-                    placeholder={keyboardDisabled ? "" : "Transporter"}
-                    placeholderTextColor={C.hint}
-                    value={form.transporter}
-                    onChangeText={(t) => {
-                      onChange("transporter", t);
-                      if (t.trim().length >= 3) {
-                        debouncedSearchTransporters(t);
-                      } else {
-                        clearTransporters();
-                      }
-                    }}
-                    onBlur={() => {
-                        // Small delay to allow dropdown item selection
-                        setTimeout(() => clearTransporters(), 200);
-                    }}
-                    showSoftInputOnFocus={!keyboardDisabled}
-                  />
-                  {form.transporter.length > 0 && (
-                    <TouchableOpacity 
-                      style={styles.clearInputBtn}
-                      onPress={() => {
-                        onChange("transporter", "");
-                        clearTransporters();
-                      }}
-                    >
-                      <Ionicons name="close-circle" size={20} color={C.hint} />
-                    </TouchableOpacity>
-                  )}
-                  {loadingTransporters && (
-                    <ActivityIndicator 
-                      size="small" 
-                      color={C.blue} 
-                      style={styles.spinnerIcon} 
-                    />
-                  )}
-                </View>
-
-                {sortedTransporters.length > 0 && (
-                  <View style={styles.dropdownContainer}>
-                    <FlatList
-                      data={sortedTransporters}
-                      keyExtractor={(item) => item.id.toString()}
-                      keyboardShouldPersistTaps="always"
-                      nestedScrollEnabled={true}
-                      style={{ maxHeight: 220 }}
-                      showsVerticalScrollIndicator={true}
-                      renderItem={({ item }) => (
-                        <TouchableOpacity
-                          style={styles.dropdownItem}
-                          onPress={() => {
-                            onChange("transporter", item.name);
-                            clearTransporters();
-                          }}
-                        >
-                          <Text style={styles.transporterName}>{item.name}</Text>
-                        </TouchableOpacity>
-                      )}
-                    />
-                  </View>
-                )}
-              </View>
-
-              <View style={{ flex: 1 }}>
-                <TextInput
-                  style={styles.input}
-                  placeholder={keyboardDisabled ? "Scan..." : "Vehicle Number"}
-                  placeholderTextColor={C.hint}
-                  autoCapitalize="characters"
-                  showSoftInputOnFocus={!keyboardDisabled}
-                  value={form.vehicleNo}
-                  onChangeText={(t) => {
-                    const cleaned = t.replace(/\s+/g, "").toUpperCase();
-                    onChange("vehicleNo", cleaned);
+        <View style={[styles.row2, { zIndex: 2000, alignItems: 'flex-start' }]}>
+          <View style={{ flex: 1 }} onLayout={(e) => setTrWidth(e.nativeEvent.layout.width)}>
+            <View style={styles.inputContainer}>
+              <TextInput
+                ref={transporterRef}
+                style={[styles.input, { flex: 1, paddingRight: form.transporter ? 40 : 12 }]}
+                placeholder={keyboardDisabled ? "" : "Transporter"}
+                placeholderTextColor={C.hint}
+                value={form.transporter}
+                onChangeText={(t) => {
+                  onChange("transporter", t);
+                  if (t.trim().length >= 3) {
+                    debouncedSearchTransporters(t);
+                  } else {
+                    clearTransporters();
+                  }
+                }}
+                onBlur={() => {
+                  // Increased delay to ensure scroll/tap actions are registered
+                  setTimeout(() => clearTransporters(), 500);
+                }}
+                showSoftInputOnFocus={!keyboardDisabled}
+              />
+              {form.transporter.length > 0 && (
+                <TouchableOpacity 
+                  style={styles.clearInputBtn}
+                  onPress={() => {
+                    onChange("transporter", "");
+                    clearTransporters();
                   }}
+                >
+                  <Ionicons name="close-circle" size={20} color={C.hint} />
+                </TouchableOpacity>
+              )}
+              {loadingTransporters && (
+                <ActivityIndicator 
+                  size="small" 
+                  color={C.blue} 
+                  style={styles.spinnerIcon} 
                 />
-              </View>
-
-              <TouchableOpacity
-                onPress={dispatchId ? handleUpdateHeader : handleSaveHeader}
-                disabled={!isFormValid || savingHeader}
-                style={[
-                  styles.saveBtn,
-                  (!isFormValid || savingHeader) && styles.disabledBtn,
-                ]}
-              >
-                {savingHeader ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Ionicons
-                    name={dispatchId ? "sync-outline" : "save-outline"}
-                    size={24}
-                    color="#fff"
-                  />
-                )}
-              </TouchableOpacity>
+              )}
             </View>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <TextInput
+              style={styles.input}
+              placeholder={keyboardDisabled ? "Scan..." : "Vehicle Number"}
+              placeholderTextColor={C.hint}
+              autoCapitalize="characters"
+              showSoftInputOnFocus={!keyboardDisabled}
+              value={form.vehicleNo}
+              onChangeText={(t) => {
+                const cleaned = t.replace(/\s+/g, "").toUpperCase();
+                onChange("vehicleNo", cleaned);
+              }}
+            />
+          </View>
+
+          <TouchableOpacity
+            onPress={dispatchId ? handleUpdateHeader : handleSaveHeader}
+            disabled={!isFormValid || savingHeader}
+            style={[
+              styles.saveBtn,
+              (!isFormValid || savingHeader) && styles.disabledBtn,
+            ]}
+          >
+            {savingHeader ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Ionicons
+                name={dispatchId ? "sync-outline" : "save-outline"}
+                size={24}
+                color="#fff"
+              />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Dropdown - Positioned relative to container to avoid Android touch clipping */}
+        {sortedTransporters.length > 0 && (
+          <View style={styles.dropdownOverlay}>
+            <View style={[styles.dropdownContainer, { width: trWidth || '48%' }]}>
+              <FlatList
+                data={sortedTransporters}
+                keyExtractor={(item) => item.id.toString()}
+                keyboardShouldPersistTaps="always"
+                nestedScrollEnabled={true}
+                style={{ maxHeight: 280 }}
+                showsVerticalScrollIndicator={true}
+                persistentScrollbar={true}
+                contentContainerStyle={{ paddingVertical: 4 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      onChange("transporter", item.name);
+                      clearTransporters();
+                    }}
+                  >
+                    <Ionicons name="bus-outline" size={16} color={C.blue} style={{ marginRight: 10 }} />
+                    <Text style={styles.transporterName}>{item.name}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </View>
+        )}
 
         {/* SO & Attachments Section - ONLY RENDER IF DISPATCH ID EXISTS */}
         {dispatchId ? (
@@ -1040,28 +1046,33 @@ const styles = StyleSheet.create({
   confirmButton: { backgroundColor: "#2151F5" },
   cancelButtonText: { color: "#374151", fontWeight: "600", fontSize: 15 },
   confirmButtonText: { color: "#fff", fontWeight: "600", fontSize: 15 },
-  dropdownContainer: {
+  dropdownOverlay: {
     position: 'absolute',
-    top: 52,
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
+    top: 58, // Exactly below the header row
+    left: 14, // Matches container horizontal padding
+    right: 14,
     zIndex: 9999,
+    pointerEvents: 'box-none',
+  },
+  dropdownContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'visible',
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
   },
   dropdownItem: {
-    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#F8FAFC',
   },
   transporterName: {
     fontSize: 15,

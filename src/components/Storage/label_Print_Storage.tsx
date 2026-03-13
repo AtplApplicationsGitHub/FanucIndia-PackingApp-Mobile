@@ -9,7 +9,7 @@ export type StoredLabelPrintData = {
   customerAddress: string | null;
   contactNumber: string | null;
   boxNumber: string | null;
-  packageType: string | null;
+  cncPacking: string | null;
   isCustomerLocked: boolean;
 };
 
@@ -19,7 +19,7 @@ const defaultData: StoredLabelPrintData = {
   customerAddress: null,
   contactNumber: null,
   boxNumber: "1/1",
-  packageType: "CNC Package",
+  cncPacking: "CNC PACKING",
   isCustomerLocked: false,
 };
 
@@ -44,7 +44,7 @@ export const labelPrintStorage = {
         customerAddress: parsed.customerAddress || null,
         contactNumber: parsed.contactNumber || null,
         boxNumber: parsed.boxNumber || "1/1",
-        packageType: parsed.packageType || "CNC Package",
+        cncPacking: parsed.cncPacking || "CNC PACKING",
         isCustomerLocked: !!parsed.isCustomerLocked,
       };
     } catch (error) {

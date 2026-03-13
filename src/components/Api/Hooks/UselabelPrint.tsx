@@ -52,15 +52,18 @@ export const useVerifySO = () => {
       });
 
       if (!res.ok) {
-        if (res.status === 401) throw new Error("Session expired. Please log in again.");
+        if (res.status === 401)
+          throw new Error("Session expired. Please log in again.");
         if (res.status === 404) throw new Error("Sales Order not found");
-        if (res.status >= 500) throw new Error("Server error. Please try again later.");
+        if (res.status >= 500)
+          throw new Error("Server error. Please try again later.");
 
         // try parse error body
         let parsed = "Failed to verify SO";
         try {
           const errBody = await res.json();
-          parsed = errBody?.message || errBody?.error || JSON.stringify(errBody);
+          parsed =
+            errBody?.message || errBody?.error || JSON.stringify(errBody);
         } catch {
           try {
             parsed = await res.text();
@@ -106,7 +109,12 @@ export const usePrintLabels = () => {
     count?: number;
   };
 
-  const printLabels = async (soNumbers: string[], packageType: string, boxNumber: string): Promise<boolean> => {
+  const printLabels = async (
+    soNumbers: string[],
+    cncText: string = "CNC PACKAGE",
+    boxNN: string = "1/1",
+    quantity: number = 1,
+  ): Promise<boolean> => {
     setLoading(true);
     setError(null);
     setSuccess(null);
@@ -130,10 +138,11 @@ export const usePrintLabels = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           saleOrderNumbers: soNumbers,
-          packageType: packageType,
-          boxNumber: boxNumber
+          cncText: cncText,
+          boxNN: boxNN,
+          quantity: quantity,
         }),
       });
 
@@ -156,7 +165,8 @@ export const usePrintLabels = () => {
       const data = (await res.json()) as PrintResponseLocal;
 
       const successMessage =
-        data?.message ?? `Successfully printed ${data?.count ?? soNumbers.length} label(s)`;
+        data?.message ??
+        `Successfully printed ${data?.count ?? soNumbers.length} label(s)`;
       setSuccess(successMessage);
       return true;
     } catch (err: any) {
