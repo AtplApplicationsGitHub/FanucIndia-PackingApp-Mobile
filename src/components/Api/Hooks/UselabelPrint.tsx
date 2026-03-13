@@ -106,7 +106,7 @@ export const usePrintLabels = () => {
     count?: number;
   };
 
-  const printLabels = async (soNumbers: string[]): Promise<boolean> => {
+  const printLabels = async (soNumbers: string[], packageType: string, boxNumber: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
     setSuccess(null);
@@ -130,7 +130,11 @@ export const usePrintLabels = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ saleOrderNumbers: soNumbers }),
+        body: JSON.stringify({ 
+          saleOrderNumbers: soNumbers,
+          packageType: packageType,
+          boxNumber: boxNumber
+        }),
       });
 
       // Accept both 200 and 201 as success

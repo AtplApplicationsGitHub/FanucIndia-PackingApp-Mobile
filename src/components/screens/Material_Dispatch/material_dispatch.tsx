@@ -563,41 +563,58 @@ const MaterialDispatchScreen: React.FC = () => {
     <View style={styles.safe}>
       <View style={styles.container}>
         {/* Form */}
-            <View style={[styles.row2, { zIndex: 1000, alignItems: 'flex-start' }]}>
-              <View style={{ flex: 1, position: 'relative' }}>
-                <TextInput
-                  ref={transporterRef}
-                  style={styles.input}
-                  placeholder={keyboardDisabled ? "" : "Transporter"}
-                  placeholderTextColor={C.hint}
-                  value={form.transporter}
-                  onChangeText={(t) => {
-                    onChange("transporter", t);
-                    if (t.trim().length >= 3) {
-                      debouncedSearchTransporters(t);
-                    } else {
-                      clearTransporters();
-                    }
-                  }}
-                  showSoftInputOnFocus={!keyboardDisabled}
-                />
-                
-                {loadingTransporters && (
-                  <ActivityIndicator 
-                    size="small" 
-                    color={C.blue} 
-                    style={{ position: 'absolute', right: 10, top: 14 }} 
+            <View style={[styles.row2, { zIndex: 2000, alignItems: 'flex-start' }]}>
+              <View style={{ flex: 1, position: 'relative', zIndex: 3000 }}>
+                <View style={styles.inputContainer}>
+                  <TextInput
+                    ref={transporterRef}
+                    style={[styles.input, { flex: 1, paddingRight: form.transporter ? 40 : 12 }]}
+                    placeholder={keyboardDisabled ? "" : "Transporter"}
+                    placeholderTextColor={C.hint}
+                    value={form.transporter}
+                    onChangeText={(t) => {
+                      onChange("transporter", t);
+                      if (t.trim().length >= 3) {
+                        debouncedSearchTransporters(t);
+                      } else {
+                        clearTransporters();
+                      }
+                    }}
+                    onBlur={() => {
+                        // Small delay to allow dropdown item selection
+                        setTimeout(() => clearTransporters(), 200);
+                    }}
+                    showSoftInputOnFocus={!keyboardDisabled}
                   />
-                )}
+                  {form.transporter.length > 0 && (
+                    <TouchableOpacity 
+                      style={styles.clearInputBtn}
+                      onPress={() => {
+                        onChange("transporter", "");
+                        clearTransporters();
+                      }}
+                    >
+                      <Ionicons name="close-circle" size={20} color={C.hint} />
+                    </TouchableOpacity>
+                  )}
+                  {loadingTransporters && (
+                    <ActivityIndicator 
+                      size="small" 
+                      color={C.blue} 
+                      style={styles.spinnerIcon} 
+                    />
+                  )}
+                </View>
 
                 {sortedTransporters.length > 0 && (
                   <View style={styles.dropdownContainer}>
                     <FlatList
                       data={sortedTransporters}
                       keyExtractor={(item) => item.id.toString()}
-                      keyboardShouldPersistTaps="handled"
+                      keyboardShouldPersistTaps="always"
                       nestedScrollEnabled={true}
-                      style={{ maxHeight: 200 }}
+                      style={{ maxHeight: 220 }}
+                      showsVerticalScrollIndicator={true}
                       renderItem={({ item }) => (
                         <TouchableOpacity
                           style={styles.dropdownItem}
@@ -1030,26 +1047,43 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: '#fff',
     borderRadius: 8,
-    elevation: 8,
+    elevation: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
     zIndex: 9999,
     borderWidth: 1,
-    borderColor: '#eee',
-    overflow: 'hidden',
+    borderColor: '#E5E7EB',
+    overflow: 'visible',
   },
   dropdownItem: {
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#F3F4F6',
   },
   transporterName: {
     fontSize: 15,
     fontWeight: '500',
-    color: '#333',
+    color: '#1F2937',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  clearInputBtn: {
+    position: 'absolute',
+    right: 10,
+    height: '100%',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  spinnerIcon: {
+    position: 'absolute',
+    right: 35,
+    top: 14,
   },
 });
 

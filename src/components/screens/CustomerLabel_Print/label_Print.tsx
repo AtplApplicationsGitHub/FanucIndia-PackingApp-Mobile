@@ -197,8 +197,8 @@ const EditCustomerModal = ({
   onClose,
 }: {
   visible: boolean;
-  initialData: { name: string; address: string; contactNumber: string; box: string };
-  onSave: (data: { name: string; address: string; contactNumber: string; box: string }) => void;
+  initialData: { name: string; address: string; contactNumber: string; box: string; packageName: string };
+  onSave: (data: { name: string; address: string; contactNumber: string; box: string; packageName: string }) => void;
   onClose: () => void;
 }) => {
   const [data, setData] = useState(initialData);
@@ -217,33 +217,11 @@ const EditCustomerModal = ({
           </View>
           
           <View style={styles.editField}>
-            <Text style={styles.fieldLabel}>Customer Name</Text>
+            <Text style={styles.fieldLabel}>Package Name</Text>
             <TextInput 
               style={styles.fieldInput} 
-              value={data.name} 
-              onChangeText={(v) => setData({...data, name: v})} 
-              showSoftInputOnFocus={true}
-            />
-          </View>
-          
-          <View style={styles.editField}>
-            <Text style={styles.fieldLabel}>Address</Text>
-            <TextInput 
-              style={[styles.fieldInput, { minHeight: 60 }]} 
-              value={data.address} 
-              onChangeText={(v) => setData({...data, address: v})} 
-              multiline
-              showSoftInputOnFocus={true}
-            />
-          </View>
-          
-          <View style={styles.editField}>
-            <Text style={styles.fieldLabel}>Contact Number</Text>
-            <TextInput 
-              style={styles.fieldInput} 
-              value={data.contactNumber} 
-              onChangeText={(v) => setData({...data, contactNumber: v})} 
-              keyboardType="phone-pad"
+              value={data.packageName} 
+              onChangeText={(v) => setData({...data, packageName: v})} 
               showSoftInputOnFocus={true}
             />
           </View>
@@ -287,13 +265,15 @@ export default function CustomerLabelPrint(): JSX.Element {
   const [customerAddress, setCustomerAddress] = useState<string | null>(null);
   const [contactNumber, setContactNumber] = useState<string>("");
   const [boxNumber, setBoxNumber] = useState<string>("1/1");
+  const [packageType, setPackageType] = useState<string>("CNC Package");
   const [isCustomerLocked, setIsCustomerLocked] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [tempCustomerData, setTempCustomerData] = useState({
     name: "",
     address: "",
     contactNumber: "",
-    box: "1/1"
+    box: "1/1",
+    packageName: "CNC Package"
   });
   const inputRef = useRef<TextInput>(null);
 
@@ -336,6 +316,7 @@ export default function CustomerLabelPrint(): JSX.Element {
         setCustomerAddress(saved.customerAddress);
         setContactNumber(saved.contactNumber || "");
         setBoxNumber(saved.boxNumber || "1/1");
+        setPackageType(saved.packageType || "CNC Package");
         setIsCustomerLocked(saved.isCustomerLocked);
       }
     };
@@ -350,9 +331,10 @@ export default function CustomerLabelPrint(): JSX.Element {
       customerAddress, 
       contactNumber, 
       boxNumber, 
+      packageType,
       isCustomerLocked 
     });
-  }, [sos, customerName, customerAddress, contactNumber, boxNumber, isCustomerLocked]);
+  }, [sos, customerName, customerAddress, contactNumber, boxNumber, packageType, isCustomerLocked]);
 
   // Focus Management
   useFocusEffect(
@@ -641,7 +623,7 @@ export default function CustomerLabelPrint(): JSX.Element {
     setPrintConfirmModal(false);
     // Sort in ascending alphanumeric order
     const soNumbers = sos.map((item) => item.soNumber).sort((a, b) => a.localeCompare(b));
-    await printLabels(soNumbers);
+    await printLabels(soNumbers, packageType, boxNumber);
   };
 
   const onClearAll = () => {
@@ -656,6 +638,7 @@ export default function CustomerLabelPrint(): JSX.Element {
     setCustomerAddress(null);
     setContactNumber("");
     setBoxNumber("1/1");
+    setPackageType("CNC Package");
     setIsCustomerLocked(false);
     setSoNumber("");
     await labelPrintStorage.clear();
@@ -760,21 +743,24 @@ export default function CustomerLabelPrint(): JSX.Element {
           </View>
 
           {isCustomerLocked && customerName && (
-            <View style={styles.customerCard}>
-              <TouchableOpacity 
+            <TouchableOpacity 
+              style={styles.customerCard}
+              onPress={() => {
+                setTempCustomerData({
+                  name: customerName || "",
+                  address: customerAddress || "",
+                  contactNumber: contactNumber,
+                  box: boxNumber,
+                  packageName: packageType
+                });
+                setEditModalVisible(true);
+              }}
+            >
+              <View 
                 style={styles.editIconBtn}
-                onPress={() => {
-                   setTempCustomerData({
-                      name: customerName || "",
-                      address: customerAddress || "",
-                      contactNumber: contactNumber,
-                      box: boxNumber
-                   });
-                   setEditModalVisible(true);
-                }}
               >
                 <Ionicons name="create-outline" size={18} color={COLORS.accent} />
-              </TouchableOpacity>
+              </View>
 
               <View style={styles.fixedField}>
                 <Text style={styles.fixedLabel}>Customer:</Text>
@@ -791,20 +777,13 @@ export default function CustomerLabelPrint(): JSX.Element {
 
               <View style={styles.divider} />
 
-              <Text style={styles.cardHeading}>CNC Package</Text>
+              <Text style={styles.cardHeading}>{packageType}</Text>
 
               <View style={[styles.fixedField, { marginTop: 4, alignItems: "center" }]}>
                 <Text style={styles.fixedLabel}>Box No:</Text>
-                <TextInput
-                  style={styles.boxInput}
-                  value={boxNumber}
-                  onChangeText={setBoxNumber}
-                  placeholder="1/1"
-                  placeholderTextColor={COLORS.muted}
-                  showSoftInputOnFocus={true}
-                />
+                <Text style={[styles.boxInput, { borderBottomWidth: 0 }]}>{boxNumber}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -926,6 +905,7 @@ export default function CustomerLabelPrint(): JSX.Element {
                setCustomerAddress(data.address);
                setContactNumber(data.contactNumber);
                setBoxNumber(data.box);
+               setPackageType(data.packageName);
                setEditModalVisible(false);
             }}
         />
