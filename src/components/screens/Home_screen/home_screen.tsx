@@ -21,7 +21,7 @@ import { APP_VERSION } from "../../utils/Version";
 
 
 type MenuItem = {
-  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle" | "location_accuracy" | "content_accuracy" | "put_away";
+  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle" | "location_accuracy" | "content_accuracy" | "put_away" | "settings" | "sound_demo";
   title: string;
   subtitle: string;
   iconName: string;
@@ -84,6 +84,18 @@ const MENU: MenuItem[] = [
     title: "Put Away Location",
     subtitle: "Store items in location",
     iconName: "arrow-down-bold-box-outline",
+  },
+  {
+    id: "settings",
+    title: "Settings",
+    subtitle: "App configurations",
+    iconName: "cog-outline",
+  },
+  {
+    id: "sound_demo",
+    title: "Sound Demo",
+    subtitle: "Test sounds",
+    iconName: "volume-high",
   },
 ];
 
@@ -180,6 +192,9 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                   return !!parsedUser.accessContentAccuracy;
                 case "put_away":
                   return !!parsedUser.accessPutAway;
+                case "settings":
+                case "sound_demo":
+                  return true;
                 default:
                   return false;
               }
@@ -230,6 +245,12 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         break;
       case "put_away":
         navigation.navigate("PutAway");
+        break;
+      case "settings":
+        navigation.navigate("Settings");
+        break;
+      case "sound_demo":
+        navigation.navigate("SoundDemo");
         break;
       default:
         console.warn("Unknown menu item:", item.id);

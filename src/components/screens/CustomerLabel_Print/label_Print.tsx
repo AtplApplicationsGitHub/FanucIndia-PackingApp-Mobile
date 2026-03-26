@@ -23,6 +23,8 @@ import {
 } from "expo-camera";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { JSX } from "react";
+import { Audio } from "expo-av";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useVerifySO, usePrintLabels } from "../../Api/Hooks/UselabelPrint";
 import { labelPrintStorage } from "../../Storage/label_Print_Storage";
@@ -500,6 +502,35 @@ export default function CustomerLabelPrint(): JSX.Element {
     }
   };
 
+  const triggerVibration = async (duration = 400) => {
+    try {
+      const vResult = await AsyncStorage.getItem("vibrationEnabled");
+      if (vResult === null || vResult === "true") {
+        Vibration.vibrate(duration);
+      }
+    } catch (e) {
+      console.log("Vibration error", e);
+    }
+  };
+
+  const playErrorSound = async () => {
+    try {
+      const sResult = await AsyncStorage.getItem("soundEnabled");
+      if (sResult !== null && sResult !== "true") return;
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync(
+        require("../../assets/sounds/error.mp3")
+      );
+      await sound.playAsync();
+      setTimeout(async () => {
+        await sound.stopAsync();
+        await sound.unloadAsync();
+      }, 1000);
+    } catch (error) {
+      console.log("Sound error", error);
+    }
+  };
+
   useEffect(() => {
     if (printSuccess) {
       setSuccessModal({
@@ -512,6 +543,7 @@ export default function CustomerLabelPrint(): JSX.Element {
 
   useEffect(() => {
     if (printError) {
+      playErrorSound();
       setErrorModal({
         visible: true,
         title: "Print Failed",
@@ -529,6 +561,8 @@ export default function CustomerLabelPrint(): JSX.Element {
   };
 
   const showError = (title: string, message: string, autoDismiss = true) => {
+    playErrorSound();
+    triggerVibration(400);
     setErrorModal({ visible: true, title, message, autoDismiss });
   };
 
@@ -581,7 +615,7 @@ export default function CustomerLabelPrint(): JSX.Element {
       return;
     }
     sessionCodesRef.current.add(value);
-    Vibration.vibrate();
+    triggerVibration(100);
     setLastScannedCode(value);
     setSessionCount((prev) => prev + 1);
     addSO(value, true);
@@ -624,9 +658,10 @@ export default function CustomerLabelPrint(): JSX.Element {
   const coreAddSO = async (soToAdd: string, fromScanner: boolean) => {
     if (sos.length >= 15) {
       pendingScansRef.current = [];
+      playErrorSound();
       if (fromScanner) {
         setScanStatus({ message: "Max 15 reached", color: COLORS.danger });
-        Vibration.vibrate(400);
+        triggerVibration(400);
         closeScanner();
       }
       setSoNumber("");
@@ -637,10 +672,12 @@ export default function CustomerLabelPrint(): JSX.Element {
     // 1. Check duplicates in UI list
     if (sos.some((i) => i.soNumber === soToAdd)) {
       if (fromScanner) {
+        playErrorSound();
         setScanStatus({
           message: "Duplicate: " + soToAdd,
           color: COLORS.warning,
         });
+        triggerVibration(400);
         return;
       }
       showError("", `"${soToAdd}" is already in the list.`, false);
@@ -658,11 +695,12 @@ export default function CustomerLabelPrint(): JSX.Element {
             : String(verifyError)
           : "Sales Order not found.";
         if (fromScanner) {
+          playErrorSound();
           setScanStatus({
             message: "Invalid: " + soToAdd,
             color: COLORS.danger,
           });
-          Vibration.vibrate(400);
+          triggerVibration(400);
           return;
         }
         showError("Invalid SO", errMsg, true);
@@ -693,10 +731,12 @@ export default function CustomerLabelPrint(): JSX.Element {
           });
       } else if (currentNameNorm !== newNameNorm) {
         if (fromScanner) {
+          playErrorSound();
           setScanStatus({ message: "Mismatch Ignored", color: COLORS.danger });
-          Vibration.vibrate(400);
+          triggerVibration(400);
           return;
         }
+        playErrorSound();
         setSoNumber("");
         setMismatchModal({
           visible: true,
@@ -725,8 +765,9 @@ export default function CustomerLabelPrint(): JSX.Element {
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (fromScanner) {
+        playErrorSound();
         setScanStatus({ message: "Error: " + msg, color: COLORS.danger });
-        Vibration.vibrate(400);
+        triggerVibration(400);
         return;
       }
       showError("Invalid SO", msg || "Sales Order not found.", true);

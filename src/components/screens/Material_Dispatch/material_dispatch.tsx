@@ -39,7 +39,8 @@ import {
   type UpdateDispatchHeaderRequest,
   type LinkDispatchSORequest,
   type DispatchAttachment,
-} from "../../Api/Hooks/Usematerial_dispatch";
+} from "../../Api/Hooks/Usematerial_dispatch";import { Audio } from "expo-av";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
   loadDispatchData,
@@ -103,6 +104,42 @@ const MaterialDispatchScreen: React.FC = () => {
   const [showNewFormModal, setShowNewFormModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
   const [savingHeader, setSavingHeader] = useState(false);
+
+  const triggerVibration = async (duration = 400) => {
+    try {
+      const vResult = await AsyncStorage.getItem("vibrationEnabled");
+      if (vResult === null || vResult === "true") {
+        Vibration.vibrate(duration);
+      }
+    } catch (e) {
+      console.log("Vibration error", e);
+    }
+  };
+
+  const playErrorSound = async () => {
+    try {
+      const sResult = await AsyncStorage.getItem("soundEnabled");
+      if (sResult !== null && sResult !== "true") return;
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync(
+        require("../../assets/sounds/error.mp3")
+      );
+      await sound.playAsync();
+      setTimeout(async () => {
+        await sound.stopAsync();
+        await sound.unloadAsync();
+      }, 1000);
+    } catch (e) {
+      console.log("Sound error", e);
+    }
+  };
+
+  useEffect(() => {
+    if (showError) {
+      playErrorSound();
+      triggerVibration(400);
+    }
+  }, [showError]);
 
   // Transporter Lookup
   const {
@@ -284,6 +321,10 @@ const MaterialDispatchScreen: React.FC = () => {
     const so = normalizeSO(raw);
     if (!so || !dispatchId) {
       if (!isScan) clearAndFocusSO();
+      else {
+        playErrorSound();
+        triggerVibration(400);
+      }
       return;
     }
 
@@ -294,8 +335,8 @@ const MaterialDispatchScreen: React.FC = () => {
         setShowError(true);
         clearAndFocusSO();
       } else {
-        // Scanner feedback for duplicate?
-        // We can just ignore or show toast.
+        playErrorSound();
+        triggerVibration(400);
       }
       return;
     }
@@ -328,7 +369,8 @@ const MaterialDispatchScreen: React.FC = () => {
            clearAndFocusSO();
         } else {
            console.log("Scan add failed:", result.error);
-           // Maybe show toast?
+           playErrorSound();
+           triggerVibration(400);
         }
       }
     } catch {
@@ -336,6 +378,9 @@ const MaterialDispatchScreen: React.FC = () => {
          setErrorMessage("Failed to link SO.");
          setShowError(true);
          clearAndFocusSO();
+       } else {
+         playErrorSound();
+         triggerVibration(400);
        }
     }
   }
@@ -436,10 +481,14 @@ const MaterialDispatchScreen: React.FC = () => {
     if (!value) return;
     
     // Prevent duplicate scans in same session
-    if (sessionCodesRef.current.has(value)) return;
+    if (sessionCodesRef.current.has(value)) {
+        playErrorSound();
+        triggerVibration(400);
+        return;
+    }
     
     sessionCodesRef.current.add(value);
-    Vibration.vibrate();
+    triggerVibration(100);
     
     // Add to queue
     addSO(value, true);

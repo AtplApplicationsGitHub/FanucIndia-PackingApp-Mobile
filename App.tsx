@@ -14,7 +14,8 @@ import VehicleEntry from "./src/components/screens/Vehicle_Entry/VehicleEntry";
 import PutAwayScreen from "./src/components/screens/put_away/putaway";
 import LocationAccuracyScreen from "./src/components/screens/Location Accuracy/Location";
 import ContentAccuracyScreen from "./src/components/screens/Content_Accuracy/ContentAccuracy";
-
+import SettingsScreen from "./src/components/screens/Settings/settings";
+import SoundDemoScreen from "./src/components/screens/SoundDemo/Sounddemo";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -26,6 +27,8 @@ export type RootStackParamList = {
   PutAway: undefined;
   LocationAccuracy: undefined;
   ContentAccuracy: undefined;
+  Settings: undefined;
+  SoundDemo: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -112,6 +115,20 @@ export default function App() {
             name="ContentAccuracy"
             component={ContentAccuracyScreen}
             options={{ title: "Content Accuracy" }}
+          />
+
+          {/* Settings */}
+          <Stack.Screen
+            name="Settings"
+            component={SettingsScreen}
+            options={{ title: "Settings" }}
+          />
+
+          {/* Sound Demo */}
+          <Stack.Screen
+            name="SoundDemo"
+            component={SoundDemoScreen}
+            options={{ title: "Sound Demo" }}
           />
 
         </Stack.Navigator>

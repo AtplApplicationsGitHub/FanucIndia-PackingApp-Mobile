@@ -21,6 +21,8 @@ import {
   type BarcodeScanningResult,
 } from "expo-camera";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { Audio } from "expo-av";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { assignFgLocation, type AssignLocationResponse } from "../../Api/Hooks/Usematerial_fg";
 import { 
   clearMaterialFGData, 
@@ -251,8 +253,42 @@ const MaterialFGTransferScreen: React.FC = () => {
     saveMaterialFGLocation(location);
   }, [location]);
 
-  const showMessage = (title: string, subtitle?: string, onOk?: () => void) =>
+  const triggerVibration = async (duration = 400) => {
+    try {
+      const vResult = await AsyncStorage.getItem("vibrationEnabled");
+      if (vResult === null || vResult === "true") {
+        Vibration.vibrate(duration);
+      }
+    } catch (e) {
+      console.log("Vibration error", e);
+    }
+  };
+
+  const playErrorSound = async () => {
+    try {
+      const sResult = await AsyncStorage.getItem("soundEnabled");
+      if (sResult !== null && sResult !== "true") return;
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync(
+        require("../../assets/sounds/error.mp3")
+      );
+      await sound.playAsync();
+      setTimeout(async () => {
+        await sound.stopAsync();
+        await sound.unloadAsync();
+      }, 1000);
+    } catch (e) {
+      console.log("Sound error", e);
+    }
+  };
+
+  const showMessage = (title: string, subtitle?: string, onOk?: () => void) => {
+    if (title !== "Success") {
+      playErrorSound();
+      triggerVibration(400);
+    }
     setMessageDlg({ show: true, title, subtitle, onOk });
+  };
 
   // Separate function to perform the logic of adding an item (used by Manual Entry and Scanner)
   const performAddItem = async (targetSo: string, targetLoc: string) => {
@@ -306,6 +342,8 @@ const MaterialFGTransferScreen: React.FC = () => {
     } catch (error: any) {
        console.log("Add failed:", error);
        if (scanModal.visible && scanModal.target === "so") {
+          playErrorSound();
+          triggerVibration(400);
           setScanError(error.message || "Invalid SO");
           // On error in scan mode, we DO NOT clear the session code ref 
           // because we don't want to infinite loop-retry the same bad code.
@@ -431,7 +469,7 @@ const MaterialFGTransferScreen: React.FC = () => {
         if (scanLockRef.current) return;
         scanLockRef.current = true;
 
-        Vibration.vibrate();
+        triggerVibration(100);
         setLocation(value);
         closeScanner();
         // Wait for modal to close then focus SO
@@ -448,14 +486,15 @@ const MaterialFGTransferScreen: React.FC = () => {
         // Verify Location exists
         const currentLoc = locationValueRef.current; // Use ref
         if (!currentLoc) {
+            playErrorSound();
+            triggerVibration(400);
             setScanError("No Location Set!");
-            Vibration.vibrate();
             return;
         }
 
         // Add to session to block immediate re-scan
         sessionCodesRef.current.add(value);
-        Vibration.vibrate();
+        triggerVibration(100);
 
         // Push to queue
         pendingScansRef.current.push(value);
