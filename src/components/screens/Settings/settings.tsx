@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 
 const SettingsScreen: React.FC = () => {
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
@@ -56,7 +57,7 @@ const SettingsScreen: React.FC = () => {
         <View style={styles.settingCard}>
           <View style={styles.settingInfo}>
             <View style={[styles.iconContainer, { backgroundColor: '#EEF2FF' }]}>
-              <Text style={styles.iconText}>🔊</Text>
+              <Ionicons name="volume-high-outline" size={24} color="#4F46E5" />
             </View>
             <View style={styles.settingTextContainer}>
               <Text style={styles.settingLabel}>Sound Effects</Text>
@@ -77,7 +78,7 @@ const SettingsScreen: React.FC = () => {
         <View style={styles.settingCard}>
           <View style={styles.settingInfo}>
             <View style={[styles.iconContainer, { backgroundColor: '#FFF0F0' }]}>
-              <Text style={styles.iconText}>📳</Text>
+              <MaterialIcons name="vibration" size={24} color="#EF4444" />
             </View>
             <View style={styles.settingTextContainer}>
               <Text style={styles.settingLabel}>Vibration</Text>

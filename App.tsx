@@ -15,7 +15,8 @@ import PutAwayScreen from "./src/components/screens/put_away/putaway";
 import LocationAccuracyScreen from "./src/components/screens/Location Accuracy/Location";
 import ContentAccuracyScreen from "./src/components/screens/Content_Accuracy/ContentAccuracy";
 import SettingsScreen from "./src/components/screens/Settings/settings";
-import SoundDemoScreen from "./src/components/screens/SoundDemo/Sounddemo";
+import SoundDemoScreen from "./src/components/Demo-modules/SoundDemo/Sounddemo";
+import AttachmentsScreen from "./src/components/screens/UploadAttachments/Attachments";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -29,6 +30,7 @@ export type RootStackParamList = {
   ContentAccuracy: undefined;
   Settings: undefined;
   SoundDemo: undefined;
+  UploadAttachments: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -129,6 +131,13 @@ export default function App() {
             name="SoundDemo"
             component={SoundDemoScreen}
             options={{ title: "Sound Demo" }}
+          />
+
+          {/* Upload Attachments */}
+          <Stack.Screen
+            name="UploadAttachments"
+            component={AttachmentsScreen}
+            options={{ title: "Upload Attachments" }}
           />
 
         </Stack.Navigator>

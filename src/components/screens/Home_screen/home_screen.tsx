@@ -21,7 +21,7 @@ import { APP_VERSION } from "../../utils/Version";
 
 
 type MenuItem = {
-  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle" | "location_accuracy" | "content_accuracy" | "put_away" | "settings" | "sound_demo";
+  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle" | "location_accuracy" | "content_accuracy" | "put_away" | "settings" | "sound_demo" | "upload_attachments";
   title: string;
   subtitle: string;
   iconName: string;
@@ -86,17 +86,23 @@ const MENU: MenuItem[] = [
     iconName: "arrow-down-bold-box-outline",
   },
   {
+    id: "upload_attachments",
+    title: "Upload Attachments",
+    subtitle: "Manage file attachments",
+    iconName: "paperclip",
+  },
+  {
     id: "settings",
     title: "Settings",
     subtitle: "App configurations",
     iconName: "cog-outline",
   },
-  {
-    id: "sound_demo",
-    title: "Sound Demo",
-    subtitle: "Test sounds",
-    iconName: "volume-high",
-  },
+  // {
+  //   id: "sound_demo",
+  //   title: "Sound Demo",
+  //   subtitle: "Test sounds",
+  //   iconName: "volume-high",
+  // },
 ];
 
 function pickBestName(input?: {
@@ -192,6 +198,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                   return !!parsedUser.accessContentAccuracy;
                 case "put_away":
                   return !!parsedUser.accessPutAway;
+                case "upload_attachments":
                 case "settings":
                 case "sound_demo":
                   return true;
@@ -245,6 +252,9 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         break;
       case "put_away":
         navigation.navigate("PutAway");
+        break;
+      case "upload_attachments":
+        navigation.navigate("UploadAttachments" as any);
         break;
       case "settings":
         navigation.navigate("Settings");

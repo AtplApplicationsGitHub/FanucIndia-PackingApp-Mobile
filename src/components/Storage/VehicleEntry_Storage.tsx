@@ -11,6 +11,8 @@ export type VehicleDraft = {
   vehicleNumber: string;
   transporterName: string;
   driverNumber: string;
+  inTime?: string;
+  outTime?: string;
 
   savedEntryId?: number;
   allPhotosUploaded?: boolean;

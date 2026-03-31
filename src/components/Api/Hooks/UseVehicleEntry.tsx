@@ -10,7 +10,7 @@ export type Customer = {
 };
 
 export type Attachment = {
-  path: string;          // relative path returned by server
+  path: string; // relative path returned by server
   size: number;
   fileName: string;
   mimeType: string;
@@ -26,10 +26,12 @@ export type VehicleEntryResponse = {
 };
 
 type SavePayload = {
-  customerName: string;
+  customerName?: string;
   vehicleNumber: string;
   transporterName: string;
   driverNumber: string;
+  inTime?: string;
+  outTime?: string;
 };
 
 const SECURESTORE_TOKEN_KEY = "authToken";
@@ -89,10 +91,11 @@ export const useVehicleEntry = () => {
 
       try {
         const authHeader = await getAuthTokenHeader();
-        if (!authHeader) throw new Error("Authentication token missing. Please login again.");
+        if (!authHeader)
+          throw new Error("Authentication token missing. Please login again.");
 
         const url = `${API_ENDPOINTS.VEHICLE_ENTRY.FETCH_CUSTOMERS}?search=${encodeURIComponent(
-          trimmed
+          trimmed,
         )}`;
 
         const res = await fetch(url, {
@@ -106,17 +109,23 @@ export const useVehicleEntry = () => {
         });
 
         if (!res.ok) {
-          if (res.status === 401) throw new Error("Session expired. Please log in again.");
+          if (res.status === 401)
+            throw new Error("Session expired. Please log in again.");
           if (res.status === 404) {
             setCustomers([]);
             return;
           }
           const body = await parseResponseBody(res);
-          throw new Error(body?.message ?? body?.error ?? `Failed to fetch customers (${res.status})`);
+          throw new Error(
+            body?.message ??
+              body?.error ??
+              `Failed to fetch customers (${res.status})`,
+          );
         }
 
         const data = (await parseResponseBody(res)) as Customer[];
-        if (!Array.isArray(data)) throw new Error("Invalid response format from server");
+        if (!Array.isArray(data))
+          throw new Error("Invalid response format from server");
         setCustomers(data);
       } catch (err: any) {
         if (err?.name === "AbortError") {
@@ -128,10 +137,11 @@ export const useVehicleEntry = () => {
         }
       } finally {
         setLoadingCustomers(false);
-        if (searchControllerRef.current === controller) searchControllerRef.current = null;
+        if (searchControllerRef.current === controller)
+          searchControllerRef.current = null;
       }
     },
-    [getAuthTokenHeader]
+    [getAuthTokenHeader],
   );
 
   const debouncedSearch = useCallback(
@@ -141,7 +151,7 @@ export const useVehicleEntry = () => {
         searchCustomers(query);
       }, 400);
     },
-    [searchCustomers]
+    [searchCustomers],
   );
 
   const saveVehicleEntry = useCallback(
@@ -155,23 +165,32 @@ export const useVehicleEntry = () => {
 
       try {
         const authHeader = await getAuthTokenHeader();
-        if (!authHeader) throw new Error("Authentication token missing. Please login again.");
+        if (!authHeader)
+          throw new Error("Authentication token missing. Please login again.");
 
-        const res = await fetch(API_ENDPOINTS.VEHICLE_ENTRY.SAVE_VEHICLE_ENTRY, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: authHeader,
-            Accept: "application/json",
+        const res = await fetch(
+          API_ENDPOINTS.VEHICLE_ENTRY.SAVE_VEHICLE_ENTRY,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authHeader,
+              Accept: "application/json",
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
           },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
+        );
 
         if (!res.ok) {
-          if (res.status === 401) throw new Error("Session expired. Please log in again.");
+          if (res.status === 401)
+            throw new Error("Session expired. Please log in again.");
           const body = await parseResponseBody(res);
-          throw new Error(body?.message ?? body?.error ?? `Failed to save vehicle entry (${res.status})`);
+          throw new Error(
+            body?.message ??
+              body?.error ??
+              `Failed to save vehicle entry (${res.status})`,
+          );
         }
 
         const result = (await parseResponseBody(res)) as VehicleEntryResponse;
@@ -186,16 +205,17 @@ export const useVehicleEntry = () => {
         return null;
       } finally {
         setSaving(false);
-        if (saveControllerRef.current === controller) saveControllerRef.current = null;
+        if (saveControllerRef.current === controller)
+          saveControllerRef.current = null;
       }
     },
-    [getAuthTokenHeader]
+    [getAuthTokenHeader],
   );
 
   const uploadAttachments = useCallback(
     async (
       vehicleEntryId: number | string,
-      photos: { uri: string; name?: string; type?: string }[]
+      photos: { uri: string; name?: string; type?: string }[],
     ): Promise<Attachment[] | null> => {
       if (!photos || photos.length === 0) return [];
 
@@ -208,7 +228,8 @@ export const useVehicleEntry = () => {
 
       try {
         const authHeader = await getAuthTokenHeader();
-        if (!authHeader) throw new Error("Authentication token missing. Please login again.");
+        if (!authHeader)
+          throw new Error("Authentication token missing. Please login again.");
 
         const formData = new FormData();
         photos.forEach((photo, index) => {
@@ -223,7 +244,8 @@ export const useVehicleEntry = () => {
           } as any);
         });
 
-        const uploadUrl = API_ENDPOINTS.VEHICLE_ENTRY.UPLOAD_ATTACHMENTS(vehicleEntryId);
+        const uploadUrl =
+          API_ENDPOINTS.VEHICLE_ENTRY.UPLOAD_ATTACHMENTS(vehicleEntryId);
 
         const res = await fetch(uploadUrl, {
           method: "POST",
@@ -251,10 +273,11 @@ export const useVehicleEntry = () => {
         return null;
       } finally {
         setUploadingAttachments(false);
-        if (uploadControllerRef.current === controller) uploadControllerRef.current = null;
+        if (uploadControllerRef.current === controller)
+          uploadControllerRef.current = null;
       }
     },
-    [getAuthTokenHeader]
+    [getAuthTokenHeader],
   );
 
   // NEW: Fetch existing attachments for a vehicle entry
@@ -263,13 +286,15 @@ export const useVehicleEntry = () => {
       setLoadingAttachments(true);
       setError(null);
 
-      if (fetchAttachmentsControllerRef.current) fetchAttachmentsControllerRef.current.abort();
+      if (fetchAttachmentsControllerRef.current)
+        fetchAttachmentsControllerRef.current.abort();
       const controller = new AbortController();
       fetchAttachmentsControllerRef.current = controller;
 
       try {
         const authHeader = await getAuthTokenHeader();
-        if (!authHeader) throw new Error("Authentication token missing. Please login again.");
+        if (!authHeader)
+          throw new Error("Authentication token missing. Please login again.");
 
         const url = API_ENDPOINTS.VEHICLE_ENTRY.GET_ATTACHMENTS(vehicleEntryId);
 
@@ -285,11 +310,14 @@ export const useVehicleEntry = () => {
         if (!res.ok) {
           if (res.status === 404) return []; // no attachments yet
           const body = await parseResponseBody(res);
-          throw new Error(body?.message ?? `Failed to fetch attachments (${res.status})`);
+          throw new Error(
+            body?.message ?? `Failed to fetch attachments (${res.status})`,
+          );
         }
 
         const data = (await parseResponseBody(res)) as Attachment[];
-        if (!Array.isArray(data)) throw new Error("Invalid attachments response format");
+        if (!Array.isArray(data))
+          throw new Error("Invalid attachments response format");
 
         // Optionally prepend base URL if your backend returns relative paths
         // const base = BASE_URL.endsWith("/") ? BASE_URL.slice(0, -1) : BASE_URL;
@@ -309,13 +337,13 @@ export const useVehicleEntry = () => {
           fetchAttachmentsControllerRef.current = null;
       }
     },
-    [getAuthTokenHeader]
+    [getAuthTokenHeader],
   );
 
   const saveAndUpload = useCallback(
     async (
       payload: SavePayload,
-      photos: { uri: string; name?: string; type?: string }[] = []
+      photos: { uri: string; name?: string; type?: string }[] = [],
     ): Promise<VehicleEntryResponse | null> => {
       const saved = await saveVehicleEntry(payload);
       if (!saved || !saved.id) return null;
@@ -330,7 +358,7 @@ export const useVehicleEntry = () => {
 
       return saved;
     },
-    [saveVehicleEntry, uploadAttachments]
+    [saveVehicleEntry, uploadAttachments],
   );
 
   const cancelPendingRequests = useCallback(() => {
@@ -358,14 +386,14 @@ export const useVehicleEntry = () => {
   return {
     customers,
     loadingCustomers,
-    loadingAttachments,        // NEW
+    loadingAttachments, // NEW
     saving,
     uploadingAttachments,
     error,
     debouncedSearch,
     saveVehicleEntry,
     uploadAttachments,
-    fetchAttachments,          // NEW
+    fetchAttachments, // NEW
     saveAndUpload,
     clearError,
     clearCustomers,

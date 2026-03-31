@@ -26,6 +26,77 @@ import {
   VehicleDraft,
 } from '../../Storage/VehicleEntry_Storage';
 
+const TimeSelectionField = ({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) => {
+  const [timeStr, setTimeStr] = useState('');
+  const [period, setPeriod] = useState('AM');
+
+  useEffect(() => {
+    if (value) {
+      const parts = value.split(' ');
+      setTimeStr(parts[0] || '');
+      setPeriod(parts[1] || 'AM');
+    } else {
+      setTimeStr('');
+      setPeriod('AM');
+    }
+  }, [value]);
+
+  const handleTextChange = (text: string) => {
+    let digits = text.replace(/[^0-9]/g, '');
+    digits = digits.substring(0, 4);
+
+    let formatted = digits;
+    if (digits.length > 2) {
+      formatted = `${digits.substring(0, 2)}:${digits.substring(2)}`;
+    }
+
+    setTimeStr(formatted);
+
+    if (formatted.trim() !== '') {
+      onChange(`${formatted} ${period}`);
+    } else {
+      onChange('');
+    }
+  };
+
+  const togglePeriod = () => {
+    const newPeriod = period === 'AM' ? 'PM' : 'AM';
+    setPeriod(newPeriod);
+    if (timeStr.trim() !== '') {
+      onChange(`${timeStr} ${newPeriod}`);
+    }
+  };
+
+  return (
+    <View style={styles.timeSelectionContainer}>
+      <TextInput
+        style={styles.timeTextInput}
+        placeholder={label}
+        value={timeStr}
+        onChangeText={handleTextChange}
+        keyboardType="number-pad"
+        maxLength={5}
+      />
+      <TouchableOpacity
+        style={[styles.amPmButton, period === 'PM' && styles.amPmButtonActive]}
+        onPress={togglePeriod}
+      >
+        <Text style={[styles.amPmButtonText, period === 'PM' && styles.amPmButtonTextActive]}>
+          {period}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
 export default function VehicleEntryScreen() {
   const {
     customers,
@@ -42,6 +113,8 @@ export default function VehicleEntryScreen() {
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [transporterName, setTransporterName] = useState('');
   const [driverNumber, setDriverNumber] = useState('');
+  const [inTime, setInTime] = useState('');
+  const [outTime, setOutTime] = useState('');
 
   const [savedEntryId, setSavedEntryId] = useState<number | null>(null);
   const [entrySaved, setEntrySaved] = useState(false);
@@ -87,6 +160,8 @@ export default function VehicleEntryScreen() {
         setVehicleNumber(draft.vehicleNumber || '');
         setTransporterName(draft.transporterName || '');
         setDriverNumber(draft.driverNumber || '');
+        setInTime(draft.inTime || '');
+        setOutTime(draft.outTime || '');
 
         setSavedEntryId(draft.savedEntryId || null);
         setEntrySaved(!!draft.savedEntryId);
@@ -107,6 +182,8 @@ export default function VehicleEntryScreen() {
         vehicleNumber,
         transporterName,
         driverNumber,
+        inTime,
+        outTime,
 
         savedEntryId: savedEntryId || undefined,
         allPhotosUploaded: false,
@@ -145,7 +222,6 @@ export default function VehicleEntryScreen() {
   };
 
   const isFormValid = () =>
-    selectedCustomer &&
     vehicleNumber.trim().length > 0 &&
     transporterName.trim().length > 0 &&
     isDriverValid(driverNumber);
@@ -181,16 +257,33 @@ export default function VehicleEntryScreen() {
 
   const handleSave = async () => {
     if (!isFormValid()) {
-      showModal('error', 'Invalid Data', 'Please fill all required fields correctly.\n\n• Select a customer\n• Enter vehicle number\n• Enter transporter name\n• Driver mobile (if entered) must be 10 digits');
+      showModal('error', 'Invalid Data', 'Please fill all required fields correctly.\n\n• Enter vehicle number\n• Enter transporter name\n• Driver mobile (if entered) must be 10 digits');
       return;
     }
 
-    const result = await saveVehicleEntry({
-      customerName: selectedCustomer!.name,
+    const tInTime = inTime.trim();
+    if (tInTime !== '' && !/^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i.test(tInTime)) {
+      showModal('error', 'Invalid Time', 'In Time must be a valid 12-hour format time (e.g., 10:30 AM)');
+      return;
+    }
+
+    const tOutTime = outTime.trim();
+    if (tOutTime !== '' && !/^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i.test(tOutTime)) {
+      showModal('error', 'Invalid Time', 'Out Time must be a valid 12-hour format time (e.g., 05:45 PM)');
+      return;
+    }
+
+    const payload: any = {
+      customerName: selectedCustomer ? selectedCustomer.name : customerQuery.trim(),
       vehicleNumber: vehicleNumber.trim(),
       transporterName: transporterName.trim(),
       driverNumber: driverNumber.trim(),
-    });
+    };
+
+    if (tInTime !== '') payload.inTime = tInTime;
+    if (tOutTime !== '') payload.outTime = tOutTime;
+
+    const result = await saveVehicleEntry(payload);
 
     if (result?.id) {
       setSavedEntryId(result.id);
@@ -216,6 +309,8 @@ export default function VehicleEntryScreen() {
         setVehicleNumber('');
         setTransporterName('');
         setDriverNumber('');
+        setInTime('');
+        setOutTime('');
 
         setSavedEntryId(null);
         setEntrySaved(false);
@@ -241,11 +336,10 @@ export default function VehicleEntryScreen() {
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Customer Search */}
         <TextInput
           ref={customerInputRef}
           style={styles.input}
-          placeholder="Search Customer Name (min 3 chars) *"
+          placeholder="Search Customer Name (min 3 chars) (Optional)"
           value={customerQuery}
           onChangeText={(text) => {
             setCustomerQuery(text);
@@ -318,6 +412,20 @@ export default function VehicleEntryScreen() {
           value={transporterName}
           onChangeText={setTransporterName}
         />
+
+        {/* Time Inputs */}
+        <View style={styles.timeRow}>
+          <TimeSelectionField
+            label="In Time"
+            value={inTime}
+            onChange={setInTime}
+          />
+          <TimeSelectionField
+            label="Out Time"
+            value={outTime}
+            onChange={setOutTime}
+          />
+        </View>
 
         {/* Buttons */}
         <View style={styles.buttonRow}>
@@ -424,6 +532,47 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     fontSize: 16,
     marginTop: 12,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  timeSelectionContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    marginTop: 12,
+    overflow: 'hidden',
+  },
+  timeTextInput: {
+    flex: 1,
+    padding: 14,
+    fontSize: 16,
+  },
+  amPmButton: {
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: '#ddd',
+  },
+  amPmButtonActive: {
+    backgroundColor: '#E3F2FD',
+  },
+  amPmButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  amPmButtonTextActive: {
+    color: '#007AFF',
   },
   dropdownContainer: {
     maxHeight: 220,
