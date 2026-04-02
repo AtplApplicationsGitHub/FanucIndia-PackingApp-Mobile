@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useVehicleEntry, Customer } from '../../Api/Hooks/UseVehicleEntry';
+import { useVehicleEntry, Customer, Transporter } from '../../Api/Hooks/UseVehicleEntry';
 import UploadImages from './upload_Images';
 import {
   saveDraftToStorage,
@@ -101,17 +101,22 @@ export default function VehicleEntryScreen() {
   const {
     customers,
     loadingCustomers,
+    transporters,
+    loadingTransporters,
     saving,
     error,
     debouncedSearch,
+    debouncedTransporterSearch,
     saveVehicleEntry,
     clearCustomers,
+    setTransporters,
   } = useVehicleEntry();
 
   const [customerQuery, setCustomerQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [transporterName, setTransporterName] = useState('');
+  const [selectedTransporter, setSelectedTransporter] = useState<Transporter | null>(null);
   const [driverNumber, setDriverNumber] = useState('');
   const [inTime, setInTime] = useState('');
   const [outTime, setOutTime] = useState('');
@@ -134,7 +139,7 @@ export default function VehicleEntryScreen() {
   // Filter and sort customers: ensure matches starting with query appear at the top
   const sortedCustomers = useMemo(() => {
     if (!customers || customers.length === 0) return [];
-    
+
     const query = customerQuery.trim().toLowerCase();
     if (!query) return customers;
 
@@ -146,9 +151,28 @@ export default function VehicleEntryScreen() {
 
       if (startsWithA && !startsWithB) return -1;
       if (!startsWithA && startsWithB) return 1;
-      return 0; 
+      return 0;
     });
   }, [customers, customerQuery]);
+
+  // Filter and sort transporters: ensure matches starting with query appear at the top
+  const sortedTransporters = useMemo(() => {
+    if (!transporters || transporters.length === 0) return [];
+
+    const query = transporterName.trim().toLowerCase();
+    if (!query) return transporters;
+
+    return [...transporters].sort((a, b) => {
+      const nameA = a.name.toLowerCase();
+      const nameB = b.name.toLowerCase();
+      const startsWithA = nameA.startsWith(query);
+      const startsWithB = nameB.startsWith(query);
+
+      if (startsWithA && !startsWithB) return -1;
+      if (!startsWithA && startsWithB) return 1;
+      return 0;
+    });
+  }, [transporters, transporterName]);
 
   // Load draft on mount
   useEffect(() => {
@@ -308,6 +332,8 @@ export default function VehicleEntryScreen() {
         clearCustomers();
         setVehicleNumber('');
         setTransporterName('');
+        setSelectedTransporter(null);
+        setTransporters([]);
         setDriverNumber('');
         setInTime('');
         setOutTime('');
@@ -408,10 +434,49 @@ export default function VehicleEntryScreen() {
         {/* Transporter Name */}
         <TextInput
           style={styles.input}
-          placeholder="Transporter Name *"
+          placeholder="Transporter Name * (min 3 chars)"
           value={transporterName}
-          onChangeText={setTransporterName}
+          onChangeText={(text) => {
+            setTransporterName(text);
+            setSelectedTransporter(null);
+            if (text.trim().length >= 3) {
+              debouncedTransporterSearch(text);
+            } else {
+              setTransporters([]);
+            }
+          }}
         />
+
+        {loadingTransporters && (
+          <ActivityIndicator style={{ marginTop: 8 }} color="#007AFF" />
+        )}
+
+        {/* Transporter Dropdown List */}
+        {sortedTransporters.length > 0 && !selectedTransporter && (
+          <View style={styles.dropdownContainer}>
+            <FlatList
+              data={sortedTransporters}
+              keyExtractor={(item) => item.id.toString()}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled={true}
+              showsVerticalScrollIndicator={true}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedTransporter(item);
+                    setTransporterName(item.name);
+                    setTransporters([]);
+                  }}
+                >
+                  <Text style={styles.customerName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        )}
 
         {/* Time Inputs */}
         <View style={styles.timeRow}>

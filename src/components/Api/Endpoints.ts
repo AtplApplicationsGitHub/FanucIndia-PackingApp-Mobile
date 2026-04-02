@@ -47,6 +47,15 @@ export const API_ENDPOINTS = {
     UPDATE_ATTACHMENT_DESC(fileId: string) {
       return `${BASE_URL}/v1/erp-material-files/${fileId}`;
     },
+    SO_VARIANTS(soNumber: string) {
+      return `${BASE_URL}/v1/erp-material-files/mobile/so-variants/${soNumber}`;
+    },
+    get MOBILE_UPLOAD() {
+      return `${BASE_URL}/v1/erp-material-files/mobile/upload`;
+    },
+    MOBILE_ATTACHMENTS(id: string | number) {
+      return `${BASE_URL}/v1/erp-material-files/mobile/attachments/${id}`;
+    },
   },
 
   MATERIAL_FG: {
@@ -67,6 +76,9 @@ export const API_ENDPOINTS = {
   VEHICLE_ENTRY: {
     get FETCH_CUSTOMERS() {
       return `${BASE_URL}/lookup/customers`;
+    },
+    get TRANSPORTERS() {
+      return `${BASE_URL}/lookup/transporters`;
     },
     get SAVE_VEHICLE_ENTRY() {
       return `${BASE_URL}/vehicle-entry`;

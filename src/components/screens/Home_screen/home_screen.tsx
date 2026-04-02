@@ -330,15 +330,15 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                 activeOpacity={0.8}
                 onPress={() => setKeyboardDisabled(!keyboardDisabled)}
                 style={{
-                  width: 52,
-                  height: 30,
-                  borderRadius: 15,
+                  width: 50,
+                  height: 28,
+                  borderRadius: 14,
                   borderWidth: 2,
-                  borderColor: !keyboardDisabled ? PRIMARY : "#9CA3AF",
+                  borderColor: keyboardDisabled ? PRIMARY : "#E5E7EB",
                   backgroundColor: "transparent",
                   justifyContent: "center",
-                  paddingHorizontal: 3,
-                  alignItems: !keyboardDisabled ? "flex-end" : "flex-start",
+                  paddingHorizontal: 2,
+                  alignItems: keyboardDisabled ? "flex-end" : "flex-start",
                 }}
             >
               <View 
@@ -346,7 +346,12 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                   width: 20,
                   height: 20,
                   borderRadius: 10,
-                  backgroundColor: !keyboardDisabled ? PRIMARY : "#9CA3AF",
+                  backgroundColor: keyboardDisabled ? PRIMARY : "#9CA3AF",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 2,
+                  elevation: 1,
                 }} 
               />
             </TouchableOpacity>

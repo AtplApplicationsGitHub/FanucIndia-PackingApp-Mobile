@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Keyboard } from "react-native";
 
-let _keyboardDisabled = false;
+let _keyboardDisabled = true;
 const listeners: (() => void)[] = [];
 
 export const setKeyboardDisabled = async (disabled: boolean) => {
@@ -17,9 +17,9 @@ export const setKeyboardDisabled = async (disabled: boolean) => {
 export const getKeyboardDisabled = async (): Promise<boolean> => {
   try {
     const val = await AsyncStorage.getItem("keyboardDisabled");
-    return val === "true";
+    return val === null ? true : val === "true";
   } catch {
-    return false;
+    return true;
   }
 };
 

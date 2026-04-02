@@ -3,6 +3,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import * as SecureStore from "expo-secure-store";
 import { API_ENDPOINTS } from "../Endpoints";
 
+export type Transporter = {
+  id: number;
+  name: string;
+};
+
 export type Customer = {
   id: number;
   name: string;
@@ -51,13 +56,17 @@ const parseResponseBody = async (res: Response) => {
 export const useVehicleEntry = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [transporters, setTransporters] = useState<Transporter[]>([]);
+  const [loadingTransporters, setLoadingTransporters] = useState(false);
   const [loadingAttachments, setLoadingAttachments] = useState(false); // NEW
   const [saving, setSaving] = useState(false);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transporterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchControllerRef = useRef<AbortController | null>(null);
+  const transporterSearchControllerRef = useRef<AbortController | null>(null);
   const saveControllerRef = useRef<AbortController | null>(null);
   const uploadControllerRef = useRef<AbortController | null>(null);
   const fetchAttachmentsControllerRef = useRef<AbortController | null>(null); // NEW
@@ -152,6 +161,86 @@ export const useVehicleEntry = () => {
       }, 400);
     },
     [searchCustomers],
+  );
+
+  const searchTransporters = useCallback(
+    async (query: string) => {
+      const trimmed = query?.trim() ?? "";
+      if (trimmed.length < 3) {
+        setTransporters([]);
+        return;
+      }
+
+      if (transporterSearchControllerRef.current) {
+        transporterSearchControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      transporterSearchControllerRef.current = controller;
+
+      setLoadingTransporters(true);
+      setError(null);
+
+      try {
+        const authHeader = await getAuthTokenHeader();
+        if (!authHeader)
+          throw new Error("Authentication token missing. Please login again.");
+
+        const url = `${API_ENDPOINTS.VEHICLE_ENTRY.TRANSPORTERS}?search=${encodeURIComponent(
+          trimmed,
+        )}`;
+
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          if (res.status === 401)
+            throw new Error("Session expired. Please log in again.");
+          if (res.status === 404) {
+            setTransporters([]);
+            return;
+          }
+          const body = await parseResponseBody(res);
+          throw new Error(
+            body?.message ??
+              body?.error ??
+              `Failed to fetch transporters (${res.status})`,
+          );
+        }
+
+        const data = (await parseResponseBody(res)) as Transporter[];
+        if (!Array.isArray(data))
+          throw new Error("Invalid response format from server");
+        setTransporters(data);
+      } catch (err: any) {
+        if (err?.name !== "AbortError") {
+          console.error("searchTransporters error:", err);
+          setError(err?.message ?? "Failed to load transporters");
+          setTransporters([]);
+        }
+      } finally {
+        setLoadingTransporters(false);
+        if (transporterSearchControllerRef.current === controller)
+          transporterSearchControllerRef.current = null;
+      }
+    },
+    [getAuthTokenHeader],
+  );
+
+  const debouncedTransporterSearch = useCallback(
+    (query: string) => {
+      if (transporterDebounceRef.current) clearTimeout(transporterDebounceRef.current);
+      transporterDebounceRef.current = setTimeout(() => {
+        searchTransporters(query);
+      }, 400);
+    },
+    [searchTransporters],
   );
 
   const saveVehicleEntry = useCallback(
@@ -367,11 +456,13 @@ export const useVehicleEntry = () => {
       debounceRef.current = null;
     }
     searchControllerRef.current?.abort();
+    transporterSearchControllerRef.current?.abort();
     saveControllerRef.current?.abort();
     uploadControllerRef.current?.abort();
     fetchAttachmentsControllerRef.current?.abort(); // NEW
 
     searchControllerRef.current = null;
+    transporterSearchControllerRef.current = null;
     saveControllerRef.current = null;
     uploadControllerRef.current = null;
     fetchAttachmentsControllerRef.current = null;
@@ -386,17 +477,21 @@ export const useVehicleEntry = () => {
   return {
     customers,
     loadingCustomers,
+    transporters,
+    loadingTransporters,
     loadingAttachments, // NEW
     saving,
     uploadingAttachments,
     error,
     debouncedSearch,
+    debouncedTransporterSearch,
     saveVehicleEntry,
     uploadAttachments,
     fetchAttachments, // NEW
     saveAndUpload,
     clearError,
     clearCustomers,
+    setTransporters,
     cancelPendingRequests,
   };
 };

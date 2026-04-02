@@ -22,7 +22,7 @@ const SettingsScreen: React.FC = () => {
         const vibration = await AsyncStorage.getItem('vibrationEnabled');
 
         // Default to ON (true) if undefined
-        if (sound !== null) setIsSoundEnabled(sound === 'true');
+        if (sound !== null) setIsSoundEnabled(sound === 'true'); 
         if (vibration !== null) setIsVibrationEnabled(vibration === 'true');
       } catch (e) {
         console.error('Failed to load settings', e);
