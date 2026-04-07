@@ -121,5 +121,13 @@ export const API_ENDPOINTS = {
     get DOWNLOAD() {
       return `${BASE_URL}/app-update/app-b/download`;
     },
+    DISPATCH: {
+      get LATEST_VERSION() {
+        return `${BASE_URL}/app-update/dispatch/latest-version`;
+      },
+      get DOWNLOAD() {
+        return `${BASE_URL}/app-update/dispatch/download`;
+      },
+    },
   },
 };

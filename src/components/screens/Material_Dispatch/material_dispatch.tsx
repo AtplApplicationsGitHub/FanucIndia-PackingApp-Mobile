@@ -116,23 +116,35 @@ const MaterialDispatchScreen: React.FC = () => {
     }
   };
 
-  const playErrorSound = async () => {
+  const isErrorPlaying = useRef(false);
+  const playErrorSound = useCallback(async () => {
+    if (isErrorPlaying.current) return;
     try {
       const sResult = await AsyncStorage.getItem("soundEnabled");
       if (sResult !== null && sResult !== "true") return;
+      
+      isErrorPlaying.current = true;
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
       const { sound } = await Audio.Sound.createAsync(
         require("../../assets/sounds/error.mp3")
       );
       await sound.playAsync();
+      
+      // Lock for 1.5s to prevent "machine gun" sound effect
       setTimeout(async () => {
-        await sound.stopAsync();
-        await sound.unloadAsync();
-      }, 1000);
+        try {
+          await sound.stopAsync();
+          await sound.unloadAsync();
+        } catch (e) {
+          // ignore unload errors
+        }
+        isErrorPlaying.current = false;
+      }, 1500);
     } catch (e) {
       console.log("Sound error", e);
+      isErrorPlaying.current = false;
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (showError) {
@@ -171,6 +183,7 @@ const MaterialDispatchScreen: React.FC = () => {
   // Keyboard & Scan State
   const [keyboardDisabled] = useKeyboardDisabled();
   const sessionCodesRef = useRef<Set<string>>(new Set());
+  const lastProcessedScanRef = useRef({ value: "", time: 0 });
   const pendingScansRef = useRef<string[]>([]);
   const [queueTrigger, setQueueTrigger] = useState(0);
   const processingRef = useRef(false);
@@ -479,6 +492,13 @@ const MaterialDispatchScreen: React.FC = () => {
   const handleScanned = (result: BarcodeScanningResult) => {
     const value = (result?.data ?? "").trim();
     if (!value) return;
+    
+    const now = Date.now();
+    // Ignore the same barcode if scanned within 2 seconds to prevent rapid-fire errors/successes
+    if (value === lastProcessedScanRef.current.value && now - lastProcessedScanRef.current.time < 2000) {
+      return;
+    }
+    lastProcessedScanRef.current = { value, time: now };
     
     // Prevent duplicate scans in same session
     if (sessionCodesRef.current.has(value)) {
