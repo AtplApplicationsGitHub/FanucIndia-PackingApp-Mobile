@@ -27,12 +27,21 @@ export type UpdateDispatchHeaderRequest = {
 
 export type LinkDispatchSORequest = {
   saleOrderNumber: string;
+  outboundDelivery: string;
+  salesOrderId?: number;
+};
+
+export type SOSearchResult = {
+  id: number;
+  saleOrderNumber: string;
+  outboundDelivery: string;
 };
 
 export type DispatchSOLink = {
   id: number;
   dispatchId: number;
   saleOrderNumber: string;
+  outboundDelivery: string;
   createdAt: string;
 };
 
@@ -247,7 +256,10 @@ export async function linkSalesOrder(
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify({ saleOrderNumber: normalizedSO }),
+        body: JSON.stringify({ 
+          saleOrderNumber: normalizedSO,
+          salesOrderId: payload.salesOrderId
+        }),
       })
     );
 
@@ -365,6 +377,40 @@ export async function getAttachments(
     );
 
     const data: DispatchAttachment[] = await res.json();
+    return { ok: true, status: res.status, data };
+  } catch (e: any) {
+    return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };
+  }
+}
+
+// SEARCH SO
+export async function searchSalesOrder(
+  soNumber: string,
+  opts?: { token?: string }
+): Promise<ApiResult<SOSearchResult[]>> {
+  const token = opts?.token ?? (await getToken());
+  if (!token) return { ok: false, status: 0, error: "Missing access token." };
+
+  const normalizedSO = soNumber.replace(/\s+/g, "").toUpperCase();
+  if (!normalizedSO) return { ok: false, status: 0, error: "SO number required." };
+
+  try {
+    const res = await withTimeout(
+      fetch(API_ENDPOINTS.DISPATCH.SEARCH_SO(normalizedSO), {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      })
+    );
+
+    if (!res.ok) {
+      const err = await parseErrorBody(res);
+      return { ok: false, status: res.status, error: err };
+    }
+
+    const data = await res.json();
     return { ok: true, status: res.status, data };
   } catch (e: any) {
     return { ok: false, status: 0, error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error" };

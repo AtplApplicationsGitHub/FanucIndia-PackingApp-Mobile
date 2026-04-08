@@ -111,6 +111,9 @@ export const API_ENDPOINTS = {
     UPDATE(dispatchId: string | number) {
       return `${BASE_URL}/dispatch/mobile/${dispatchId}`;
     },
+    SEARCH_SO(so: string) {
+      return `${BASE_URL}/dispatch/search-so/${so}`;
+    },
   },
 
   // 🔹 NEW: App versioning and update endpoints

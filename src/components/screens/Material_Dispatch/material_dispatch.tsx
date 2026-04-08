@@ -33,11 +33,13 @@ import {
   linkSalesOrder,
   deleteSalesOrderLink,
   getAttachments,
+  searchSalesOrder,
   useTransportersLookup,
   type Transporter,
   type CreateDispatchHeaderRequest,
   type UpdateDispatchHeaderRequest,
   type LinkDispatchSORequest,
+  type SOSearchResult,
   type DispatchAttachment,
 } from "../../Api/Hooks/Usematerial_dispatch";import { Audio } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -59,6 +61,7 @@ type DispatchForm = {
 type SOEntry = {
   soId: string;
   linkId: number;
+  outboundDelivery: string;
   createdAt: number;
 };
 
@@ -104,6 +107,12 @@ const MaterialDispatchScreen: React.FC = () => {
   const [showNewFormModal, setShowNewFormModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
   const [savingHeader, setSavingHeader] = useState(false);
+
+  // OBD Selection Modal State
+  const [showObdModal, setShowObdModal] = useState(false);
+  const [obdResults, setObdResults] = useState<SOSearchResult[]>([]);
+  const [currentSearchSo, setCurrentSearchSo] = useState("");
+  const [searchingSo, setSearchingSo] = useState(false);
 
   const triggerVibration = async (duration = 400) => {
     try {
@@ -182,7 +191,6 @@ const MaterialDispatchScreen: React.FC = () => {
 
   // Keyboard & Scan State
   const [keyboardDisabled] = useKeyboardDisabled();
-  const sessionCodesRef = useRef<Set<string>>(new Set());
   const lastProcessedScanRef = useRef({ value: "", time: 0 });
   const pendingScansRef = useRef<string[]>([]);
   const [queueTrigger, setQueueTrigger] = useState(0);
@@ -330,7 +338,7 @@ const MaterialDispatchScreen: React.FC = () => {
     focusSOInput();
   };
 
-  async function coreAddSO(raw: string, isScan = false) {
+  async function coreAddSO(raw: string, isScan = false, selectedObd?: string, salesOrderId?: number) {
     const so = normalizeSO(raw);
     if (!so || !dispatchId) {
       if (!isScan) clearAndFocusSO();
@@ -341,10 +349,60 @@ const MaterialDispatchScreen: React.FC = () => {
       return;
     }
 
-    // Check duplicates locally first
-    if (items.some((x) => x.soId === so)) {
+    // If searching or already link pending, maybe skip?
+    if (searchingSo && !selectedObd) return;
+
+    let outboundDelivery = selectedObd;
+
+    // 1. If no OBD selected yet, search first
+    if (!outboundDelivery) {
+        setSearchingSo(true);
+        try {
+            const searchRes = await searchSalesOrder(so);
+            setSearchingSo(false);
+            
+            if (!searchRes.ok) {
+                showToast(searchRes.error || "SO not found", "error");
+                if (!isScan) clearAndFocusSO();
+                else {
+                    playErrorSound();
+                    triggerVibration(400);
+                }
+                return;
+            }
+
+            const results = searchRes.data;
+            if (results.length === 0) {
+                showToast("No OBD found for this SO", "error");
+                if (!isScan) clearAndFocusSO();
+                else {
+                    playErrorSound();
+                    triggerVibration(400);
+                }
+                return;
+            }
+
+            if (results.length === 1) {
+                outboundDelivery = results[0].outboundDelivery;
+            } else {
+                // Multiple results - show modal
+                setObdResults(results);
+                setCurrentSearchSo(so);
+                setShowObdModal(true);
+                if (isScan) setScanVisible(false);
+                return; // Wait for selection
+            }
+        } catch (e) {
+            setSearchingSo(false);
+            showToast("Search failed", "error");
+            return;
+        }
+    }
+
+    // Check duplicates locally (SO + OBD combo)
+    if (items.some((x) => x.soId === so && x.outboundDelivery === outboundDelivery)) {
       if (!isScan) {
-        setErrorMessage(`SO ${so} already added.`);
+        setErrorMessage(`SO ${so} with OBD ${outboundDelivery} already added.`);
         setShowError(true);
         clearAndFocusSO();
       } else {
@@ -354,7 +412,11 @@ const MaterialDispatchScreen: React.FC = () => {
       return;
     }
 
-    const payload: LinkDispatchSORequest = { saleOrderNumber: so } as any;
+    const payload: LinkDispatchSORequest = { 
+      saleOrderNumber: so,
+      outboundDelivery: outboundDelivery!,
+      salesOrderId: salesOrderId
+    };
 
     try {
       const result = await linkSalesOrder(dispatchId, payload);
@@ -364,6 +426,7 @@ const MaterialDispatchScreen: React.FC = () => {
           {
             soId: so,
             linkId: link.id,
+            outboundDelivery: link.outboundDelivery,
             createdAt: new Date(link.createdAt).getTime(),
           },
           ...prev,
@@ -477,7 +540,6 @@ const MaterialDispatchScreen: React.FC = () => {
     }
     
     // Reset session
-    sessionCodesRef.current.clear();
     pendingScansRef.current = [];
     setLastScannedCode(null);
     setSessionCount(0);
@@ -500,14 +562,6 @@ const MaterialDispatchScreen: React.FC = () => {
     }
     lastProcessedScanRef.current = { value, time: now };
     
-    // Prevent duplicate scans in same session
-    if (sessionCodesRef.current.has(value)) {
-        playErrorSound();
-        triggerVibration(400);
-        return;
-    }
-    
-    sessionCodesRef.current.add(value);
     triggerVibration(100);
     
     // Add to queue
@@ -829,15 +883,22 @@ const MaterialDispatchScreen: React.FC = () => {
                 )}
                 renderItem={({ item, index }) => (
                   <View style={styles_sales.row}>
-                    <Text style={[styles_sales.td, { width: 40 }]}>
-                      {sortMode === 'desc' ? items.length - index : index + 1}
-                    </Text>
-                    <Text style={[styles_sales.td, { flex: 1 }]}>
-                      {item.soId}
-                    </Text>
-                    <Text style={[styles_sales.td, { width: 80 }]}>
-                      {formatTime(item.createdAt)}
-                    </Text>
+                    <View style={{ width: 40 }}>
+                      <Text style={styles_sales.td}>
+                        {sortMode === 'desc' ? items.length - index : index + 1}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles_sales.soMainText}>{item.soId}</Text>
+                      {item.outboundDelivery ? (
+                        <Text style={styles_sales.obdSubText}>OBD: {item.outboundDelivery}</Text>
+                      ) : null}
+                    </View>
+                    <View style={{ width: 80 }}>
+                      <Text style={styles_sales.td}>
+                        {formatTime(item.createdAt)}
+                      </Text>
+                    </View>
                     <View
                       style={[
                         { width: 72, alignItems: "flex-end" },
@@ -909,6 +970,53 @@ const MaterialDispatchScreen: React.FC = () => {
             >
               <Text style={styles.modalButtonText}>OK</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ---------- OBD SELECTION MODAL ---------- */}
+      <Modal visible={showObdModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles_obd.container}>
+            <View style={styles_obd.header}>
+              <Text style={styles_obd.title}>Select OBD for {currentSearchSo} ({obdResults.length})</Text>
+              <Text style={styles_obd.subtitle}>Multiple entries found. Please select one:</Text>
+            </View>
+
+            <FlatList
+              data={obdResults}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity 
+                   style={styles_obd.card}
+                   onPress={() => {
+                     setShowObdModal(false);
+                     coreAddSO(currentSearchSo, false, item.outboundDelivery, item.id);
+                   }}
+                >
+                  <View style={styles_obd.cardIconWrap}>
+                    <Ionicons name="document-text-outline" size={24} color={C.blue} />
+                  </View>
+                  <View style={styles_obd.cardContent}>
+                    <Text style={styles_obd.cardObdText}>OBD: {item.outboundDelivery}</Text>
+                    <Text style={styles_obd.cardSoText}>SO: {item.saleOrderNumber}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={C.border} />
+                </TouchableOpacity>
+              )}
+              ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              style={{ maxHeight: 400 }}
+            />
+
+            <View style={styles_obd.footer}>
+              <TouchableOpacity 
+                onPress={() => setShowObdModal(false)}
+                style={styles_obd.cancelBtn}
+              >
+                <Text style={styles_obd.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1237,6 +1345,84 @@ const styles_sales = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+  },
+  soMainText: { fontSize: 13, fontWeight: "600", color: C_sales.text },
+  obdSubText: { fontSize: 11, color: C.blue, marginTop: 1 },
+});
+
+const styles_obd = StyleSheet.create({
+  container: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  header: {
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1F2937",
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    backgroundColor: "#fff",
+  },
+  cardIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: "#EFF6FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  cardContent: {
+    flex: 1,
+  },
+  cardObdText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  cardSoText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
+  footer: {
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    paddingTop: 16,
+    alignItems: "center",
+  },
+  cancelBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  cancelBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#EF4444",
   },
 });
 
