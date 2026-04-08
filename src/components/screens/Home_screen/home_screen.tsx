@@ -199,6 +199,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                 case "put_away":
                   return !!parsedUser.accessPutAway;
                 case "upload_attachments":
+                  return !!parsedUser.accessAttachment;
                 case "settings":
                 case "sound_demo":
                   return true;

@@ -32,6 +32,7 @@ export type UserData = {
   accessLocationAccuracy: boolean;
   accessContentAccuracy: boolean;
   accessPutAway: boolean;
+  accessAttachment: boolean;
 };
 
 export type LoginResponse = {
