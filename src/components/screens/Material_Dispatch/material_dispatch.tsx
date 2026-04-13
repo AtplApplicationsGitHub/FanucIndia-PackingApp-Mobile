@@ -63,6 +63,7 @@ type SOEntry = {
   linkId: number;
   outboundDelivery: string;
   createdAt: number;
+  isDuplicateSO?: boolean;
 };
 
 const C = {
@@ -353,6 +354,7 @@ const MaterialDispatchScreen: React.FC = () => {
     if (searchingSo && !selectedObd) return;
 
     let outboundDelivery = selectedObd;
+    let finalSalesOrderId = salesOrderId;
 
     // 1. If no OBD selected yet, search first
     if (!outboundDelivery) {
@@ -384,6 +386,7 @@ const MaterialDispatchScreen: React.FC = () => {
 
             if (results.length === 1) {
                 outboundDelivery = results[0].outboundDelivery;
+                finalSalesOrderId = results[0].id;
             } else {
                 // Multiple results - show modal
                 setObdResults(results);
@@ -415,19 +418,21 @@ const MaterialDispatchScreen: React.FC = () => {
     const payload: LinkDispatchSORequest = { 
       saleOrderNumber: so,
       outboundDelivery: outboundDelivery!,
-      salesOrderId: salesOrderId
+      salesOrderId: finalSalesOrderId
     };
 
     try {
       const result = await linkSalesOrder(dispatchId, payload);
       if (result.ok) {
         const link = result.data;
+        const isDuplicateSO = !!selectedObd;
         setItems((prev) => [
           {
             soId: so,
             linkId: link.id,
             outboundDelivery: link.outboundDelivery,
             createdAt: new Date(link.createdAt).getTime(),
+            isDuplicateSO,
           },
           ...prev,
         ]);
@@ -890,9 +895,11 @@ const MaterialDispatchScreen: React.FC = () => {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles_sales.soMainText}>{item.soId}</Text>
-                      {item.outboundDelivery ? (
-                        <Text style={styles_sales.obdSubText}>OBD: {item.outboundDelivery}</Text>
-                      ) : null}
+                      {item.isDuplicateSO && !!item.outboundDelivery && (
+                         <Text style={{ fontSize: 11, color: "#3B82F6", marginTop: 2, fontWeight: '500' }} numberOfLines={1}>
+                           OBD: {item.outboundDelivery}
+                         </Text>
+                      )}
                     </View>
                     <View style={{ width: 80 }}>
                       <Text style={styles_sales.td}>

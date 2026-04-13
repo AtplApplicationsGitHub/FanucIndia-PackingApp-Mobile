@@ -31,8 +31,10 @@ import { labelPrintStorage } from "../../Storage/label_Print_Storage";
 import { useKeyboardDisabled } from "../../utils/keyboard";
 
 type SOItem = {
-  id: string;
+  id: string; // Client-side unique ID for flatlist
+  serverId: number | string; // 🔹 Database ID for API requests
   soNumber: string;
+  outboundDelivery?: string;
 };
 
 const COLORS = {
@@ -330,6 +332,100 @@ const EditCustomerModal = ({
   );
 };
 
+const SelectOBDModal = ({
+  visible,
+  options,
+  soNumber,
+  onSelect,
+  onCancel,
+}: {
+  visible: boolean;
+  options: any[];
+  soNumber: string;
+  onSelect: (option: any) => void;
+  onCancel: () => void;
+}) => {
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { paddingHorizontal: 0 }]}>
+          <View style={[styles.modalHeader, { paddingHorizontal: 20 }]}>
+            <View>
+              <Text style={[styles.modalTitle, { marginLeft: 0 }]}>
+                Select OBD for {soNumber} ({options.length})
+              </Text>
+              <Text style={styles.modalSubTitle}>
+                Multiple entries found. Please select one:
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ maxHeight: 300, paddingHorizontal: 12 }}>
+            <FlatList
+              data={options}
+              keyExtractor={(item) =>
+                item.id?.toString() || item.outboundDelivery
+              }
+              renderItem={({ item }) => {
+                const obdVal = item.outboundDelivery || item.outbound_delivery || item.obd || "N/A";
+                const soVal = item.saleOrderNumber || item.sale_order_number || item.so || soNumber;
+                return (
+                  <TouchableOpacity
+                    style={styles.obdOption}
+                    onPress={() => onSelect(item)}
+                  >
+                    <View style={styles.obdIconWrap}>
+                      <Ionicons
+                        name="document-text-outline"
+                        size={24}
+                        color={COLORS.accent}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.obdMainText}>OBD: {obdVal}</Text>
+                      <Text style={styles.obdSubText}>SO: {soVal}</Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={20}
+                      color={COLORS.border}
+                    />
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+
+          <View
+            style={[
+              styles.modalFooter,
+              {
+                marginTop: 10,
+                borderTopWidth: 1,
+                borderTopColor: COLORS.border,
+                padding: 12,
+                justifyContent: "center",
+              },
+            ]}
+          >
+            <TouchableOpacity onPress={onCancel}>
+              <Text
+                style={{
+                  color: COLORS.danger,
+                  fontWeight: "600",
+                  fontSize: 16,
+                }}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export default function CustomerLabelPrint(): JSX.Element {
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
@@ -393,6 +489,13 @@ export default function CustomerLabelPrint(): JSX.Element {
     soToAdd: "",
   });
 
+  const [obdModal, setObdModal] = useState({
+    visible: false,
+    options: [] as any[],
+    soNumber: "",
+    fromScanner: false,
+  });
+
   const {
     verifySO,
     loading: verifyLoading,
@@ -416,7 +519,8 @@ export default function CustomerLabelPrint(): JSX.Element {
         setContactNumber(saved.contactNumber || "");
         setBoxNumber(saved.boxNumber || "1/1");
         setCncPacking(saved.cncPacking || "CNC PACKING");
-        setIsCustomerLocked(saved.isCustomerLocked);
+        // Ensure customer is locked if we have name
+        setIsCustomerLocked(!!saved.customerName || saved.isCustomerLocked);
       }
     };
     loadData();
@@ -609,15 +713,19 @@ export default function CustomerLabelPrint(): JSX.Element {
   const handleBarcodeScanned = (result: BarcodeScanningResult) => {
     const value = (result?.data ?? "").trim();
     if (!value) return;
-    if (sessionCodesRef.current.has(value)) return;
-    if (sos.some((item) => item.soNumber === value.toUpperCase())) {
-      sessionCodesRef.current.add(value);
+
+    // 🔹 Debounce: Prevent rapid-fire scanning of the EXACT same result in < 2 seconds
+    const now = Date.now();
+    if (value === lastProcessedRef.current.code && now - lastProcessedRef.current.time < 2000) {
       return;
     }
-    sessionCodesRef.current.add(value);
+
+    lastProcessedRef.current = { code: value, time: now };
     triggerVibration(100);
     setLastScannedCode(value);
     setSessionCount((prev) => prev + 1);
+    
+    // Use the pending scans queue logic via addSO
     addSO(value, true);
   };
 
@@ -669,22 +777,7 @@ export default function CustomerLabelPrint(): JSX.Element {
       return;
     }
 
-    // 1. Check duplicates in UI list
-    if (sos.some((i) => i.soNumber === soToAdd)) {
-      if (fromScanner) {
-        playErrorSound();
-        setScanStatus({
-          message: "Duplicate: " + soToAdd,
-          color: COLORS.warning,
-        });
-        triggerVibration(400);
-        return;
-      }
-      showError("", `"${soToAdd}" is already in the list.`, false);
-      setSoNumber("");
-      if (!scanModalVisible) focusInput();
-      return;
-    }
+    // 🔹 MOVED: Duplicate check moved to finalizeAddSO to support same SO with different OBD
 
     try {
       const result = await verifySO(soToAdd);
@@ -709,59 +802,40 @@ export default function CustomerLabelPrint(): JSX.Element {
         return;
       }
 
-      const {
-        customerName: newName,
-        address: newAddress,
-        contactNumber: newMobile,
-      } = result;
-      const currentNameNorm = customerName
-        ? customerName.trim().toLowerCase()
-        : "";
-      const newNameNorm = newName ? newName.trim().toLowerCase() : "";
+      const resultsArray = Array.isArray(result) ? result : [result];
+      const filteredResults = (resultsArray as any[]).filter((r: any) => {
+        const obd = r.outboundDelivery || r.outbound_delivery || r.obd;
+        return !sos.some((s) => s.soNumber === soToAdd && s.outboundDelivery === obd);
+      });
 
-      if (sos.length === 0) {
-        setCustomerName(newName);
-        setCustomerAddress(newAddress);
-        setContactNumber(newMobile || "");
-        setIsCustomerLocked(true);
-        if (fromScanner)
-          setScanStatus({
-            message: "Added: " + soToAdd,
-            color: COLORS.success,
-          });
-      } else if (currentNameNorm !== newNameNorm) {
+      if (filteredResults.length === 0) {
+        // All OBDs for this SO are already in the list
+        const msg = `"${soToAdd}" is already in the list.`;
         if (fromScanner) {
           playErrorSound();
-          setScanStatus({ message: "Mismatch Ignored", color: COLORS.danger });
+          setScanStatus({ message: "Duplicate: " + soToAdd, color: COLORS.warning });
           triggerVibration(400);
           return;
         }
-        playErrorSound();
+        showError("", msg, false);
         setSoNumber("");
-        setMismatchModal({
-          visible: true,
-          newName: newName || "Unknown",
-          soToAdd: soToAdd,
-        });
+        if (!scanModalVisible) focusInput();
         return;
-      } else {
-        if (fromScanner)
-          setScanStatus({
-            message: "Added: " + soToAdd,
-            color: COLORS.success,
-          });
       }
 
-      const newItem: SOItem = {
-        id: Date.now().toString() + Math.random().toString().slice(2, 5),
-        soNumber: soToAdd,
-      };
+      // 🔹 If SO has multiple deliveries in total, always show selection modal to avoid "automatic" addition
+      if (resultsArray.length > 1) {
+        setObdModal({
+          visible: true,
+          options: filteredResults,
+          soNumber: soToAdd,
+          fromScanner,
+        });
+        return;
+      }
 
-      // Add to TOP (LIFO)
-      setSos((prev) => [newItem, ...prev]);
-      setSoNumber("");
-
-      if (!scanModalVisible) focusInput();
+      // Handle single result (where only 1 OBD exists for this SO)
+      await finalizeAddSO(filteredResults[0], soToAdd, fromScanner);
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (fromScanner) {
@@ -774,6 +848,102 @@ export default function CustomerLabelPrint(): JSX.Element {
       setSoNumber("");
       if (!scanModalVisible) focusInput();
     }
+  };
+
+  const handleSelectOBD = async (selected: any) => {
+    const isScan = obdModal.fromScanner;
+    const soNumberVal = obdModal.soNumber;
+    setObdModal({ ...obdModal, visible: false });
+    
+    // Clear debounce to allow scanning the same SO again immediately
+    lastProcessedRef.current = { code: "", time: 0 };
+    
+    await finalizeAddSO(selected, soNumberVal, isScan);
+  };
+
+  const finalizeAddSO = async (
+    result: any,
+    soToAdd: string,
+    fromScanner: boolean,
+  ) => {
+    // 🔹 Flexible field extraction to handle different API response formats
+    const newName = result?.customerName || result?.customer_name || result?.customer || "Unknown Customer";
+    const newAddress = result?.address || result?.customerAddress || result?.customer_address || "Address not available";
+    const newMobile = result?.contactNumber || result?.contact_number || result?.mobile || "";
+    const newOBD = result?.outboundDelivery || result?.outbound_delivery || result?.obd || "";
+
+    // Check if this specific SO+OBD is already in the list
+    if (
+      sos.some((i) => i.soNumber === soToAdd && i.outboundDelivery === newOBD)
+    ) {
+      if (fromScanner) {
+        playErrorSound();
+        setScanStatus({
+          message: "Duplicate: " + soToAdd,
+          color: COLORS.warning,
+        });
+        triggerVibration(400);
+        return;
+      }
+      showError("", `"${soToAdd}" with OBD "${newOBD}" is already in the list.`, false);
+      setSoNumber("");
+      if (!scanModalVisible) focusInput();
+      return;
+    }
+
+    const currentNameNorm = customerName ? customerName.trim().toLowerCase() : "";
+    const newNameNorm = newName ? newName.trim().toLowerCase() : "";
+
+    const isFirstItem = sos.length === 0;
+    const hasNoCustomer = !customerName || !customerName.trim();
+
+    // 🔹 FIX: Always set customer info if it's currently missing
+    if (isFirstItem || hasNoCustomer) {
+      setCustomerName(newName);
+      setCustomerAddress(newAddress);
+      setContactNumber(newMobile || "N/A");
+      setIsCustomerLocked(true);
+      if (fromScanner)
+        setScanStatus({
+          message: "Added: " + soToAdd,
+          color: COLORS.success,
+        });
+    } else if (currentNameNorm !== newNameNorm) {
+      if (fromScanner) {
+        playErrorSound();
+        setScanStatus({ message: "Mismatch Ignored", color: COLORS.danger });
+        triggerVibration(400);
+        return;
+      }
+      playErrorSound();
+      setSoNumber("");
+      setMismatchModal({
+        visible: true,
+        newName: newName || "Unknown",
+        soToAdd: soToAdd,
+      });
+      return;
+    } else {
+      // Already has customer and it matches or was just set
+      setIsCustomerLocked(true);
+      if (fromScanner)
+        setScanStatus({
+          message: "Added: " + soToAdd,
+          color: COLORS.success,
+        });
+    }
+
+    const newItem: SOItem = {
+      id: Date.now().toString() + Math.random().toString().slice(2, 5),
+      serverId: result.id, // 🔹 Capture the database ID from API (e.g., 31)
+      soNumber: soToAdd,
+      outboundDelivery: newOBD,
+    };
+
+    setSos((prev) => [newItem, ...prev]);
+    setSoNumber("");
+
+    if (!scanModalVisible) focusInput();
   };
 
   useEffect(() => {
@@ -837,13 +1007,16 @@ export default function CustomerLabelPrint(): JSX.Element {
   const confirmPrint = async (quantity: number = 2) => {
     setPrintConfirmModal(false);
 
-    // Get the basic list of SO numbers
-    const baseSoNumbers = sos
-      .map((item) => item.soNumber)
-      .sort((a, b) => a.localeCompare(b));
+    // 🔹 Collect the server database IDs and ensure they are numbers
+    const salesOrderIds = sos.map((item) => Number(item.serverId));
 
-    // Call print with the correct fields: soNumbers, cncText, boxNN, quantity
-    await printLabels(baseSoNumbers, cncPacking, boxNumber, quantity);
+    // Call print with an object to prevent argument mismatch
+    await printLabels({
+      ids: salesOrderIds,
+      cncText: cncPacking,
+      boxNN: boxNumber,
+      quantity: quantity,
+    });
   };
 
   const onClearAll = () => {
@@ -889,7 +1062,16 @@ export default function CustomerLabelPrint(): JSX.Element {
 
   const renderRow = ({ item }: { item: SOItem }) => (
     <View style={styles.row}>
-      <Text style={styles.soText}>{item.soNumber}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.soText}>{item.soNumber}</Text>
+        {/* 🔹 Show OBD only if this SO number is a duplicate in the list */}
+        {sos.filter((s) => s.soNumber === item.soNumber).length > 1 &&
+          item.outboundDelivery && (
+            <Text style={styles.obdListText}>
+              OBD: {item.outboundDelivery}
+            </Text>
+          )}
+      </View>
       <TouchableOpacity
         onPress={() => removeSO(item.id)}
         style={styles.deleteBtn}
@@ -983,7 +1165,7 @@ export default function CustomerLabelPrint(): JSX.Element {
             </View>
           </View>
 
-          {isCustomerLocked && customerName && (
+          {!!customerName && (
             <TouchableOpacity
               activeOpacity={0.7}
               style={styles.customerCard}
@@ -1134,6 +1316,19 @@ export default function CustomerLabelPrint(): JSX.Element {
           confirmText="OK"
           type="primary"
           onConfirm={handleMismatchConfirm}
+        />
+
+        <SelectOBDModal
+          visible={obdModal.visible}
+          options={obdModal.options}
+          soNumber={obdModal.soNumber}
+          onSelect={handleSelectOBD}
+          onCancel={() => {
+            setObdModal({ ...obdModal, visible: false });
+            // Also clear debounce on cancel
+            lastProcessedRef.current = { code: "", time: 0 };
+            focusInput();
+          }}
         />
 
         <ConfirmModal
@@ -1512,5 +1707,44 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
     color: COLORS.primary,
+  },
+  modalSubTitle: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginTop: 2,
+  },
+  obdOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#f1f5f9",
+    marginBottom: 8,
+    gap: 12,
+  },
+  obdIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: "#eff6ff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  obdMainText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1e293b",
+  },
+  obdSubText: {
+    fontSize: 11,
+    color: COLORS.muted,
+    marginTop: 1,
+  },
+  obdListText: {
+    fontSize: 10,
+    color: COLORS.accent,
+    fontWeight: "500",
   },
 });

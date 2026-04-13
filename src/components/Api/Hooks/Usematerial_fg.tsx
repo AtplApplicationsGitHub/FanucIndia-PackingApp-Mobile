@@ -3,14 +3,16 @@ import { API_ENDPOINTS } from "../Endpoints";
 
 
 export type AssignLocationRequest = {
+  id: number;
   saleOrderNumber: string;
+  outboundDelivery: string;
   fgLocation: string;
 };
 
 export type AssignLocationResponse = {
   message: string; 
   saleOrderNumber: string;
-  fgLocation: string;
+  fgLocation: string[];
 };
 
 /** ------------ Helpers ------------ */
@@ -37,8 +39,8 @@ export async function assignFgLocation(
   input: AssignLocationRequest,
   token?: string
 ): Promise<AssignLocationResponse> {
-  if (!input?.saleOrderNumber || !input?.fgLocation) {
-    throw new Error("saleOrderNumber and fgLocation are required.");
+  if (!input?.saleOrderNumber || !input?.fgLocation || !input?.id || !input?.outboundDelivery) {
+    throw new Error("id, saleOrderNumber, outboundDelivery and fgLocation are required.");
   }
 
   const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
@@ -54,7 +56,9 @@ export async function assignFgLocation(
       method: "PATCH",
       headers,
       body: JSON.stringify({
+        id: Number(input.id),
         saleOrderNumber: String(input.saleOrderNumber),
+        outboundDelivery: String(input.outboundDelivery),
         fgLocation: String(input.fgLocation),
       }),
     }),
@@ -67,20 +71,46 @@ export async function assignFgLocation(
   }
 
 
-  const json = (await res.json()) as AssignLocationResponse;
+  const json = (await res.json()) as any;
   return {
     message: json?.message ?? ".",
     saleOrderNumber: json?.saleOrderNumber ?? input.saleOrderNumber,
-    fgLocation: json?.fgLocation ?? input.fgLocation,
+    fgLocation: json?.fgLocation ?? [input.fgLocation],
   };
 }
 
 
 export async function assignFgLocationByValues(
+  id: number,
   saleOrderNumber: string,
+  outboundDelivery: string,
   fgLocation: string,
   token?: string
 ) {
-  return assignFgLocation({ saleOrderNumber, fgLocation }, token);
+  return assignFgLocation({ id, saleOrderNumber, outboundDelivery, fgLocation }, token);
+}
+
+export async function fetchFgVerifySO(soNumber: string, token?: string) {
+  const authToken = token || (await SecureStore.getItemAsync("authToken") || undefined);
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const res = await withTimeout(
+    fetch(API_ENDPOINTS.MATERIAL_FG.VERIFY_SO(soNumber), {
+      method: "GET",
+      headers,
+    }),
+    15000
+  );
+
+  if (!res.ok) {
+    const msg = await parseErrorBody(res);
+    throw new Error(`${msg}`);
+  }
+
+  return res.json();
 }
 

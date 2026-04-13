@@ -23,7 +23,7 @@ import {
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Audio } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { assignFgLocation, type AssignLocationResponse } from "../../Api/Hooks/Usematerial_fg";
+import { assignFgLocation, fetchFgVerifySO, type AssignLocationResponse } from "../../Api/Hooks/Usematerial_fg";
 import { 
   clearMaterialFGData, 
   loadMaterialFGData, 
@@ -38,6 +38,8 @@ type ScanItem = {
   id: string;
   location: string;
   soNumber: string;
+  obdNumber?: string;
+  isDuplicateSO?: boolean;
   timeISO: string;
 };
 
@@ -151,6 +153,12 @@ const MaterialFGTransferScreen: React.FC = () => {
   const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const sessionCodesRef = useRef<Set<string>>(new Set());
+  
+  // Custom OBD Modal State
+  const [showObdModal, setShowObdModal] = useState(false);
+  const [obdResults, setObdResults] = useState<any[]>([]);
+  const [currentSearchSo, setCurrentSearchSo] = useState<string>("");
+  const [currentSearchLoc, setCurrentSearchLoc] = useState<string>("");
   
   // Lock for Location scanning single-shot
   const scanLockRef = useRef(false);
@@ -291,38 +299,88 @@ const MaterialFGTransferScreen: React.FC = () => {
   };
 
   // Separate function to perform the logic of adding an item (used by Manual Entry and Scanner)
-  const performAddItem = async (targetSo: string, targetLoc: string) => {
+  const performAddItem = async (targetSo: string, targetLoc: string, selectedObd: string | null = null, selectedId: string | null = null) => {
+      let soData;
+      let finalSo: any = null;
+      let obdOptions: any[] = [];
+      try {
+        soData = await fetchFgVerifySO(targetSo);
+        
+        // Ensure we properly unwrap if the API returns an array or data-wrapped object
+        if (soData) {
+          const arr = soData.orders && Array.isArray(soData.orders) ? soData.orders :
+                      soData.data && Array.isArray(soData.data) ? soData.data :
+                      Array.isArray(soData) ? soData : [];
+                      
+          if (arr.length > 1 && !selectedObd) {
+             obdOptions = arr;
+          } else if (selectedObd) {
+             finalSo = arr.find((o: any) => o.outboundDelivery === selectedObd || o.OBDNumber === selectedObd || o.id === selectedId);
+          } else if (arr.length === 1) {
+             finalSo = arr[0];
+          } else if (soData.data && typeof soData.data === 'object' && !Array.isArray(soData.data)) {
+             finalSo = soData.data;
+          } else if (!Array.isArray(soData) && soData.id) {
+             finalSo = soData;
+          }
+        }
+
+      } catch (err: any) {
+        throw new Error(err.message || "SO Verification failed");
+      }
+      
+      if (obdOptions.length > 1) {
+         return { type: "multiple", options: obdOptions };
+      }
+
+      if (!finalSo || !finalSo.id) {
+          console.log("SO Verification Payload Debug: ", soData);
+          throw new Error("Invalid SO data received");
+      }
+
       const res: AssignLocationResponse = await assignFgLocation({
+        id: finalSo.id,
         saleOrderNumber: targetSo,
+        outboundDelivery: finalSo.outboundDelivery || finalSo.OBDNumber || "",
         fgLocation: targetLoc,
       });
 
       // On success, add/update locally
       const existingIndex = items.findIndex(
-        (item) => item.location === targetLoc && item.soNumber === targetSo
+        (item) => item.location === targetLoc && item.soNumber === targetSo && item.obdNumber === (finalSo.outboundDelivery || finalSo.OBDNumber)
       );
       const newTimeISO = new Date().toISOString();
+      const isDuplicateSO = !!selectedObd;
       
       let updatedItems;
 
       if (existingIndex !== -1) {
           updatedItems = items.map((item, i) =>
-            i === existingIndex ? { ...item, timeISO: newTimeISO } : item
+            i === existingIndex ? { ...item, timeISO: newTimeISO, obdNumber: finalSo.outboundDelivery || finalSo.OBDNumber, isDuplicateSO } : item
           );
       } else {
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        updatedItems = [{ id, location: targetLoc, soNumber: targetSo, timeISO: newTimeISO }, ...items];
+        updatedItems = [{ id, location: targetLoc, soNumber: targetSo, obdNumber: finalSo.outboundDelivery || finalSo.OBDNumber, timeISO: newTimeISO, isDuplicateSO }, ...items];
       }
       
       setItems(updatedItems);
       saveMaterialFGData(updatedItems);
-      return updatedItems;
+      return { type: "success", items: updatedItems };
   };
 
   // 3. Core Async Logic (verification + API)
-  const coreAddItem = async (soVal: string, locVal: string) => {
+  const coreAddItem = async (soVal: string, locVal: string, selectedObd: string | null = null, selectedId: string | null = null) => {
     try {
-      await performAddItem(soVal, locVal);
+      const result = await performAddItem(soVal, locVal, selectedObd, selectedId);
+      
+      if (result.type === "multiple" && "options" in result) {
+          setCurrentSearchSo(soVal);
+          setCurrentSearchLoc(locVal);
+          setObdResults(result.options as any[]);
+          setShowObdModal(true);
+          return;
+      }
+
       // For manual flow, we might want to clear/focus. 
       // But if we are in a rapid scan loop, we just move to next.
       
@@ -361,6 +419,7 @@ const MaterialFGTransferScreen: React.FC = () => {
   useEffect(() => {
     const process = async () => {
         if (processingRef.current) return;
+        if (showObdModal) return; // Pause if modal is active
         if (pendingScansRef.current.length === 0) return;
 
         processingRef.current = true;
@@ -379,7 +438,22 @@ const MaterialFGTransferScreen: React.FC = () => {
         }
     };
     process();
-  }, [queueTrigger, items /* deps */]);
+  }, [queueTrigger, items, showObdModal]);
+
+  const handleSelectObd = (item: any) => {
+      setShowObdModal(false);
+      // Give a little time for modal animation, then process selected item
+      setTimeout(() => {
+          (async () => {
+               processingRef.current = true;
+               await coreAddItem(currentSearchSo, currentSearchLoc, item.outboundDelivery || item.OBDNumber, item.id);
+               processingRef.current = false;
+               
+               // continue queue
+               setQueueTrigger(c => c + 1);
+          })();
+      }, 300);
+  };
 
   // 5. Public entry point (Manual Button / Enter Key)
   const addItem = () => {
@@ -619,7 +693,7 @@ const MaterialFGTransferScreen: React.FC = () => {
               <Text style={[styles.th, { flex: 0.6 }]}>S/No</Text>
               <Text style={[styles.th, { flex: 2 }]}>Location</Text>
               <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={styles.th}>SO Number</Text>
+                <Text style={styles.th}>SO/OBD</Text>
                 <TouchableOpacity 
                     onPress={toggleSortMode}
                     style={{
@@ -666,7 +740,14 @@ const MaterialFGTransferScreen: React.FC = () => {
                          {sortMode === 'desc' ? items.length - index : index + 1}
                     </Text>
                     <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{item.location}</Text>
-                    <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{item.soNumber}</Text>
+                    <View style={{ flex: 2, justifyContent: 'center' }}>
+                      <Text style={[styles.td, { fontWeight: '600' }]} numberOfLines={1}>{item.soNumber}</Text>
+                      {item.isDuplicateSO && !!item.obdNumber && (
+                         <Text style={{ fontSize: 11, color: "#3B82F6", marginTop: 2, fontWeight: '500' }} numberOfLines={1}>
+                           OBD: {item.obdNumber}
+                         </Text>
+                      )}
+                    </View>
                     <Text style={[styles.td, { flex: 1.4, textAlign: "right" }]}>{fmtTime(item.timeISO)}</Text>
                   </View>
                 </TouchableOpacity>
@@ -709,6 +790,47 @@ const MaterialFGTransferScreen: React.FC = () => {
         }}
         onCancel={() => setMessageDlg({ show: false, title: "" })}
       />
+
+      {/* ---------- OBD SELECTION MODAL ---------- */}
+      <Modal visible={showObdModal} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.obdModalCard}>
+            <View style={styles.obdModalHeader}>
+              <Text style={styles.obdModalTitle}>Select OBD for {currentSearchSo} ({obdResults.length})</Text>
+              <Text style={styles.obdModalSubtitle}>Multiple entries found. Please select one:</Text>
+            </View>
+
+            <FlatList
+              data={obdResults}
+              keyExtractor={(item) => (item.id || item.OBDNumber || Math.random().toString()).toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity 
+                   style={styles.obdModalItem}
+                   onPress={() => handleSelectObd(item)}
+                >
+                  <View style={styles.obdModalIconWrap}>
+                    <Ionicons name="document-text-outline" size={24} color="#3B82F6" />
+                  </View>
+                  <View style={styles.obdModalItemContent}>
+                    <Text style={styles.obdModalObdText}>OBD: {item.outboundDelivery || item.OBDNumber}</Text>
+                    <Text style={styles.obdModalSoText}>SO: {item.saleOrderNumber || currentSearchSo}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={COLORS.border} />
+                </TouchableOpacity>
+              )}
+              ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              style={{ maxHeight: 400 }}
+            />
+
+            <View style={styles.obdModalFooter}>
+              <TouchableOpacity onPress={() => setShowObdModal(false)}>
+                <Text style={styles.obdModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* FULL-SCREEN Scanner Modal */}
       <Modal
@@ -945,4 +1067,51 @@ const styles = StyleSheet.create({
   scanCounter: { color: "#4ADE80", fontWeight: "700", fontSize: 16 },
   lastScanText: { color: "#fff", fontSize: 14, marginTop: 2, textAlign: "center", width: "100%" },
   errorText: { color: "#EF4444", fontWeight: "700", fontSize: 14, marginTop: 2, textAlign: "center" },
+  
+  // OBD Modal Custom Styles
+  obdModalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 24,
+    width: "100%",
+    maxWidth: 360,
+    alignSelf: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  obdModalHeader: { marginBottom: 20 },
+  obdModalTitle: { fontSize: 18, fontWeight: "700", color: "#111827", marginBottom: 6 },
+  obdModalSubtitle: { fontSize: 14, color: "#6B7280" },
+  obdModalItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: "#F9FAFB",
+  },
+  obdModalIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  obdModalItemContent: { flex: 1 },
+  obdModalObdText: { fontSize: 15, fontWeight: "700", color: "#111827", marginBottom: 4 },
+  obdModalSoText: { fontSize: 13, color: "#6B7280" },
+  obdModalFooter: {
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    paddingTop: 16,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  obdModalCancelText: { color: "#EF4444", fontWeight: "600", fontSize: 16 },
 });

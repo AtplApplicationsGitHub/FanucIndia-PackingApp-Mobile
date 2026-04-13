@@ -4,12 +4,13 @@ import * as SecureStore from "expo-secure-store";
 import { API_ENDPOINTS } from "../Endpoints";
 
 type VerifyResponse = {
-  valid: boolean;
+  valid?: boolean;
+  id: number | string;
   saleOrderNumber: string;
+  outboundDelivery: string;
   customerName: string;
   contactNumber: string;
   address: string;
-  // add other fields your API returns if any
 };
 
 type PrintResponse = {
@@ -21,7 +22,9 @@ export const useVerifySO = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const verifySO = async (soNumber: string): Promise<VerifyResponse | null> => {
+  const verifySO = async (
+    soNumber: string,
+  ): Promise<VerifyResponse | VerifyResponse[] | null> => {
     setLoading(true);
     setError(null);
 
@@ -37,8 +40,8 @@ export const useVerifySO = () => {
         throw new Error("No authentication token found. Please log in again.");
       }
 
-      // Ensure your Endpoints file exposes VERIFY_SO as a function that accepts soNumber
-      const url = API_ENDPOINTS.LABEL_PRINT?.VERIFY_SO?.(trimmedSO);
+      // 🔹 Updated to use the common verification endpoint
+      const url = API_ENDPOINTS.COMMON?.VERIFY_SO_OBD?.(trimmedSO);
       if (!url) {
         throw new Error("Verify SO endpoint not configured");
       }
@@ -74,17 +77,38 @@ export const useVerifySO = () => {
         throw new Error(parsed);
       }
 
-      const data = (await res.json()) as VerifyResponse;
+      const data = await res.json();
 
-      if (!data || typeof data !== "object") {
+      if (!data) {
         throw new Error("Invalid response from server");
       }
 
-      // If your API returns a different shape, relax or adapt this validation.
-      if (!data.valid) {
-        throw new Error("Sales Order is not valid");
+      // Handle the new nested structure: { valid: true, orders: [...] }
+      if (data.orders && Array.isArray(data.orders)) {
+        if (data.orders.length === 0) {
+          throw new Error("Sales Order not found");
+        }
+        return data.orders;
       }
 
+      // Handle another common wrapper: { data: [...] } or { data: {...} }
+      if (data.data) {
+        if (Array.isArray(data.data)) {
+          if (data.data.length === 0) throw new Error("Sales Order not found");
+          return data.data;
+        }
+        return data.data;
+      }
+
+      // Handle direct array response
+      if (Array.isArray(data)) {
+        if (data.length === 0) {
+          throw new Error("Sales Order not found");
+        }
+        return data; 
+      }
+
+      // Handle single object response
       return data;
     } catch (err: any) {
       const msg = err?.message || "Verification failed";
@@ -109,19 +133,24 @@ export const usePrintLabels = () => {
     count?: number;
   };
 
-  const printLabels = async (
-    soNumbers: string[],
-    cncText: string = "CNC PACKAGE",
-    boxNN: string = "1/1",
-    quantity: number = 1,
-  ): Promise<boolean> => {
+  const printLabels = async ({
+    ids,
+    cncText = "CNC PACKAGE",
+    boxNN = "1/1",
+    quantity = 1,
+  }: {
+    ids: number[];
+    cncText?: string;
+    boxNN?: string;
+    quantity?: number;
+  }): Promise<boolean> => {
     setLoading(true);
     setError(null);
     setSuccess(null);
 
     try {
-      if (!Array.isArray(soNumbers) || soNumbers.length === 0) {
-        throw new Error("No Sales Order numbers provided to print");
+      if (!Array.isArray(ids) || ids.length === 0) {
+        throw new Error("No Sales Order IDs provided to print");
       }
 
       const token = await SecureStore.getItemAsync("authToken");
@@ -139,7 +168,7 @@ export const usePrintLabels = () => {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          saleOrderNumbers: soNumbers,
+          id: ids,
           cncText: cncText,
           boxNN: boxNN,
           quantity: quantity,
@@ -166,7 +195,7 @@ export const usePrintLabels = () => {
 
       const successMessage =
         data?.message ??
-        `Successfully printed ${data?.count ?? soNumbers.length} label(s)`;
+        `Successfully printed ${data?.count ?? ids.length} label(s)`;
       setSuccess(successMessage);
       return true;
     } catch (err: any) {

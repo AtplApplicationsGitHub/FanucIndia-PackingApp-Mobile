@@ -244,10 +244,14 @@ export async function linkSalesOrder(
   const token = opts?.token ?? (await getToken());
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
-  const normalizedSO = payload.saleOrderNumber.replace(/\s+/g, "").toUpperCase();
-  if (!normalizedSO) return { ok: false, status: 0, error: "SO number required." };
+  const normalizedSO = payload.saleOrderNumber ? payload.saleOrderNumber.replace(/\s+/g, "").toUpperCase() : "";
+  if (!normalizedSO && !payload.salesOrderId) return { ok: false, status: 0, error: "SO number or ID required." };
 
   try {
+    const requestBody = payload.salesOrderId
+      ? { id: payload.salesOrderId }
+      : { saleOrderNumber: normalizedSO };
+
     const res = await withTimeout(
       fetch(API_ENDPOINTS.DISPATCH.SO(dispatchId), {
         method: "POST",
@@ -256,10 +260,7 @@ export async function linkSalesOrder(
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify({ 
-          saleOrderNumber: normalizedSO,
-          salesOrderId: payload.salesOrderId
-        }),
+        body: JSON.stringify(requestBody),
       })
     );
 

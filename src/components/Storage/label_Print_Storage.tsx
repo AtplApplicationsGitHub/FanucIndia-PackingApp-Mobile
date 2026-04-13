@@ -4,7 +4,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const STORAGE_KEY = "LABEL_PRINT_DATA";
 
 export type StoredLabelPrintData = {
-  sos: { id: string; soNumber: string }[];
+  sos: {
+    id: string; // client id
+    serverId: number | string; // 🔹 database id
+    soNumber: string;
+    outboundDelivery?: string;
+  }[];
   customerName: string | null;
   customerAddress: string | null;
   contactNumber: string | null;

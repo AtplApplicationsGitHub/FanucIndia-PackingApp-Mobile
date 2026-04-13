@@ -62,6 +62,9 @@ export const API_ENDPOINTS = {
     get ASSIGN_LOCATION() {
       return `${BASE_URL}/fg-storage/assign-location`;
     },
+    VERIFY_SO(so: string) {
+      return `${BASE_URL}/sales-crud/verify-so/${so}`;
+    },
   },
 
   LABEL_PRINT: {
@@ -133,4 +136,9 @@ export const API_ENDPOINTS = {
       },
     },
   },
+  COMMON:{   
+      VERIFY_SO_OBD(so: string) {
+      return `${BASE_URL}/sales-crud/verify-so/${so}`;
+    }, 
+  }
 };
