@@ -641,6 +641,13 @@ export default function Attachments() {
 
     if (!activeSoNumber) return;
 
+    if (!selectedVariantId) {
+      setModalTitle("Wait");
+      setModalMessage("Please select an OBD/Sales Order variant first.");
+      setModalVisible(true);
+      return;
+    }
+
     if (uploading) return;
 
     setUploading(true);
@@ -659,7 +666,7 @@ export default function Attachments() {
         description: file.description || "",
       }));
 
-      await uploadMobileAttachments(activeSoNumber, attachments);
+      await uploadMobileAttachments(selectedVariantId, attachments);
       
       // Refresh current attachments
       if (selectedVariantId) {

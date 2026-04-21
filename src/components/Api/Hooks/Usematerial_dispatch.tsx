@@ -164,6 +164,7 @@ export async function createDispatchHeader(
   opts?: { token?: string }
 ): Promise<ApiResult<{ id: string }>> {
   const token = opts?.token ?? (await getToken());
+  console.log("Token being sent:", token);
   if (!token) return { ok: false, status: 0, error: "Missing access token." };
 
   if (!payload.transporterName?.trim() || !payload.vehicleNumber?.trim()) {
@@ -185,6 +186,7 @@ export async function createDispatchHeader(
 
     if (!res.ok) {
       const err = await parseErrorBody(res);
+      console.log("Failed API Response Status:", res.status, "Error:", err);
       return { ok: false, status: res.status, error: err };
     }
 

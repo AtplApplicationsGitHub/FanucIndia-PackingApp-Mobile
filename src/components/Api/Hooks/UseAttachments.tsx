@@ -88,7 +88,7 @@ export async function fetchSoVariants(
  * Upload files via mobile-specific endpoint
  */
 export async function uploadMobileAttachments(
-  saleOrderNumber: string,
+  id: string | number,
   attachments: AttachmentItem[],
   token?: string
 ): Promise<MobileUploadResponse> {
@@ -106,9 +106,6 @@ export async function uploadMobileAttachments(
 
   const formData = new FormData();
 
-  // Append saleOrderNumber
-  formData.append("saleOrderNumber", saleOrderNumber);
-
   // Append all files
   const descriptions: Record<string, string> = {};
   attachments.forEach((attachment) => {
@@ -124,7 +121,7 @@ export async function uploadMobileAttachments(
   formData.append("descriptions", JSON.stringify(descriptions));
 
   const res = await withTimeout(
-    fetch(API_ENDPOINTS.SALES_ORDER.MOBILE_UPLOAD, {
+    fetch(API_ENDPOINTS.SALES_ORDER.MOBILE_ATTACHMENTS(id), {
       method: "POST",
       headers,
       body: formData,

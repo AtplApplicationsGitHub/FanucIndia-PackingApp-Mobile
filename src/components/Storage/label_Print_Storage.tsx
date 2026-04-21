@@ -3,6 +3,23 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "LABEL_PRINT_DATA";
 
+async function getUserScopedKey() {
+  try {
+    const rawUser = await AsyncStorage.getItem("user");
+    const parsedUser = rawUser ? JSON.parse(rawUser) : null;
+    const displayName = await AsyncStorage.getItem("displayName");
+    const userId =
+      parsedUser?.id ??
+      parsedUser?.email ??
+      parsedUser?.username ??
+      displayName ??
+      "anonymous";
+    return `${STORAGE_KEY}_${String(userId)}`;
+  } catch {
+    return `${STORAGE_KEY}_anonymous`;
+  }
+}
+
 export type StoredLabelPrintData = {
   sos: {
     id: string; // client id
@@ -31,7 +48,8 @@ const defaultData: StoredLabelPrintData = {
 export const labelPrintStorage = {
   async save(data: StoredLabelPrintData): Promise<void> {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      const scopedKey = await getUserScopedKey();
+      await AsyncStorage.setItem(scopedKey, JSON.stringify(data));
     } catch (error) {
       console.error("Failed to save label print data", error);
     }
@@ -39,7 +57,8 @@ export const labelPrintStorage = {
 
   async load(): Promise<StoredLabelPrintData> {
     try {
-      const json = await AsyncStorage.getItem(STORAGE_KEY);
+      const scopedKey = await getUserScopedKey();
+      const json = await AsyncStorage.getItem(scopedKey);
       if (!json) return defaultData;
 
       const parsed = JSON.parse(json);
@@ -60,7 +79,8 @@ export const labelPrintStorage = {
 
   async clear(): Promise<void> {
     try {
-      await AsyncStorage.removeItem(STORAGE_KEY);
+      const scopedKey = await getUserScopedKey();
+      await AsyncStorage.removeItem(scopedKey);
     } catch (error) {
       console.error("Failed to clear label print data", error);
     }

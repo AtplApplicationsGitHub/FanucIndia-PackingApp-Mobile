@@ -5,6 +5,23 @@ import { Customer } from '../Api/Hooks/UseVehicleEntry'; // Adjust path if neede
 
 const DRAFT_KEY = '@vehicle_entry_draft';
 
+async function getUserScopedKey() {
+  try {
+    const rawUser = await AsyncStorage.getItem("user");
+    const parsedUser = rawUser ? JSON.parse(rawUser) : null;
+    const displayName = await AsyncStorage.getItem("displayName");
+    const userId =
+      parsedUser?.id ??
+      parsedUser?.email ??
+      parsedUser?.username ??
+      displayName ??
+      "anonymous";
+    return `${DRAFT_KEY}_${String(userId)}`;
+  } catch {
+    return `${DRAFT_KEY}_anonymous`;
+  }
+}
+
 export type VehicleDraft = {
   customerQuery: string;
   selectedCustomer?: Customer;
@@ -20,8 +37,9 @@ export type VehicleDraft = {
 
 export const saveDraftToStorage = async (draft: VehicleDraft): Promise<void> => {
   try {
+    const scopedKey = await getUserScopedKey();
     const jsonValue = JSON.stringify(draft);
-    await AsyncStorage.setItem(DRAFT_KEY, jsonValue);
+    await AsyncStorage.setItem(scopedKey, jsonValue);
   } catch (error) {
     console.error('Error saving vehicle entry draft:', error);
     // Optionally handle error (e.g., show toast)
@@ -30,7 +48,8 @@ export const saveDraftToStorage = async (draft: VehicleDraft): Promise<void> => 
 
 export const loadDraftFromStorage = async (): Promise<VehicleDraft | null> => {
   try {
-    const jsonValue = await AsyncStorage.getItem(DRAFT_KEY);
+    const scopedKey = await getUserScopedKey();
+    const jsonValue = await AsyncStorage.getItem(scopedKey);
     if (jsonValue === null) {
       return null;
     }
@@ -47,7 +66,8 @@ export const loadDraftFromStorage = async (): Promise<VehicleDraft | null> => {
 
 export const clearDraftFromStorage = async (): Promise<void> => {
   try {
-    await AsyncStorage.removeItem(DRAFT_KEY);
+    const scopedKey = await getUserScopedKey();
+    await AsyncStorage.removeItem(scopedKey);
   } catch (error) {
     console.error('Error clearing vehicle entry draft:', error);
   }

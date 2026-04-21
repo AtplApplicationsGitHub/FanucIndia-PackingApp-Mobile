@@ -3,9 +3,27 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const KEY = 'material_dispatch_data';
 
+async function getUserScopedKey() {
+  try {
+    const rawUser = await AsyncStorage.getItem("user");
+    const parsedUser = rawUser ? JSON.parse(rawUser) : null;
+    const displayName = await AsyncStorage.getItem("displayName");
+    const userId =
+      parsedUser?.id ??
+      parsedUser?.email ??
+      parsedUser?.username ??
+      displayName ??
+      "anonymous";
+    return `${KEY}_${String(userId)}`;
+  } catch {
+    return `${KEY}_anonymous`;
+  }
+}
+
 export async function loadDispatchData() {
   try {
-    const json = await AsyncStorage.getItem(KEY);
+    const scopedKey = await getUserScopedKey();
+    const json = await AsyncStorage.getItem(scopedKey);
     return json ? JSON.parse(json) : null;
   } catch (e) {
     console.error('Failed to load dispatch data:', e);
@@ -15,7 +33,8 @@ export async function loadDispatchData() {
 
 export async function saveDispatchData(data: any) {
   try {
-    await AsyncStorage.setItem(KEY, JSON.stringify(data));
+    const scopedKey = await getUserScopedKey();
+    await AsyncStorage.setItem(scopedKey, JSON.stringify(data));
   } catch (e) {
     console.error('Failed to save dispatch data:', e);
   }
@@ -23,7 +42,8 @@ export async function saveDispatchData(data: any) {
 
 export async function clearDispatchData() {
   try {
-    await AsyncStorage.removeItem(KEY);
+    const scopedKey = await getUserScopedKey();
+    await AsyncStorage.removeItem(scopedKey);
   } catch (e) {
     console.error('Failed to clear dispatch data:', e);
   }

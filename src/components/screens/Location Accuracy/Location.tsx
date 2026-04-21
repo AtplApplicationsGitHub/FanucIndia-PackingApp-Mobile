@@ -110,7 +110,7 @@ const LocationScreen = () => {
 
   const handleAlertAction = (action?: () => void) => {
       setAlertConfig(prev => ({ ...prev, visible: false }));
-      if (action) setTimeout(action, 100); // Small delay to allow modal to close smoothly
+      if (action) setTimeout(() => action(), 100); // Small delay to allow modal to close smoothly
   };
 
   // --- Camera State ---

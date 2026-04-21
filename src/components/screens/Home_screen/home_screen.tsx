@@ -318,7 +318,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       <View style={styles.content}>
         {/* Greeting + Keyboard Toggle */}
         <View style={styles.greetingContainer}>
-          <Text style={styles.greeting}>
+          <Text style={styles.greeting} numberOfLines={1} adjustsFontSizeToFit>
             {greeting},{" "}
             <Text style={{ fontWeight: "700" }}>{username}</Text>
           </Text>
@@ -481,7 +481,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 6,
   },
-  greeting: { fontSize: 18, color: BODY_TEXT },
+  greeting: { fontSize: 18, color: BODY_TEXT, flex: 1, marginRight: 8 },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
