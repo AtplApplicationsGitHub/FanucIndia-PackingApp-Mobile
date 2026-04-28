@@ -13,11 +13,11 @@ import {
 } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useKeyboardDisabled } from "../../utils/keyboard";
 import { APP_VERSION } from "../../utils/Version";
+import { clearStoredAccessToken } from "../../Api/Hooks/Auth";
 
 
 type MenuItem = {
@@ -271,7 +271,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const onLogout = async () => {
     try {
-      await SecureStore.deleteItemAsync("authToken");
+      await clearStoredAccessToken();
       await AsyncStorage.multiRemove(["displayName", "username", "user"]);
     } catch (err) {
       console.warn("Logout cleanup error:", err);

@@ -1,13 +1,12 @@
 // material_dispatch_server.tsx
-import * as SecureStore from "expo-secure-store";
 import * as DocumentPicker from "expo-document-picker";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { API_ENDPOINTS } from "../Endpoints"; // Adjust path if needed
-
-let AsyncStorage: any = null;
-try {
-  AsyncStorage = require("@react-native-async-storage/async-storage").default;
-} catch {}
+import {
+  clearStoredAccessToken,
+  getStoredAccessToken,
+  persistAccessToken,
+} from "./Auth";
 
 export type CreateDispatchHeaderRequest = {
   customerName?: string;
@@ -74,7 +73,6 @@ export type ApiErr = {
 export type ApiResult<T = any> = ApiOk<T> | ApiErr;
 
 const TIMEOUT_MS = 300000;
-const TOKEN_KEYS = ["accessToken", "authToken", "token"] as const;
 let inMemoryToken: string | null = null;
 
 const withTimeout = <T,>(p: Promise<T>, ms = TIMEOUT_MS) =>
@@ -97,65 +95,69 @@ async function parseErrorBody(res: Response): Promise<string> {
 }
 
 export async function setAccessToken(token: string): Promise<void> {
-  inMemoryToken = token ?? null;
-  try {
-    const canUseSecure = await SecureStore.isAvailableAsync();
-    if (canUseSecure) await SecureStore.setItemAsync("accessToken", token);
-  } catch {}
-  try {
-    if (AsyncStorage) await AsyncStorage.setItem("accessToken", token);
-  } catch {}
+  const normalized = normalizeToken(token);
+  inMemoryToken = normalized;
+  if (!normalized) return;
+  await persistAccessToken(normalized);
 }
 
 export async function clearAccessToken(): Promise<void> {
   inMemoryToken = null;
-  try {
-    const canUseSecure = await SecureStore.isAvailableAsync();
-    if (canUseSecure) await SecureStore.deleteItemAsync("accessToken");
-  } catch {}
-  try {
-    if (AsyncStorage) await AsyncStorage.multiRemove(TOKEN_KEYS as unknown as string[]);
-  } catch {}
+  await clearStoredAccessToken();
 }
 
-async function getToken(): Promise<string | null> {
-  if (inMemoryToken) return inMemoryToken;
-
-  try {
-    const canUseSecure = await SecureStore.isAvailableAsync();
-    if (canUseSecure) {
-      for (const key of TOKEN_KEYS) {
-        const val = await SecureStore.getItemAsync(key);
-        const parsed = maybeExtractToken(val);
-        if (parsed) return (inMemoryToken = parsed);
-      }
-    }
-  } catch {}
-
-  try {
-    if (AsyncStorage) {
-      for (const key of TOKEN_KEYS) {
-        const val = await AsyncStorage.getItem(key);
-        const parsed = maybeExtractToken(val);
-        if (parsed) return (inMemoryToken = parsed);
-      }
-    }
-  } catch {}
-
-  return null;
+async function getToken(opts?: { forceRefresh?: boolean }): Promise<string | null> {
+  if (!opts?.forceRefresh && inMemoryToken) return inMemoryToken;
+  const token = await getStoredAccessToken({ forceRefresh: opts?.forceRefresh });
+  inMemoryToken = normalizeToken(token);
+  return inMemoryToken;
 }
 
-function maybeExtractToken(val: string | null): string | null {
+function normalizeToken(val: string | null | undefined): string | null {
   if (!val) return null;
-  if (!val.trim().startsWith("{")) return val;
-  try {
-    const obj = JSON.parse(val);
-    for (const k of TOKEN_KEYS) {
-      const candidate = obj?.[k];
-      if (typeof candidate === "string" && candidate.length > 0) return candidate;
+  let token = String(val).trim();
+  if (!token) return null;
+  if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) {
+    token = token.slice(1, -1).trim();
+  }
+  if (/^bearer\s+/i.test(token)) {
+    token = token.replace(/^bearer\s+/i, "").trim();
+  }
+  return token || null;
+}
+
+async function doAuthorizedFetch(
+  url: string,
+  init: RequestInit,
+  opts?: { token?: string }
+): Promise<Response> {
+  const fallbackHeaders = (init.headers || {}) as Record<string, string>;
+  let token = normalizeToken(opts?.token) ?? (await getToken());
+  if (!token) throw new Error("Missing access token.");
+
+  const requestWithToken = (tok: string) =>
+    withTimeout(
+      fetch(url, {
+        ...init,
+        headers: {
+          ...fallbackHeaders,
+          Authorization: `Bearer ${tok}`,
+        },
+      })
+    );
+
+  let res = await requestWithToken(token);
+
+  if (res.status === 401) {
+    const freshToken = await getToken({ forceRefresh: true });
+    if (freshToken && freshToken !== token) {
+      token = freshToken;
+      inMemoryToken = freshToken;
+      res = await requestWithToken(freshToken);
     }
-  } catch {}
-  return val;
+  }
+
+  return res;
 }
 
 // CREATE HEADER
@@ -163,25 +165,22 @@ export async function createDispatchHeader(
   payload: CreateDispatchHeaderRequest,
   opts?: { token?: string }
 ): Promise<ApiResult<{ id: string }>> {
-  const token = opts?.token ?? (await getToken());
-  console.log("Token being sent:", token);
-  if (!token) return { ok: false, status: 0, error: "Missing access token." };
-
   if (!payload.transporterName?.trim() || !payload.vehicleNumber?.trim()) {
     return { ok: false, status: 0, error: "Transporter name and vehicle number are required." };
   }
 
   try {
-    const res = await withTimeout(
-      fetch(API_ENDPOINTS.DISPATCH.HEADER, {
+    const res = await doAuthorizedFetch(
+      API_ENDPOINTS.DISPATCH.HEADER,
+      {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
         body: JSON.stringify(payload),
-      })
+      },
+      opts
     );
 
     if (!res.ok) {
@@ -203,9 +202,6 @@ export async function updateDispatchHeader(
   payload: UpdateDispatchHeaderRequest,
   opts?: { token?: string }
 ): Promise<ApiResult> {
-  const token = opts?.token ?? (await getToken());
-  if (!token) return { ok: false, status: 0, error: "Missing access token." };
-
   // Only enforce if the fields are provided in the payload
   if ((payload.transporterName !== undefined && !payload.transporterName.trim()) ||
       (payload.vehicleNumber !== undefined && !payload.vehicleNumber.trim())) {
@@ -213,16 +209,17 @@ export async function updateDispatchHeader(
   }
 
   try {
-    const res = await withTimeout(
-      fetch(API_ENDPOINTS.DISPATCH.UPDATE(dispatchId), {
+    const res = await doAuthorizedFetch(
+      API_ENDPOINTS.DISPATCH.UPDATE(dispatchId),
+      {
         method: "PATCH",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
         body: JSON.stringify(payload),
-      })
+      },
+      opts
     );
 
     if (!res.ok) {
@@ -243,9 +240,6 @@ export async function linkSalesOrder(
   payload: LinkDispatchSORequest,
   opts?: { token?: string }
 ): Promise<ApiResult<DispatchSOLink>> {
-  const token = opts?.token ?? (await getToken());
-  if (!token) return { ok: false, status: 0, error: "Missing access token." };
-
   const normalizedSO = payload.saleOrderNumber ? payload.saleOrderNumber.replace(/\s+/g, "").toUpperCase() : "";
   if (!normalizedSO && !payload.salesOrderId) return { ok: false, status: 0, error: "SO number or ID required." };
 
@@ -254,16 +248,17 @@ export async function linkSalesOrder(
       ? { id: payload.salesOrderId }
       : { saleOrderNumber: normalizedSO };
 
-    const res = await withTimeout(
-      fetch(API_ENDPOINTS.DISPATCH.SO(dispatchId), {
+    const res = await doAuthorizedFetch(
+      API_ENDPOINTS.DISPATCH.SO(dispatchId),
+      {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
         body: JSON.stringify(requestBody),
-      })
+      },
+      opts
     );
 
     if (!res.ok) {
@@ -283,18 +278,16 @@ export async function deleteSalesOrderLink(
   soLinkId: number,
   opts?: { token?: string }
 ): Promise<ApiResult> {
-  const token = opts?.token ?? (await getToken());
-  if (!token) return { ok: false, status: 0, error: "Missing access token." };
-
   try {
-    const res = await withTimeout(
-      fetch(API_ENDPOINTS.DISPATCH.SO_DELETE(soLinkId), {
+    const res = await doAuthorizedFetch(
+      API_ENDPOINTS.DISPATCH.SO_DELETE(soLinkId),
+      {
         method: "DELETE",
         headers: {
-          Authorization: `Bearer ${token}`,
           Accept: "application/json",
         },
-      })
+      },
+      opts
     );
 
     if (!res.ok) {
@@ -322,9 +315,6 @@ export async function uploadAttachments(
   files: FileUploadSpec[],
   opts?: { token?: string }
 ): Promise<ApiResult> {
-  const token = opts?.token ?? (await getToken());
-  if (!token) return { ok: false, status: 0, error: "Missing access token." };
-
   if (!files?.length) return { ok: false, status: 0, error: "No files selected." };
 
   const formData = new FormData();
@@ -337,15 +327,16 @@ export async function uploadAttachments(
   });
 
   try {
-    const res = await withTimeout(
-      fetch(API_ENDPOINTS.DISPATCH.ATTACHMENTS(dispatchId), {
+    const res = await doAuthorizedFetch(
+      API_ENDPOINTS.DISPATCH.ATTACHMENTS(dispatchId),
+      {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
           Accept: "application/json",
         },
         body: formData,
-      })
+      },
+      opts
     );
 
     if (!res.ok) {
@@ -365,18 +356,16 @@ export async function getAttachments(
   dispatchId: string,
   opts?: { token?: string }
 ): Promise<ApiResult<DispatchAttachment[]>> {
-  const token = opts?.token ?? (await getToken());
-  if (!token) return { ok: false, status: 0, error: "Missing access token." };
-
   try {
-    const res = await withTimeout(
-      fetch(API_ENDPOINTS.DISPATCH.ATTACHMENTS(dispatchId), {
+    const res = await doAuthorizedFetch(
+      API_ENDPOINTS.DISPATCH.ATTACHMENTS(dispatchId),
+      {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${token}`,
           Accept: "application/json",
         },
-      })
+      },
+      opts
     );
 
     const data: DispatchAttachment[] = await res.json();
@@ -391,21 +380,19 @@ export async function searchSalesOrder(
   soNumber: string,
   opts?: { token?: string }
 ): Promise<ApiResult<SOSearchResult[]>> {
-  const token = opts?.token ?? (await getToken());
-  if (!token) return { ok: false, status: 0, error: "Missing access token." };
-
   const normalizedSO = soNumber.replace(/\s+/g, "").toUpperCase();
   if (!normalizedSO) return { ok: false, status: 0, error: "SO number required." };
 
   try {
-    const res = await withTimeout(
-      fetch(API_ENDPOINTS.DISPATCH.SEARCH_SO(normalizedSO), {
+    const res = await doAuthorizedFetch(
+      API_ENDPOINTS.DISPATCH.SEARCH_SO(normalizedSO),
+      {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${token}`,
           Accept: "application/json",
         },
-      })
+      },
+      opts
     );
 
     if (!res.ok) {
@@ -449,15 +436,10 @@ export const useTransportersLookup = () => {
             setError(null);
 
             try {
-                const token = await getToken();
-                if (!token) throw new Error("Missing access token.");
-
                 const url = `${API_ENDPOINTS.DISPATCH.FETCH_TRANSPORTERS}?search=${encodeURIComponent(trimmed)}`;
-
-                const res = await fetch(url, {
+                const res = await doAuthorizedFetch(url, {
                     method: "GET",
                     headers: {
-                        Authorization: `Bearer ${token}`,
                         "Content-Type": "application/json",
                         Accept: "application/json",
                     },

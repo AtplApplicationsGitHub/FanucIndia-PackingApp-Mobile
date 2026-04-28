@@ -12,11 +12,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
-import { loginApiWithEmail } from "../../Api/Hooks/Auth";
+import { loginApiWithEmail, persistAccessToken } from "../../Api/Hooks/Auth";
 import { getBaseUrl, setBaseUrl } from "../../Api/Endpoints";
 import { useUpdate } from "../../Api/Hooks/UseUpdate";
 import Toast from "react-native-toast-message";
@@ -154,7 +153,7 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
       const displayName =
         userData?.name || userData?.displayName || userData?.username || email.trim();
 
-      await SecureStore.setItemAsync("authToken", String(token));
+      await persistAccessToken(String(token));
       await AsyncStorage.setItem("displayName", String(displayName));
       if (userData) {
         await AsyncStorage.setItem("user", JSON.stringify(userData));

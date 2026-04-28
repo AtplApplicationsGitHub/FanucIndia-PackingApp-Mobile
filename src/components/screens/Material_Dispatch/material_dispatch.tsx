@@ -115,6 +115,13 @@ const MaterialDispatchScreen: React.FC = () => {
   const [obdResults, setObdResults] = useState<SOSearchResult[]>([]);
   const [currentSearchSo, setCurrentSearchSo] = useState("");
   const [searchingSo, setSearchingSo] = useState(false);
+  const getApiErrorMessage = useCallback((err?: string) => {
+    const msg = (err || "").toLowerCase();
+    if (msg.includes("unauthorized") || msg.includes("401") || msg.includes("jwt")) {
+      return "Session expired or invalid token. Please logout and login again.";
+    }
+    return err || "Request failed. Please try again.";
+  }, []);
 
   const triggerVibration = async (duration = 400) => {
     try {
@@ -257,7 +264,7 @@ const MaterialDispatchScreen: React.FC = () => {
         setDispatchId(id);
         focusSOInput();
       } else {
-        setErrorMessage(result.error || "Failed to save.");
+        setErrorMessage(getApiErrorMessage(result.error) || "Failed to save.");
         setShowError(true);
       }
     } catch {
@@ -283,7 +290,7 @@ const MaterialDispatchScreen: React.FC = () => {
         showToast("Updated successfully!", "success");
         focusSOInput();
       } else {
-        setErrorMessage(result.error || "Failed to update.");
+        setErrorMessage(getApiErrorMessage(result.error) || "Failed to update.");
         setShowError(true);
       }
     } catch {
@@ -365,7 +372,7 @@ const MaterialDispatchScreen: React.FC = () => {
             setSearchingSo(false);
             
             if (!searchRes.ok) {
-                showToast(searchRes.error || "SO not found", "error");
+                showToast(getApiErrorMessage(searchRes.error) || "SO not found", "error");
                 if (!isScan) clearAndFocusSO();
                 else {
                     playErrorSound();
@@ -446,7 +453,7 @@ const MaterialDispatchScreen: React.FC = () => {
         }
       } else {
         if (!isScan) {
-           setErrorMessage(result.error || "Failed to link SO.");
+           setErrorMessage(getApiErrorMessage(result.error) || "Failed to link SO.");
            setShowError(true);
            clearAndFocusSO();
         } else {
@@ -509,7 +516,7 @@ const MaterialDispatchScreen: React.FC = () => {
         setItems((prev) => prev.filter((x) => x.linkId !== linkId));
         focusSOInput();
       } else {
-        setErrorMessage(result.error || "Failed to remove SO.");
+        setErrorMessage(getApiErrorMessage(result.error) || "Failed to remove SO.");
         setShowError(true);
       }
     } catch {
