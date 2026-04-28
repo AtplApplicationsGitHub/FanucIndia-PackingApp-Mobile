@@ -29,7 +29,6 @@ import {
 } from "expo-camera";
 import {
   createDispatchHeader,
-  updateDispatchHeader,
   linkSalesOrder,
   deleteSalesOrderLink,
   getAttachments,
@@ -37,7 +36,6 @@ import {
   useTransportersLookup,
   type Transporter,
   type CreateDispatchHeaderRequest,
-  type UpdateDispatchHeaderRequest,
   type LinkDispatchSORequest,
   type SOSearchResult,
   type DispatchAttachment,
@@ -265,32 +263,6 @@ const MaterialDispatchScreen: React.FC = () => {
         focusSOInput();
       } else {
         setErrorMessage(getApiErrorMessage(result.error) || "Failed to save.");
-        setShowError(true);
-      }
-    } catch {
-      setErrorMessage("Network error. Please try again.");
-      setShowError(true);
-    } finally {
-      setSavingHeader(false);
-    }
-  };
-
-  const handleUpdateHeader = async () => {
-    if (!isFormValid || savingHeader || !dispatchId) return;
-
-    setSavingHeader(true);
-    const payload: UpdateDispatchHeaderRequest = {
-      transporterName: form.transporter.trim(),
-      vehicleNumber: form.vehicleNo.trim(),
-    } as any;
-
-    try {
-      const result = await updateDispatchHeader(dispatchId, payload);
-      if (result.ok) {
-        showToast("Updated successfully!", "success");
-        focusSOInput();
-      } else {
-        setErrorMessage(getApiErrorMessage(result.error) || "Failed to update.");
         setShowError(true);
       }
     } catch {
@@ -759,18 +731,18 @@ const MaterialDispatchScreen: React.FC = () => {
           </View>
 
           <TouchableOpacity
-            onPress={dispatchId ? handleUpdateHeader : handleSaveHeader}
-            disabled={!isFormValid || savingHeader}
+            onPress={handleSaveHeader}
+            disabled={!isFormValid || savingHeader || !!dispatchId}
             style={[
               styles.saveBtn,
-              (!isFormValid || savingHeader) && styles.disabledBtn,
+              (!isFormValid || savingHeader || !!dispatchId) && styles.disabledBtn,
             ]}
           >
             {savingHeader ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Ionicons
-                name={dispatchId ? "sync-outline" : "save-outline"}
+                name="save-outline"
                 size={24}
                 color="#fff"
               />
