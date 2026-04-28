@@ -29,7 +29,8 @@
       "expo-secure-store",
       "expo-build-properties",
       "expo-font",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-system-ui"
     ],
     "extra": {
       "eas": {
