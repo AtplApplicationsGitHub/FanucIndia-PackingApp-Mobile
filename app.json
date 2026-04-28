@@ -6,7 +6,6 @@
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -20,7 +19,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.kishore_dev7.Fanuc"
     },
@@ -29,7 +27,9 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-build-properties"
+      "expo-build-properties",
+      "expo-font",
+      "expo-sharing"
     ],
     "extra": {
       "eas": {
