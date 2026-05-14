@@ -30,7 +30,6 @@ import {
 import {
   createDispatchHeader,
   linkSalesOrder,
-  deleteSalesOrderLink,
   getAttachments,
   searchSalesOrder,
   useTransportersLookup,
@@ -86,8 +85,6 @@ const C_sales = {
   sub: "#6B7280",
   blue: "#2151F5",
   pill: "#F3F4F6",
-  hover: "#F9FAFB",
-  danger: "#EF4444",
 };
 
 const MaterialDispatchScreen: React.FC = () => {
@@ -481,22 +478,6 @@ const MaterialDispatchScreen: React.FC = () => {
       }
   }
 
-  async function removeSO(linkId: number) {
-    try {
-      const result = await deleteSalesOrderLink(linkId);
-      if (result.ok) {
-        setItems((prev) => prev.filter((x) => x.linkId !== linkId));
-        focusSOInput();
-      } else {
-        setErrorMessage(getApiErrorMessage(result.error) || "Failed to remove SO.");
-        setShowError(true);
-      }
-    } catch {
-      setErrorMessage("Failed to remove SO.");
-      setShowError(true);
-    }
-  }
-
   function formatTime(ts: number) {
     const d = new Date(ts);
     const hh = d.getHours() % 12 || 12;
@@ -849,11 +830,6 @@ const MaterialDispatchScreen: React.FC = () => {
                   </TouchableOpacity>
                 </View>
                 <Text style={[styles_sales.th, { width: 80 }]}>Time</Text>
-                <Text
-                  style={[styles_sales.th, { width: 72, textAlign: "right" }]}
-                >
-                  Action
-                </Text>
               </View>
               <FlatList
                 style={{ flex: 1 }}
@@ -885,25 +861,6 @@ const MaterialDispatchScreen: React.FC = () => {
                       <Text style={styles_sales.td}>
                         {formatTime(item.createdAt)}
                       </Text>
-                    </View>
-                    <View
-                      style={[
-                        { width: 72, alignItems: "flex-end" },
-                      ]}
-                    >
-                      <Pressable
-                        onPress={() => removeSO(item.linkId)}
-                        style={({ pressed }) => [
-                          styles_sales.iconBtn,
-                          pressed && { backgroundColor: C_sales.hover },
-                        ]}
-                      >
-                        <Ionicons
-                          name="trash-outline"
-                          size={18}
-                          color={C_sales.danger}
-                        />
-                      </Pressable>
                     </View>
                   </View>
                 )}
@@ -1326,13 +1283,6 @@ const styles_sales = StyleSheet.create({
   th: { fontSize: 11, fontWeight: "700", color: C_sales.text },
   td: { fontSize: 12, color: C_sales.text },
   divider: { height: 1, backgroundColor: C_sales.border },
-  iconBtn: {
-    height: 24,
-    width: 24,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   soMainText: { fontSize: 13, fontWeight: "600", color: C_sales.text },
   obdSubText: { fontSize: 11, color: C.blue, marginTop: 1 },
 });

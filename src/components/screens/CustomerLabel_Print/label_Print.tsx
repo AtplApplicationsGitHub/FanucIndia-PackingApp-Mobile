@@ -482,6 +482,9 @@ export default function CustomerLabelPrint(): JSX.Element {
   });
   const [printConfirmModal, setPrintConfirmModal] = useState(false);
   const [clearConfirmModal, setClearConfirmModal] = useState(false);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<SOItem | null>(
+    null
+  );
   const [limitModalVisible, setLimitModalVisible] = useState(false);
   const [mismatchModal, setMismatchModal] = useState({
     visible: false,
@@ -998,6 +1001,13 @@ export default function CustomerLabelPrint(): JSX.Element {
     });
   };
 
+  const confirmDeleteSO = () => {
+    if (!deleteConfirmModal) return;
+    removeSO(deleteConfirmModal.id);
+    setDeleteConfirmModal(null);
+    focusInput();
+  };
+
   const onPrint = () => {
     if (sos.length === 0)
       return showError("Nothing to Print", "Add at least one valid SO first.");
@@ -1073,7 +1083,7 @@ export default function CustomerLabelPrint(): JSX.Element {
           )}
       </View>
       <TouchableOpacity
-        onPress={() => removeSO(item.id)}
+        onPress={() => setDeleteConfirmModal(item)}
         style={styles.deleteBtn}
       >
         <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
@@ -1305,6 +1315,22 @@ export default function CustomerLabelPrint(): JSX.Element {
           onConfirm={confirmClearAll}
           onCancel={() => {
             setClearConfirmModal(false);
+            focusInput();
+          }}
+        />
+
+        <ConfirmModal
+          visible={!!deleteConfirmModal}
+          title="Delete SO?"
+          message={`Are you sure want to delete this SO number${
+            deleteConfirmModal ? ` ${deleteConfirmModal.soNumber}` : ""
+          }?`}
+          confirmText="Okay"
+          cancelText="Cancel"
+          type="danger"
+          onConfirm={confirmDeleteSO}
+          onCancel={() => {
+            setDeleteConfirmModal(null);
             focusInput();
           }}
         />
