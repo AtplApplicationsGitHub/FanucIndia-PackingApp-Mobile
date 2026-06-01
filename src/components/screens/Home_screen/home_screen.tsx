@@ -17,11 +17,11 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
 import { useKeyboardDisabled } from "../../utils/keyboard";
 import { APP_VERSION } from "../../utils/Version";
-import { clearStoredAccessToken } from "../../Api/Hooks/Auth";
+import { OFFLINE_AUTH_MODE_KEY, clearStoredAccessToken } from "../../Api/Hooks/Auth";
 
 
 type MenuItem = {
-  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle" | "location_accuracy" | "content_accuracy" | "put_away" | "settings" | "sound_demo" | "upload_attachments";
+  id: "pick" | "transfer" | "dispatch" | "customer" | "vehicle" | "location_accuracy" | "content_accuracy" | "put_away" | "settings" | "sound_demo" | "upload_attachments" | "FgLocation";
   title: string;
   subtitle: string;
   iconName: string;
@@ -55,6 +55,12 @@ const MENU: MenuItem[] = [
     subtitle: "Finished goods & movement",
     iconName: "swap-horizontal",
   },
+    {
+    id: "FgLocation",
+    title: "FG Location",
+    subtitle: "Manual FG locations",
+    iconName: "map-marker"
+   },
   {
     id: "vehicle",
     title: "Vehicle Entry",
@@ -97,6 +103,7 @@ const MENU: MenuItem[] = [
     subtitle: "App configurations",
     iconName: "cog-outline",
   },
+
   // {
   //   id: "sound_demo",
   //   title: "Sound Demo",
@@ -153,11 +160,13 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     let mounted = true;
     (async () => {
       try {
-        const [k1, k2, k3] = await Promise.all([
+        const [k1, k2, k3, k4] = await Promise.all([
           AsyncStorage.getItem("displayName"),
           AsyncStorage.getItem("username"),
           AsyncStorage.getItem("user"),
+          AsyncStorage.getItem(OFFLINE_AUTH_MODE_KEY),
         ]);
+        const isOfflineAuthMode = k4 === "true";
         
         let parsedUser: any = null;
         if (k3) {
@@ -183,6 +192,19 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           
           if (parsedUser) {
             const newMenu = MENU.filter((item) => {
+              const canAccessFgLocation = !!parsedUser.accessManualFgLocation;
+
+              if (isOfflineAuthMode) {
+                switch (item.id) {
+                  case "FgLocation":
+                    return canAccessFgLocation;
+                  case "settings":
+                    return true;
+                  default:
+                    return false;
+                }
+              }
+
               switch (item.id) {
                 case "customer":
                   return !!parsedUser.accessLabelPrint;
@@ -200,6 +222,8 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                   return !!parsedUser.accessPutAway;
                 case "upload_attachments":
                   return !!parsedUser.accessAttachment;
+                case "FgLocation":
+                  return canAccessFgLocation;
                 case "settings":
                 case "sound_demo":
                   return true;
@@ -209,8 +233,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             });
             setMenuItems(newMenu);
           } else {
-             // Fallback if no user object (shouldn't happen on fresh login)
-            setMenuItems([]); 
+            setMenuItems(MENU.filter((item) => item.id === "settings"));
           }
         }
       } catch {
@@ -257,6 +280,9 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       case "upload_attachments":
         navigation.navigate("UploadAttachments" as any);
         break;
+      case "FgLocation":
+        navigation.navigate("FgLocation");
+        break;
       case "settings":
         navigation.navigate("Settings");
         break;
@@ -272,7 +298,7 @@ const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const onLogout = async () => {
     try {
       await clearStoredAccessToken();
-      await AsyncStorage.multiRemove(["displayName", "username", "user"]);
+      await AsyncStorage.multiRemove(["displayName", "username", "user", OFFLINE_AUTH_MODE_KEY]);
     } catch (err) {
       console.warn("Logout cleanup error:", err);
     }

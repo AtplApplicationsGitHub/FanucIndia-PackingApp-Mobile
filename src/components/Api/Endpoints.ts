@@ -65,6 +65,9 @@ export const API_ENDPOINTS = {
     VERIFY_SO(so: string) {
       return `${BASE_URL}/sales-crud/verify-so/${so}`;
     },
+     get MANUAL_FG_LOCATION() {
+      return `${BASE_URL}/manual-fg-location`;
+    },
   },
 
   LABEL_PRINT: {

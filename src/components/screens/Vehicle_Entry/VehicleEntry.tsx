@@ -241,8 +241,7 @@ export default function VehicleEntryScreen() {
   };
 
   const isDriverValid = (d: string) => {
-    const trimmed = d.trim();
-    return trimmed === '' || /^\d{10}$/.test(trimmed);
+    return /^\d*$/.test(d.trim());
   };
 
   const isFormValid = () =>
@@ -281,7 +280,7 @@ export default function VehicleEntryScreen() {
 
   const handleSave = async () => {
     if (!isFormValid()) {
-      showModal('error', 'Invalid Data', 'Please fill all required fields correctly.\n\n• Enter vehicle number\n• Enter transporter name\n• Driver mobile (if entered) must be 10 digits');
+      showModal('error', 'Invalid Data', 'Please fill all required fields correctly.\n\n• Enter vehicle number\n• Enter transporter name');
       return;
     }
 
@@ -427,7 +426,6 @@ export default function VehicleEntryScreen() {
           placeholder="Driver Mobile (Optional)"
           value={driverNumber}
           keyboardType="number-pad"
-          maxLength={10}
           onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ''))}
         />
 

@@ -17,6 +17,7 @@ import ContentAccuracyScreen from "./src/components/screens/Content_Accuracy/Con
 import SettingsScreen from "./src/components/screens/Settings/settings";
 import SoundDemoScreen from "./src/components/Demo-modules/SoundDemo/Sounddemo";
 import AttachmentsScreen from "./src/components/screens/UploadAttachments/Attachments";
+import FgLocationScreen from "./src/components/screens/Fg-Location/FgLocation";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -31,6 +32,7 @@ export type RootStackParamList = {
   Settings: undefined;
   SoundDemo: undefined;
   UploadAttachments: undefined;
+  FgLocation: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -138,6 +140,12 @@ export default function App() {
             name="UploadAttachments"
             component={AttachmentsScreen}
             options={{ title: "Upload Attachments" }}
+          />
+          {/* Fg Location */}
+          <Stack.Screen
+            name="FgLocation"
+            component={FgLocationScreen}
+            options={{ title: "FG Location" }}
           />
 
         </Stack.Navigator>

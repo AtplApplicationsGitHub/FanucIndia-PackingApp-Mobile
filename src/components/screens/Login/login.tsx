@@ -13,9 +13,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../../../App";
-import { loginApiWithEmail, persistAccessToken } from "../../Api/Hooks/Auth";
+import {
+  extractLoginUserData,
+  getUserDisplayName,
+  loginApiWithEmail,
+  loginWithStoredOfflineCredentials,
+  persistAccessToken,
+  setOfflineAuthMode,
+} from "../../Api/Hooks/Auth";
 import { getBaseUrl, setBaseUrl } from "../../Api/Endpoints";
 import { useUpdate } from "../../Api/Hooks/UseUpdate";
 import Toast from "react-native-toast-message";
@@ -124,23 +132,56 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
     }
   };
 
+  const isOfflineState = (state: Awaited<ReturnType<typeof NetInfo.fetch>>) =>
+    state.isConnected === false || state.isInternetReachable === false;
+
+  const isNetworkLoginError = (err: any) => {
+    const message = String(err?.message || "").toLowerCase();
+    return (
+      message.includes("network request failed") ||
+      message.includes("request timed out") ||
+      message.includes("failed to fetch") ||
+      message.includes("internet") ||
+      message.includes("offline")
+    );
+  };
+
+  const handleOfflineLogin = async (username: string, password: string) => {
+    const offlineUser = await loginWithStoredOfflineCredentials(username, password);
+    await setOfflineAuthMode(true);
+    navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+    Toast.show({
+      type: "info",
+      text1: "Offline mode",
+      text2: `Signed in as ${offlineUser.displayName}. FG Location is available offline.`,
+    });
+  };
+
   const handleLogin = async () => {
     if (!canSubmit) {
       showModal("Missing fields", "Please enter your email/username and password.");
       return;
     }
 
-    const base = getBaseUrl();
-    if (!base) {
-      showModal("API URL Required", "Please set the API Base URL from the settings icon before logging in.");
-      setSettingsVisible(true);
-      return;
-    }
+    const username = email.trim();
 
     try {
       setLoading(true);
+      const netState = await NetInfo.fetch();
 
-      const result = await loginApiWithEmail(email.trim(), pwd);
+      if (isOfflineState(netState)) {
+        await handleOfflineLogin(username, pwd);
+        return;
+      }
+
+      const base = getBaseUrl();
+      if (!base) {
+        showModal("API URL Required", "Please set the API Base URL from the settings icon before logging in.");
+        setSettingsVisible(true);
+        return;
+      }
+
+      const result = await loginApiWithEmail(username, pwd);
 
       const token =
         result?.token || result?.accessToken || result?.data?.token || result?.data?.accessToken;
@@ -149,18 +190,32 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
         throw new Error(result?.message || "Login failed (no token in response).");
       }
 
-      const userData = (result as any)?.data?.user || result?.user;
-      const displayName =
-        userData?.name || userData?.displayName || userData?.username || email.trim();
+      const userData = extractLoginUserData(result);
+      const displayName = getUserDisplayName(userData, username);
 
-      await persistAccessToken(String(token));
-      await AsyncStorage.setItem("displayName", String(displayName));
+      if (token) {
+        await persistAccessToken(String(token));
+      }
+      await AsyncStorage.setItem("displayName", displayName);
+      await AsyncStorage.setItem("username", username);
       if (userData) {
         await AsyncStorage.setItem("user", JSON.stringify(userData));
       }
+      await setOfflineAuthMode(false);
 
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (err: any) {
+      try {
+        const latestNetState = await NetInfo.fetch();
+        if (isOfflineState(latestNetState) || isNetworkLoginError(err)) {
+          await handleOfflineLogin(username, pwd);
+          return;
+        }
+      } catch (offlineErr: any) {
+        showModal("Offline Login Failed", offlineErr?.message || "Unable to login offline.");
+        return;
+      }
+
       showModal("Login Failed", err?.message || "Unable to connect. Please try again.");
     } finally {
       setLoading(false);
