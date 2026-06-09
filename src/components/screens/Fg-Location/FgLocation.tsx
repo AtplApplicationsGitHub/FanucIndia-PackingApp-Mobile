@@ -815,11 +815,11 @@ const MaterialFGTransferScreen: React.FC = () => {
               <TouchableOpacity
                 style={[
                   styles.btnUpload,
-                  (uploading || isOfflineMode) && styles.btnDisabled,
+                  (uploading || isOfflineMode || items.length === 0) && styles.btnDisabled,
                 ]}
                 onPress={openUploadConfirm}
                 activeOpacity={0.85}
-                disabled={uploading || isOfflineMode}
+                disabled={uploading || isOfflineMode || items.length === 0}
               >
                 {uploading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
