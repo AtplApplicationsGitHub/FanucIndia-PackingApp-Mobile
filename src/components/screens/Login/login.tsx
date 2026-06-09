@@ -134,7 +134,7 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
   };
 
   const isOfflineState = (state: Awaited<ReturnType<typeof NetInfo.fetch>>) =>
-    state.isConnected === false || state.isInternetReachable === false;
+    state.isConnected === false;
 
   const isNetworkLoginError = (err: any) => {
     const message = String(err?.message || "").toLowerCase();
