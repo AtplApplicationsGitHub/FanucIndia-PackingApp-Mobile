@@ -16,7 +16,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import NetInfo, { type NetInfoState } from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx";
@@ -65,8 +64,6 @@ const COLORS = {
   success: "#10B981",
 };
 
-const isNetworkOffline = (state: NetInfoState) =>
-  state.isConnected === false || state.isInternetReachable === false;
 
 // ---------- Helpers ----------
 const fmtTime = (iso: string) => {
@@ -169,7 +166,6 @@ const MaterialFGTransferScreen: React.FC = () => {
   const [items, setItems] = useState<ScanItem[]>([]);
   // sortMode: 'recent' (LIFO), 'asc' (A-Z), 'desc' (Z-A)
   const [sortMode, setSortMode] = useState<"recent" | "asc" | "desc">("recent");
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // Refs
   const locationRef = useRef<TextInput>(null);
@@ -197,22 +193,6 @@ const MaterialFGTransferScreen: React.FC = () => {
       if (name) setUsername(name);
     });
   }, []);
-
-  const refreshOfflineMode = useCallback(async () => {
-    const state = await NetInfo.fetch();
-    const offline = isNetworkOffline(state);
-    setIsOfflineMode(offline);
-    return offline;
-  }, []);
-
-  useEffect(() => {
-    refreshOfflineMode();
-    const unsubscribe = NetInfo.addEventListener((state) => {
-      setIsOfflineMode(isNetworkOffline(state));
-    });
-
-    return unsubscribe;
-  }, [refreshOfflineMode]);
 
   // -- Queue / Lock for SO scanning --
   const processingRef = useRef(false);
@@ -462,15 +442,6 @@ const MaterialFGTransferScreen: React.FC = () => {
       return;
     }
 
-    const offline = await refreshOfflineMode();
-    if (offline) {
-      showMessage(
-        "Offline Mode",
-        "You are currently in offline mode. Move to an online location, then upload."
-      );
-      return;
-    }
-
     setConfirmUpload(true);
   };
 
@@ -480,15 +451,6 @@ const MaterialFGTransferScreen: React.FC = () => {
     setConfirmUpload(false);
 
     try {
-      const offline = await refreshOfflineMode();
-      if (offline) {
-        showMessage(
-          "Offline Mode",
-          "You are currently in offline mode. Move to an online location, then upload."
-        );
-        return;
-      }
-
       const result = await uploadManualFgStorage(buildUploadPayload());
       await Promise.all([clearMaterialFGData(), clearMaterialFGLocation()]);
       setItems([]);
@@ -696,9 +658,6 @@ const MaterialFGTransferScreen: React.FC = () => {
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitleText}>FG Location</Text>
-          {isOfflineMode && (
-            <Text style={styles.headerOfflineText}>Offline mode</Text>
-          )}
         </View>
       ),
       headerRight: () => (
@@ -725,7 +684,7 @@ const MaterialFGTransferScreen: React.FC = () => {
         </TouchableOpacity>
       ),
     });
-  }, [navigation, exportToExcel, isOfflineMode]);
+  }, [navigation, exportToExcel]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["left", "right", "bottom"]}>
@@ -815,17 +774,17 @@ const MaterialFGTransferScreen: React.FC = () => {
               <TouchableOpacity
                 style={[
                   styles.btnUpload,
-                  (uploading || isOfflineMode || items.length === 0) && styles.btnDisabled,
+                  (uploading || items.length === 0) && styles.btnDisabled,
                 ]}
                 onPress={openUploadConfirm}
                 activeOpacity={0.85}
-                disabled={uploading || isOfflineMode || items.length === 0}
+                disabled={uploading || items.length === 0}
               >
                 {uploading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Ionicons
-                    name={isOfflineMode ? "cloud-offline-outline" : "cloud-upload-outline"}
+                    name="cloud-upload-outline"
                     size={16}
                     color="#FFFFFF"
                   />
@@ -1087,14 +1046,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     lineHeight: 18,
-  },
-  headerOfflineText: {
-    color: "#92400E",
-    fontSize: 10,
-    fontWeight: "700",
-    lineHeight: 12,
-    textAlign: "center",
-    marginTop: 1,
   },
 
   card: {
