@@ -19,6 +19,7 @@ import type { RootStackParamList } from "../../../../App";
 import {
   extractLoginUserData,
   getUserDisplayName,
+  hasStoredOfflineLogin,
   loginApiWithEmail,
   loginWithStoredOfflineCredentials,
   persistAccessToken,
@@ -146,6 +147,15 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
     );
   };
 
+  const getNetworkLoginMessage = (err?: any) => {
+    const message = String(err?.message || "").trim();
+    return isNetworkLoginError(err) || !message ? "Network request failed" : message;
+  };
+
+  const canUseOfflineLogin = async (username: string) => {
+    return hasStoredOfflineLogin(username);
+  };
+
   const handleOfflineLogin = async (username: string, password: string) => {
     const offlineUser = await loginWithStoredOfflineCredentials(username, password);
     await setOfflineAuthMode(true);
@@ -170,7 +180,12 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
       const netState = await NetInfo.fetch();
 
       if (isOfflineState(netState)) {
-        await handleOfflineLogin(username, pwd);
+        if (await canUseOfflineLogin(username)) {
+          await handleOfflineLogin(username, pwd);
+          return;
+        }
+
+        showModal("Login Failed", "Network request failed");
         return;
       }
 
@@ -205,14 +220,28 @@ const LoginScreen: React.FC<NavProps> = ({ navigation }) => {
 
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (err: any) {
+      const hasNetworkIssue = isNetworkLoginError(err);
+      let latestStateIsOffline = false;
+
       try {
         const latestNetState = await NetInfo.fetch();
-        if (isOfflineState(latestNetState) || isNetworkLoginError(err)) {
-          await handleOfflineLogin(username, pwd);
-          return;
+        latestStateIsOffline = isOfflineState(latestNetState);
+      } catch {
+        latestStateIsOffline = hasNetworkIssue;
+      }
+
+      if (latestStateIsOffline || hasNetworkIssue) {
+        if (await canUseOfflineLogin(username)) {
+          try {
+            await handleOfflineLogin(username, pwd);
+            return;
+          } catch (offlineErr: any) {
+            showModal("Offline Login Failed", offlineErr?.message || "Unable to login offline.");
+            return;
+          }
         }
-      } catch (offlineErr: any) {
-        showModal("Offline Login Failed", offlineErr?.message || "Unable to login offline.");
+
+        showModal("Login Failed", getNetworkLoginMessage(err));
         return;
       }
 

@@ -386,6 +386,33 @@ export async function loginWithStoredOfflineCredentials(
   throw new Error("Offline username or password is incorrect.");
 }
 
+export async function hasStoredOfflineLogin(username?: string): Promise<boolean> {
+  try {
+    const [credentialsList, userList] = await Promise.all([
+      loadOfflineCredentialsList(),
+      loadOfflineUserList(),
+    ]);
+
+    if (credentialsList.length === 0 || userList.length === 0) {
+      return false;
+    }
+
+    const normalizedUsername = normalizeUsername(username);
+
+    return credentialsList.some((credentials, index) => {
+      const offlineUser =
+        userList[index] || findOfflineUserForCredentials(credentials, userList);
+
+      if (!offlineUser?.user) return false;
+      if (!normalizedUsername) return true;
+
+      return matchesOfflineUsername(credentials, offlineUser, normalizedUsername);
+    });
+  } catch {
+    return false;
+  }
+}
+
 function maybeExtractToken(raw: string | null): string | null {
   if (!raw) return null;
   const value = raw.trim();
