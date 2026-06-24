@@ -14,17 +14,21 @@ import {
   Modal,
   Pressable,
   Animated,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import { useVehicleEntry, Customer, Transporter } from '../../Api/Hooks/UseVehicleEntry';
-import UploadImages from './upload_Images';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import {
+  useVehicleEntry,
+  Customer,
+  Transporter,
+} from "../../Api/Hooks/UseVehicleEntry";
+import UploadImages from "./upload_Images";
 import {
   saveDraftToStorage,
   loadDraftFromStorage,
   clearDraftFromStorage,
   VehicleDraft,
-} from '../../Storage/VehicleEntry_Storage';
+} from "../../Storage/VehicleEntry_Storage";
 
 const TimeSelectionField = ({
   label,
@@ -35,22 +39,22 @@ const TimeSelectionField = ({
   value: string;
   onChange: (v: string) => void;
 }) => {
-  const [timeStr, setTimeStr] = useState('');
-  const [period, setPeriod] = useState('AM');
+  const [timeStr, setTimeStr] = useState("");
+  const [period, setPeriod] = useState("AM");
 
   useEffect(() => {
     if (value) {
-      const parts = value.split(' ');
-      setTimeStr(parts[0] || '');
-      setPeriod(parts[1] || 'AM');
+      const parts = value.split(" ");
+      setTimeStr(parts[0] || "");
+      setPeriod(parts[1] || "AM");
     } else {
-      setTimeStr('');
-      setPeriod('AM');
+      setTimeStr("");
+      setPeriod("AM");
     }
   }, [value]);
 
   const handleTextChange = (text: string) => {
-    let digits = text.replace(/[^0-9]/g, '');
+    let digits = text.replace(/[^0-9]/g, "");
     digits = digits.substring(0, 4);
 
     let formatted = digits;
@@ -60,17 +64,17 @@ const TimeSelectionField = ({
 
     setTimeStr(formatted);
 
-    if (formatted.trim() !== '') {
+    if (formatted.trim() !== "") {
       onChange(`${formatted} ${period}`);
     } else {
-      onChange('');
+      onChange("");
     }
   };
 
   const togglePeriod = () => {
-    const newPeriod = period === 'AM' ? 'PM' : 'AM';
+    const newPeriod = period === "AM" ? "PM" : "AM";
     setPeriod(newPeriod);
-    if (timeStr.trim() !== '') {
+    if (timeStr.trim() !== "") {
       onChange(`${timeStr} ${newPeriod}`);
     }
   };
@@ -86,10 +90,15 @@ const TimeSelectionField = ({
         maxLength={5}
       />
       <TouchableOpacity
-        style={[styles.amPmButton, period === 'PM' && styles.amPmButtonActive]}
+        style={[styles.amPmButton, period === "PM" && styles.amPmButtonActive]}
         onPress={togglePeriod}
       >
-        <Text style={[styles.amPmButtonText, period === 'PM' && styles.amPmButtonTextActive]}>
+        <Text
+          style={[
+            styles.amPmButtonText,
+            period === "PM" && styles.amPmButtonTextActive,
+          ]}
+        >
           {period}
         </Text>
       </TouchableOpacity>
@@ -110,28 +119,38 @@ export default function VehicleEntryScreen() {
     saveVehicleEntry,
     clearCustomers,
     setTransporters,
+    debouncedCheckDuplicate,
   } = useVehicleEntry();
 
-  const [customerQuery, setCustomerQuery] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [vehicleNumber, setVehicleNumber] = useState('');
-  const [transporterName, setTransporterName] = useState('');
-  const [selectedTransporter, setSelectedTransporter] = useState<Transporter | null>(null);
-  const [driverNumber, setDriverNumber] = useState('');
-  const [inTime, setInTime] = useState('');
-  const [outTime, setOutTime] = useState('');
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
+    null,
+  );
+  const [vehicleNumber, setVehicleNumber] = useState("");
+  const [transporterName, setTransporterName] = useState("");
+  const [selectedTransporter, setSelectedTransporter] =
+    useState<Transporter | null>(null);
+  const [driverNumber, setDriverNumber] = useState("");
+  const [inTime, setInTime] = useState("");
+  const [outTime, setOutTime] = useState("");
 
   const [savedEntryId, setSavedEntryId] = useState<number | null>(null);
   const [entrySaved, setEntrySaved] = useState(false);
   const [allPhotosUploaded, setAllPhotosUploaded] = useState(false);
   const [saveDisabled, setSaveDisabled] = useState(false); // NEW: Prevent multiple saves
 
+  const [vehicleNumberError, setVehicleNumberError] = useState<string | null>(
+    null,
+  );
+
   // Modal states
   const [modalVisible, setModalVisible] = useState(false);
-  const [modalTitle, setModalTitle] = useState('');
-  const [modalMessage, setModalMessage] = useState('');
-  const [modalType, setModalType] = useState<'success' | 'error' | 'confirm'>('success');
-  const [onConfirm, setOnConfirm] = useState<() => void>(() => { }); // For confirmation modal
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalType, setModalType] = useState<"success" | "error" | "confirm">(
+    "success",
+  );
+  const [onConfirm, setOnConfirm] = useState<() => void>(() => {}); // For confirmation modal
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const customerInputRef = useRef<TextInput>(null);
@@ -179,13 +198,13 @@ export default function VehicleEntryScreen() {
     const loadDraft = async () => {
       const draft = await loadDraftFromStorage();
       if (draft) {
-        setCustomerQuery(draft.customerQuery || '');
+        setCustomerQuery(draft.customerQuery || "");
         setSelectedCustomer(draft.selectedCustomer || null);
-        setVehicleNumber(draft.vehicleNumber || '');
-        setTransporterName(draft.transporterName || '');
-        setDriverNumber(draft.driverNumber || '');
-        setInTime(draft.inTime || '');
-        setOutTime(draft.outTime || '');
+        setVehicleNumber(draft.vehicleNumber || "");
+        setTransporterName(draft.transporterName || "");
+        setDriverNumber(draft.driverNumber || "");
+        setInTime(draft.inTime || "");
+        setOutTime(draft.outTime || "");
 
         setSavedEntryId(draft.savedEntryId || null);
         setEntrySaved(!!draft.savedEntryId);
@@ -228,7 +247,7 @@ export default function VehicleEntryScreen() {
   // Request permissions
   useEffect(() => {
     (async () => {
-      if (Platform.OS !== 'web') {
+      if (Platform.OS !== "web") {
         await ImagePicker.requestCameraPermissionsAsync();
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       }
@@ -238,6 +257,15 @@ export default function VehicleEntryScreen() {
   const formatVehicleNumber = (text: string) => {
     const trimmed = text.trim().toUpperCase();
     setVehicleNumber(trimmed);
+    setVehicleNumberError(null);
+
+    if (trimmed.length >= 2) {
+      debouncedCheckDuplicate(trimmed, (isDuplicate) => {
+        setVehicleNumberError(
+          isDuplicate ? "Same Vehicle Number cannot be entered again" : null,
+        );
+      });
+    }
   };
 
   const isDriverValid = (d: string) => {
@@ -247,18 +275,19 @@ export default function VehicleEntryScreen() {
   const isFormValid = () =>
     vehicleNumber.trim().length > 0 &&
     transporterName.trim().length > 0 &&
-    isDriverValid(driverNumber);
+    isDriverValid(driverNumber) &&
+    !vehicleNumberError;
 
   const showModal = (
-    type: 'success' | 'error' | 'confirm',
+    type: "success" | "error" | "confirm",
     title: string,
     message: string,
-    onConfirmAction?: () => void
+    onConfirmAction?: () => void,
   ) => {
     setModalType(type);
     setModalTitle(title);
     setModalMessage(message);
-    setOnConfirm(() => onConfirmAction || (() => { }));
+    setOnConfirm(() => onConfirmAction || (() => {}));
     setModalVisible(true);
 
     Animated.timing(fadeAnim, {
@@ -280,31 +309,51 @@ export default function VehicleEntryScreen() {
 
   const handleSave = async () => {
     if (!isFormValid()) {
-      showModal('error', 'Invalid Data', 'Please fill all required fields correctly.\n\n• Enter vehicle number\n• Enter transporter name');
+      showModal(
+        "error",
+        "Invalid Data",
+        "Please fill all required fields correctly.\n\n• Enter vehicle number\n• Enter transporter name",
+      );
       return;
     }
 
     const tInTime = inTime.trim();
-    if (tInTime !== '' && !/^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i.test(tInTime)) {
-      showModal('error', 'Invalid Time', 'In Time must be a valid 12-hour format time (e.g., 10:30 AM)');
+    if (
+      tInTime !== "" &&
+      !/^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i.test(tInTime)
+    ) {
+      showModal(
+        "error",
+        "Invalid Time",
+        "In Time must be a valid 12-hour format time (e.g., 10:30 AM)",
+      );
       return;
     }
 
     const tOutTime = outTime.trim();
-    if (tOutTime !== '' && !/^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i.test(tOutTime)) {
-      showModal('error', 'Invalid Time', 'Out Time must be a valid 12-hour format time (e.g., 05:45 PM)');
+    if (
+      tOutTime !== "" &&
+      !/^(0?[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$/i.test(tOutTime)
+    ) {
+      showModal(
+        "error",
+        "Invalid Time",
+        "Out Time must be a valid 12-hour format time (e.g., 05:45 PM)",
+      );
       return;
     }
 
     const payload: any = {
-      customerName: selectedCustomer ? selectedCustomer.name : customerQuery.trim(),
+      customerName: selectedCustomer
+        ? selectedCustomer.name
+        : customerQuery.trim(),
       vehicleNumber: vehicleNumber.trim(),
       transporterName: transporterName.trim(),
       driverNumber: driverNumber.trim(),
     };
 
-    if (tInTime !== '') payload.inTime = tInTime;
-    if (tOutTime !== '') payload.outTime = tOutTime;
+    if (tInTime !== "") payload.inTime = tInTime;
+    if (tOutTime !== "") payload.outTime = tOutTime;
 
     const result = await saveVehicleEntry(payload);
 
@@ -313,29 +362,33 @@ export default function VehicleEntryScreen() {
       setEntrySaved(true);
       setAllPhotosUploaded(false);
       setSaveDisabled(true); // Disable save button after success
-      showModal('success', 'Success!', `Vehicle Entry Saved!`);
+      showModal("success", "Success!", `Vehicle Entry Saved!`);
     } else {
-      showModal('error', 'Error', error || 'Failed to save vehicle entry. Please try again.');
+      showModal(
+        "error",
+        "Error",
+        error || "Failed to save vehicle entry. Please try again.",
+      );
     }
   };
 
   const confirmClearAll = () => {
     showModal(
-      'confirm',
-      'Clear All Data?',
-      'Are you sure you want to clear all entered data?',
+      "confirm",
+      "Clear All Data?",
+      "Are you sure you want to clear all entered data?",
       async () => {
         await clearDraftFromStorage();
-        setCustomerQuery('');
+        setCustomerQuery("");
         setSelectedCustomer(null);
         clearCustomers();
-        setVehicleNumber('');
-        setTransporterName('');
+        setVehicleNumber("");
+        setTransporterName("");
         setSelectedTransporter(null);
         setTransporters([]);
-        setDriverNumber('');
-        setInTime('');
-        setOutTime('');
+        setDriverNumber("");
+        setInTime("");
+        setOutTime("");
 
         setSavedEntryId(null);
         setEntrySaved(false);
@@ -343,7 +396,8 @@ export default function VehicleEntryScreen() {
         setSaveDisabled(false);
         hideModal();
         customerInputRef.current?.focus();
-      }
+        setVehicleNumberError(null);
+      },
     );
   };
 
@@ -355,9 +409,9 @@ export default function VehicleEntryScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
       >
@@ -413,12 +467,17 @@ export default function VehicleEntryScreen() {
 
         {/* Vehicle Number */}
         <TextInput
-          style={styles.input}
+          style={[styles.input, vehicleNumberError ? styles.inputError : null]}
           placeholder="Vehicle Number *"
           value={vehicleNumber}
           onChangeText={formatVehicleNumber}
           autoCapitalize="characters"
         />
+        {vehicleNumberError && (
+          <Text style={styles.vehicleNumberErrorText}>
+            {vehicleNumberError}
+          </Text>
+        )}
 
         {/* Driver Mobile */}
         <TextInput
@@ -426,7 +485,7 @@ export default function VehicleEntryScreen() {
           placeholder="Driver Mobile (Optional)"
           value={driverNumber}
           keyboardType="number-pad"
-          onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ''))}
+          onChangeText={(t) => setDriverNumber(t.replace(/[^0-9]/g, ""))}
         />
 
         {/* Transporter Name */}
@@ -496,7 +555,8 @@ export default function VehicleEntryScreen() {
             style={[
               styles.btn,
               styles.saveBtn,
-              (!isFormValid() || saving || saveDisabled || entrySaved) && styles.btnDisabled,
+              (!isFormValid() || saving || saveDisabled || entrySaved) &&
+                styles.btnDisabled,
             ]}
             onPress={handleSave}
             disabled={!isFormValid() || saving || saveDisabled || entrySaved}
@@ -507,13 +567,16 @@ export default function VehicleEntryScreen() {
               <>
                 <Ionicons name="save-outline" size={20} color="#fff" />
                 <Text style={styles.btnText}>
-                  {entrySaved ? 'Entry Saved' : 'Save Entry'}
+                  {entrySaved ? "Entry Saved" : "Save Entry"}
                 </Text>
               </>
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={confirmClearAll}>
+          <TouchableOpacity
+            style={[styles.btn, styles.clearBtn]}
+            onPress={confirmClearAll}
+          >
             <Ionicons name="trash-outline" size={20} color="#fff" />
             <Text style={styles.btnText}>Clear All</Text>
           </TouchableOpacity>
@@ -524,7 +587,10 @@ export default function VehicleEntryScreen() {
                 vehicleEntryId={savedEntryId}
                 onUploadSuccess={handleUploadComplete}
                 renderTrigger={(openModal) => (
-                  <TouchableOpacity style={styles.attachBtn} onPress={openModal}>
+                  <TouchableOpacity
+                    style={styles.attachBtn}
+                    onPress={openModal}
+                  >
                     <Ionicons name="attach-outline" size={26} color="#1976D2" />
                   </TouchableOpacity>
                 )}
@@ -534,23 +600,35 @@ export default function VehicleEntryScreen() {
         </View>
 
         {/* Upload Section - shown only after entry is saved */}
-        {error && !modalVisible && <Text style={styles.errorText}>{error}</Text>}
+        {error && !modalVisible && (
+          <Text style={styles.errorText}>{error}</Text>
+        )}
       </ScrollView>
 
       {/* Unified Modal */}
-      <Modal transparent visible={modalVisible} animationType="none" onRequestClose={hideModal}>
-        <Pressable style={styles.modalOverlay} onPress={modalType === 'confirm' ? undefined : hideModal}>
+      <Modal
+        transparent
+        visible={modalVisible}
+        animationType="none"
+        onRequestClose={hideModal}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={modalType === "confirm" ? undefined : hideModal}
+        >
           <Animated.View style={[styles.modalContent, { opacity: fadeAnim }]}>
             <Pressable>
               <View style={styles.modalHeader}>
-
                 <Text style={styles.modalTitle}>{modalTitle}</Text>
               </View>
               <Text style={styles.modalMessage}>{modalMessage}</Text>
 
               <View style={styles.modalButtonRow}>
-                {modalType === 'confirm' && (
-                  <TouchableOpacity style={[styles.modalButton, styles.modalCancelButton]} onPress={hideModal}>
+                {modalType === "confirm" && (
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalCancelButton]}
+                    onPress={hideModal}
+                  >
                     <Text style={styles.modalButtonText}>Cancel</Text>
                   </TouchableOpacity>
                 )}
@@ -558,10 +636,12 @@ export default function VehicleEntryScreen() {
                 <TouchableOpacity
                   style={[
                     styles.modalButton,
-                    modalType === 'confirm' ? styles.modalConfirmButton : styles.modalOkButton,
+                    modalType === "confirm"
+                      ? styles.modalConfirmButton
+                      : styles.modalOkButton,
                   ]}
                   onPress={() => {
-                    if (modalType === 'confirm') {
+                    if (modalType === "confirm") {
                       onConfirm();
                     } else {
                       hideModal();
@@ -569,7 +649,7 @@ export default function VehicleEntryScreen() {
                   }}
                 >
                   <Text style={styles.modalButtonText}>
-                    {modalType === 'confirm' ? 'OK' : 'OK'}
+                    {modalType === "confirm" ? "OK" : "OK"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -584,33 +664,33 @@ export default function VehicleEntryScreen() {
 const styles = StyleSheet.create({
   container: {
     padding: 5,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: "#f8f9fa",
     paddingBottom: 0,
   },
   input: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: "#ddd",
     padding: 14,
     borderRadius: 10,
     fontSize: 16,
     marginTop: 12,
   },
   timeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: 12,
   },
   timeSelectionContainer: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: "#ddd",
     borderRadius: 10,
     marginTop: 12,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   timeTextInput: {
     flex: 1,
@@ -618,120 +698,120 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   amPmButton: {
-    backgroundColor: '#F0F0F0',
+    backgroundColor: "#F0F0F0",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     borderLeftWidth: 1,
-    borderLeftColor: '#ddd',
+    borderLeftColor: "#ddd",
   },
   amPmButtonActive: {
-    backgroundColor: '#E3F2FD',
+    backgroundColor: "#E3F2FD",
   },
   amPmButtonText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
   },
   amPmButtonTextActive: {
-    color: '#007AFF',
+    color: "#007AFF",
   },
   dropdownContainer: {
     maxHeight: 220,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 10,
     marginTop: 8,
     elevation: 6,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   dropdownItem: {
     padding: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: "#eee",
   },
   customerName: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
   },
   customerAddr: {
     fontSize: 13,
-    color: '#666',
+    color: "#666",
     marginTop: 4,
   },
   buttonRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
     marginTop: 24,
   },
   btn: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     padding: 16,
     borderRadius: 12,
     gap: 8,
   },
-  saveBtn: { backgroundColor: '#007AFF' },
-  clearBtn: { backgroundColor: '#FF3B30' },
+  saveBtn: { backgroundColor: "#007AFF" },
+  clearBtn: { backgroundColor: "#FF3B30" },
   attachWrapper: {
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 4,
   },
   attachBtn: {
     padding: 8,
     borderRadius: 8,
-    backgroundColor: '#E3F2FD', // Light blue background for the icon
+    backgroundColor: "#E3F2FD", // Light blue background for the icon
   },
-  btnDisabled: { backgroundColor: '#aaa' },
-  btnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  errorText: { color: '#d32f2f', marginTop: 6, fontSize: 13 },
+  btnDisabled: { backgroundColor: "#aaa" },
+  btnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  errorText: { color: "#d32f2f", marginTop: 6, fontSize: 13 },
 
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 16,
     padding: 24,
-    width: '85%',
+    width: "85%",
     maxWidth: 400,
     elevation: 10,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
     shadowRadius: 12,
   },
   modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 16,
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
+    fontWeight: "700",
+    color: "#333",
     marginLeft: 12,
   },
   modalMessage: {
     fontSize: 16,
-    color: '#555',
+    color: "#555",
     lineHeight: 24,
     marginBottom: 24,
-    textAlign: 'center',
+    textAlign: "center",
   },
   modalButtonRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
   },
 
@@ -739,14 +819,24 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
-  modalOkButton: { backgroundColor: '#007AFF' },
-  modalConfirmButton: { backgroundColor: '#d32f2f' },
-  modalCancelButton: { backgroundColor: '#aaa' },
+  modalOkButton: { backgroundColor: "#007AFF" },
+  modalConfirmButton: { backgroundColor: "#d32f2f" },
+  modalCancelButton: { backgroundColor: "#aaa" },
   modalButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 17,
-    fontWeight: '600',
+    fontWeight: "600",
+  },
+
+  inputError: {
+    borderColor: "#d32f2f",
+  },
+  vehicleNumberErrorText: {
+    color: "#d32f2f",
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 4,
   },
 });

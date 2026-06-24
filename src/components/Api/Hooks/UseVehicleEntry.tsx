@@ -63,8 +63,15 @@ export const useVehicleEntry = () => {
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const checkDuplicateDebounceRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const checkDuplicateControllerRef = useRef<AbortController | null>(null);
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const transporterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transporterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const searchControllerRef = useRef<AbortController | null>(null);
   const transporterSearchControllerRef = useRef<AbortController | null>(null);
   const saveControllerRef = useRef<AbortController | null>(null);
@@ -79,6 +86,51 @@ export const useVehicleEntry = () => {
     if (!token) return null;
     return token.startsWith("Bearer ") ? token : `Bearer ${token}`;
   }, []);
+
+  const checkDuplicateVehicleNumber = useCallback(
+    async (vehicleNumber: string): Promise<boolean> => {
+      if (!vehicleNumber?.trim()) return false;
+
+      checkDuplicateControllerRef.current?.abort();
+      const controller = new AbortController();
+      checkDuplicateControllerRef.current = controller;
+
+      try {
+        const authHeader = await getAuthTokenHeader();
+        if (!authHeader) return false;
+
+        const res = await fetch(
+          API_ENDPOINTS.VEHICLE_ENTRY.CHECK_DUPLICATE(vehicleNumber),
+          {
+            method: "GET",
+            headers: { Authorization: authHeader, Accept: "application/json" },
+            signal: controller.signal,
+          },
+        );
+        if (!res.ok) return false;
+        const data = await parseResponseBody(res);
+        return data?.isDuplicate === true;
+      } catch (err: any) {
+        return false; // AbortError or network error → don't block the user
+      } finally {
+        if (checkDuplicateControllerRef.current === controller)
+          checkDuplicateControllerRef.current = null;
+      }
+    },
+    [getAuthTokenHeader],
+  );
+
+  const debouncedCheckDuplicate = useCallback(
+    (vehicleNumber: string, onResult: (isDuplicate: boolean) => void) => {
+      if (checkDuplicateDebounceRef.current)
+        clearTimeout(checkDuplicateDebounceRef.current);
+      checkDuplicateDebounceRef.current = setTimeout(async () => {
+        const isDuplicate = await checkDuplicateVehicleNumber(vehicleNumber);
+        onResult(isDuplicate);
+      }, 500);
+    },
+    [checkDuplicateVehicleNumber],
+  );
 
   // Internal: perform a search request (not debounced)
   const searchCustomers = useCallback(
@@ -235,7 +287,8 @@ export const useVehicleEntry = () => {
 
   const debouncedTransporterSearch = useCallback(
     (query: string) => {
-      if (transporterDebounceRef.current) clearTimeout(transporterDebounceRef.current);
+      if (transporterDebounceRef.current)
+        clearTimeout(transporterDebounceRef.current);
       transporterDebounceRef.current = setTimeout(() => {
         searchTransporters(query);
       }, 400);
@@ -466,6 +519,13 @@ export const useVehicleEntry = () => {
     saveControllerRef.current = null;
     uploadControllerRef.current = null;
     fetchAttachmentsControllerRef.current = null;
+
+    if (checkDuplicateDebounceRef.current) {
+      clearTimeout(checkDuplicateDebounceRef.current);
+      checkDuplicateDebounceRef.current = null;
+    }
+    checkDuplicateControllerRef.current?.abort();
+    checkDuplicateControllerRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -493,5 +553,6 @@ export const useVehicleEntry = () => {
     clearCustomers,
     setTransporters,
     cancelPendingRequests,
+    debouncedCheckDuplicate,
   };
 };

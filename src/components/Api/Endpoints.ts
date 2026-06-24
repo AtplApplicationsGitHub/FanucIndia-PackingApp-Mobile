@@ -95,6 +95,9 @@ export const API_ENDPOINTS = {
     GET_ATTACHMENTS(id: string | number) {
       return `${BASE_URL}/vehicle-entry/${id}/attachments`;
     },
+    CHECK_DUPLICATE(vehicleNumber: string) {
+    return `${BASE_URL}/vehicle-entry/check-duplicate?vehicleNumber=${encodeURIComponent(vehicleNumber)}`;
+    },
   },
 
   // 🔹 NEW: Dispatch-related endpoints used by Usematerial_dispatch.tsx
