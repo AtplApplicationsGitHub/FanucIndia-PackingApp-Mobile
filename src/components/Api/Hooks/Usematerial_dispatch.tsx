@@ -407,6 +407,40 @@ export async function searchSalesOrder(
   }
 }
 
+// FETCH PENDING VEHICLE ENTRIES
+export type PendingVehicleEntry = {
+  id: number;
+  vehicleNumber: string;
+  transporterName: string;
+  customerName?: string | null;
+};
+
+export async function fetchPendingVehicleEntries(
+  startDate: string,
+  endDate: string,
+  opts?: { token?: string }
+): Promise<ApiResult<PendingVehicleEntry[]>> {
+  try {
+    const res = await doAuthorizedFetch(
+      API_ENDPOINTS.DISPATCH.PENDING_VEHICLE_ENTRIES(startDate, endDate),
+      { method: "GET", headers: { Accept: "application/json" } },
+      opts
+    );
+    if (!res.ok) {
+      const err = await parseErrorBody(res);
+      return { ok: false, status: res.status, error: err };
+    }
+    const data = await res.json();
+    return { ok: true, status: res.status, data };
+  } catch (e: any) {
+    return {
+      ok: false,
+      status: 0,
+      error: e?.message === "Request timed out" ? "Network timeout" : e?.message || "Network error",
+    };
+  }
+}
+
 // 🔹 NEW: Transporter Lookup Hook
 export const useTransportersLookup = () => {
     const [transporters, setTransporters] = useState<Transporter[]>([]);

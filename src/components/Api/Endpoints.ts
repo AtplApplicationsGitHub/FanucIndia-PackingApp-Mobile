@@ -123,6 +123,9 @@ export const API_ENDPOINTS = {
     SEARCH_SO(so: string) {
       return `${BASE_URL}/dispatch/search-so/${so}`;
     },
+    PENDING_VEHICLE_ENTRIES(startDate: string, endDate: string) {
+      return `${BASE_URL}/dispatch/vehicle-entries?startDate=${startDate}&endDate=${endDate}`;
+    },
   },
 
   // 🔹 NEW: App versioning and update endpoints

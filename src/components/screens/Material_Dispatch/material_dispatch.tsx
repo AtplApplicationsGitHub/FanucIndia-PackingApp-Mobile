@@ -32,8 +32,10 @@ import {
   linkSalesOrder,
   getAttachments,
   searchSalesOrder,
+  fetchPendingVehicleEntries,
   useTransportersLookup,
   type Transporter,
+  type PendingVehicleEntry,
   type CreateDispatchHeaderRequest,
   type LinkDispatchSORequest,
   type SOSearchResult,
@@ -54,6 +56,7 @@ import UploadModal from "./Upload";
 type DispatchForm = {
   transporter: string;
   vehicleNo: string;
+  vehicleEntryId: number | null;
 };
 
 type SOEntry = {
@@ -91,8 +94,15 @@ const MaterialDispatchScreen: React.FC = () => {
   const [form, setForm] = useState<DispatchForm>({
     transporter: "",
     vehicleNo: "",
+    vehicleEntryId: null,
   });
   const [dispatchId, setDispatchId] = useState<string | null>(null);
+
+  // Vehicle Entry dropdown state
+  const [pendingVehicleEntries, setPendingVehicleEntries] = useState<PendingVehicleEntry[]>([]);
+  const [loadingVehicleEntries, setLoadingVehicleEntries] = useState(false);
+  const [showVehicleDropdown, setShowVehicleDropdown] = useState(false);
+  const [vehicleWidth, setVehicleWidth] = useState(0);
 
   const [uploadedAttachments, setUploadedAttachments] = useState<
     DispatchAttachment[]
@@ -116,6 +126,30 @@ const MaterialDispatchScreen: React.FC = () => {
       return "Session expired or invalid token. Please logout and login again.";
     }
     return err || "Request failed. Please try again.";
+  }, []);
+
+  const getTodayIST = () => {
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const now = new Date(Date.now() + IST_OFFSET_MS);
+    const y = now.getUTCFullYear();
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(now.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const loadPendingVehicleEntries = useCallback(async () => {
+    setLoadingVehicleEntries(true);
+    try {
+      const today = getTodayIST();
+      const result = await fetchPendingVehicleEntries(today, today);
+      if (result.ok) {
+        setPendingVehicleEntries(result.data);
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoadingVehicleEntries(false);
+    }
   }, []);
 
   const triggerVibration = async (duration = 400) => {
@@ -193,6 +227,15 @@ const MaterialDispatchScreen: React.FC = () => {
     });
   }, [transporters, form.transporter]);
 
+  // Filter vehicle entries by typed text (client-side, list already loaded)
+  const filteredVehicleEntries = useMemo(() => {
+    const query = form.vehicleNo.trim().toUpperCase();
+    if (!query) return pendingVehicleEntries;
+    return pendingVehicleEntries.filter((e) =>
+      e.vehicleNumber.toUpperCase().includes(query)
+    );
+  }, [pendingVehicleEntries, form.vehicleNo]);
+
   // Keyboard & Scan State
   const [keyboardDisabled] = useKeyboardDisabled();
   const lastProcessedScanRef = useRef({ value: "", time: 0 });
@@ -204,6 +247,7 @@ const MaterialDispatchScreen: React.FC = () => {
   const [sessionCount, setSessionCount] = useState(0);
 
   const transporterRef = useRef<TextInput>(null);
+  const vehicleRef = useRef<TextInput>(null);
   const soRef = useRef<TextInput>(null);
 
   const onChange = (k: keyof DispatchForm, v: string) =>
@@ -218,11 +262,13 @@ const MaterialDispatchScreen: React.FC = () => {
   const totalAttachments = uploadedAttachments.length;
 
   const handleClear = () => {
-    setForm({ transporter: "", vehicleNo: "" });
+    setForm({ transporter: "", vehicleNo: "", vehicleEntryId: null });
     setDispatchId(null);
     setUploadedAttachments([]);
     setItems([]);
     setValue("");
+    setShowVehicleDropdown(false);
+    loadPendingVehicleEntries();
   };
 
   const handleAddNew = () => {
@@ -548,6 +594,7 @@ const MaterialDispatchScreen: React.FC = () => {
           transporter: data.form?.transporter ?? "",
           // Normalize stored vehicle number: remove spaces + uppercase
           vehicleNo: (data.form?.vehicleNo ?? "").replace(/\s+/g, "").toUpperCase(),
+          vehicleEntryId: data.form?.vehicleEntryId ?? null,
         };
         setForm(loadedForm);
         setDispatchId(data.dispatchId);
@@ -562,6 +609,9 @@ const MaterialDispatchScreen: React.FC = () => {
 
   useFocusEffect(
     useCallback(() => {
+      if (!dispatchId) {
+        loadPendingVehicleEntries();
+      }
       const timeoutId = setTimeout(() => {
         if (dispatchId) {
           soRef.current?.focus();
@@ -570,7 +620,7 @@ const MaterialDispatchScreen: React.FC = () => {
         }
       }, 200);
       return () => clearTimeout(timeoutId);
-    }, [dispatchId])
+    }, [dispatchId, loadPendingVehicleEntries])
   );
 
   useEffect(() => {
@@ -696,19 +746,36 @@ const MaterialDispatchScreen: React.FC = () => {
             </View>
           </View>
 
-          <View style={{ flex: 1 }}>
-            <TextInput
-              style={styles.input}
-              placeholder={keyboardDisabled ? "Scan..." : "Vehicle Number"}
-              placeholderTextColor={C.hint}
-              autoCapitalize="characters"
-              showSoftInputOnFocus={!keyboardDisabled}
-              value={form.vehicleNo}
-              onChangeText={(t) => {
-                const cleaned = t.replace(/\s+/g, "").toUpperCase();
-                onChange("vehicleNo", cleaned);
-              }}
-            />
+          <View style={{ flex: 1, position: 'relative' }} onLayout={(e) => setVehicleWidth(e.nativeEvent.layout.width)}>
+            <View style={styles.inputContainer}>
+              <TextInput
+                ref={vehicleRef}
+                style={[styles.input, { flex: 1, paddingRight: form.vehicleNo ? 40 : 12 }]}
+                placeholder={keyboardDisabled ? "" : "Vehicle Number"}
+                placeholderTextColor={C.hint}
+                autoCapitalize="characters"
+                showSoftInputOnFocus={!keyboardDisabled}
+                value={form.vehicleNo}
+                onChangeText={(t) => {
+                  const cleaned = t.replace(/\s+/g, "").toUpperCase();
+                  setForm((prev) => ({ ...prev, vehicleNo: cleaned, vehicleEntryId: null }));
+                  setShowVehicleDropdown(true);
+                }}
+                onFocus={() => setShowVehicleDropdown(true)}
+                onBlur={() => setTimeout(() => setShowVehicleDropdown(false), 500)}
+              />
+              {form.vehicleNo.length > 0 && (
+                <TouchableOpacity
+                  style={styles.clearInputBtn}
+                  onPress={() => {
+                    setForm((prev) => ({ ...prev, vehicleNo: "", vehicleEntryId: null }));
+                    setShowVehicleDropdown(false);
+                  }}
+                >
+                  <Ionicons name="close-circle" size={20} color={C.hint} />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           <TouchableOpacity
@@ -731,7 +798,7 @@ const MaterialDispatchScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Dropdown - Positioned relative to container to avoid Android touch clipping */}
+        {/* Transporter Dropdown */}
         {sortedTransporters.length > 0 && (
           <View style={styles.dropdownOverlay}>
             <View style={[styles.dropdownContainer, { width: trWidth || '48%' }]}>
@@ -754,6 +821,49 @@ const MaterialDispatchScreen: React.FC = () => {
                   >
                     <Ionicons name="bus-outline" size={16} color={C.blue} style={{ marginRight: 10 }} />
                     <Text style={styles.transporterName}>{item.name}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Vehicle Number Dropdown */}
+        {showVehicleDropdown && !dispatchId && filteredVehicleEntries.length > 0 && (
+          <View style={[styles.dropdownOverlay, { left: 14 + trWidth + 8 }]}>
+            <View style={[styles.dropdownContainer, { width: vehicleWidth || '48%' }]}>
+              <FlatList
+                data={filteredVehicleEntries}
+                keyExtractor={(item) => item.id.toString()}
+                keyboardShouldPersistTaps="always"
+                nestedScrollEnabled={true}
+                style={{ maxHeight: 280 }}
+                showsVerticalScrollIndicator={true}
+                persistentScrollbar={true}
+                contentContainerStyle={{ paddingVertical: 4 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.dropdownItem, form.vehicleEntryId === item.id && { backgroundColor: '#EFF6FF' }]}
+                    onPress={() => {
+                      setForm((prev) => ({
+                        ...prev,
+                        vehicleNo: item.vehicleNumber,
+                        vehicleEntryId: item.id,
+                        transporter: prev.transporter || item.transporterName,
+                      }));
+                      setShowVehicleDropdown(false);
+                    }}
+                  >
+                    <Ionicons name="car-outline" size={16} color={C.blue} style={{ marginRight: 10 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.transporterName}>{item.vehicleNumber}</Text>
+                      <Text style={{ fontSize: 11, color: C.hint, marginTop: 1 }} numberOfLines={1}>
+                        {item.transporterName}{item.customerName ? ` · ${item.customerName}` : ""}
+                      </Text>
+                    </View>
+                    {form.vehicleEntryId === item.id && (
+                      <Ionicons name="checkmark" size={16} color={C.blue} />
+                    )}
                   </TouchableOpacity>
                 )}
               />
@@ -1413,3 +1523,4 @@ const styles_scan = StyleSheet.create({
     width: 260, height: 260, borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)', borderRadius: 24
   }
 });
+
